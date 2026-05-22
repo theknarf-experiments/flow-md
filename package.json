@@ -1,0 +1,22 @@
+{
+  "name": "flow-md",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Markdown vault as a live Datalog notebook, on top of flow-ts",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "TheKnarf",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules/.cache .turbo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

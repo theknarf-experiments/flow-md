@@ -1,0 +1,9 @@
+{
+  "name": "@flow-md/vim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vim plugin: inline rendering of flow-md query results (Vimscript only)",
+  "license": "AGPL-3.0-or-later",
+  "author": "TheKnarf",
+  "files": ["plugin", "autoload"]
+}

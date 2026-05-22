@@ -1,0 +1,3 @@
+[submodule "vendor/flow-ts"]
+	path = vendor/flow-ts
+	url = https://github.com/theknarf-experiments/flow-ts.git
