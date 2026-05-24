@@ -17,9 +17,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@flow-ts/executing": "workspace:*",
     "@flow-ts/parsing": "workspace:*",
-    "@flow-ts/reading": "workspace:*",
+    "flow-ts": "workspace:*",
     "chokidar": "^4.0.3",
     "mdast-util-to-string": "^4.0.0",
     "remark-frontmatter": "^5.0.0",

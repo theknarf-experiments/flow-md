@@ -7,9 +7,8 @@
 //   4. Recursion (transitive reachability) converges.
 //   5. Incremental retraction (diff -1) propagates through the IDB.
 
-import { openSession } from '@flow-ts/executing'
 import { parseProgram } from '@flow-ts/parsing'
-import type { Row } from '@flow-ts/reading'
+import { type Row, openSession } from 'flow-ts'
 import { describe, expect, it } from 'vitest'
 
 const PROGRAM = `

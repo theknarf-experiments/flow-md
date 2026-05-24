@@ -16,8 +16,8 @@
 // Heads must be non-empty, so a variable-less existence query becomes
 // `Q<hash>(1) :- <body>.` with a single boolean-ish column.
 
-import { type ProgramSession, openSession } from '@flow-ts/executing'
 import { parseProgram } from '@flow-ts/parsing'
+import { type ProgramSession, openSession } from 'flow-ts'
 import { createHash } from 'node:crypto'
 import {
   type Cell,
