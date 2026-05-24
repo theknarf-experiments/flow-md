@@ -1,0 +1,3 @@
+procs:
+  server:
+    shell: node packages/server/dist/bin.js serve docs/ --port 4747
