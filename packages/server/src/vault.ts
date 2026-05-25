@@ -155,9 +155,7 @@ export class Vault {
         else e.counts.set(key, { row: [...cells], mult: m })
       })
       for (const e of queries) this.relToQuery.set(e.id, e)
-      for (const file of this.files.values()) {
-        for (const f of file.facts) session.update(f.rel, f.row, 1)
-      }
+      this.feedAllFacts(session)
       session.advance()
       this.session = session
       this.programDirty = false
@@ -215,6 +213,75 @@ export class Vault {
     const allRules = [ruleText, ...queryTexts].filter((t) => t.trim()).join('\n')
     const programText = `${edbSection}\n${idbSection}\n.rule\n${allRules}`
     return { programText, queries }
+  }
+
+  /** Evaluate a one-off query body against the current rules and facts in a
+   *  throwaway session, without disturbing the live one. Returns the result
+   *  rows (the query's variables become the columns) or a build error. */
+  runQuery(source: string): {
+    error: string | null
+    columns: string[]
+    rows: Cell[][]
+  } {
+    try {
+      const { ruleText, headNames } = this.collectUserRules()
+      const vars = queryVars(source)
+      const headArgs = vars.length ? vars.join(', ') : '1'
+      const columns = vars.length ? vars : ['exists']
+      const id = 'FlowMdAdHoc'
+      headNames.add(id)
+      const adHoc = `${id}(${headArgs}) :- ${stripBody(source)}.`
+
+      const idbSection = `.printsize\n${[...headNames]
+        .map((n) => `.decl ${n}()`)
+        .join('\n')}`
+      const allRules = [ruleText, adHoc].filter((t) => t.trim()).join('\n')
+      const programText = `${edbSectionText()}\n${idbSection}\n.rule\n${allRules}`
+
+      const counts = new Map<string, { row: Cell[]; mult: number }>()
+      const session = openSession(
+        parseProgram(programText),
+        this.options,
+        (rel, row, mult) => {
+          if (rel !== id) return
+          const cells = row as Cell[]
+          const key = cells.join(SEP)
+          const cur = counts.get(key)
+          const m = (cur?.mult ?? 0) + mult
+          if (m === 0) counts.delete(key)
+          else counts.set(key, { row: [...cells], mult: m })
+        },
+      )
+      this.feedAllFacts(session)
+      session.close()
+      const rows = [...counts.values()]
+        .filter((c) => c.mult > 0)
+        .map((c) => c.row)
+      return { error: null, columns, rows }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err)
+      return { error, columns: [], rows: [] }
+    }
+  }
+
+  /** Parse all ```datalog blocks together to recover the user's rule text and
+   *  the set of IDB head names (everything not in the EDB schema). */
+  private collectUserRules(): { ruleText: string; headNames: Set<string> } {
+    const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
+    const userRules = ruleText.trim()
+      ? parseProgram(`${edbSectionText()}\n.rule\n${ruleText}`).rules
+      : []
+    const headNames = new Set<string>()
+    for (const r of userRules) {
+      if (!EDB_NAMES.has(r.head.name)) headNames.add(r.head.name)
+    }
+    return { ruleText, headNames }
+  }
+
+  private feedAllFacts(session: ProgramSession): void {
+    for (const file of this.files.values()) {
+      for (const f of file.facts) session.update(f.rel, f.row, 1)
+    }
   }
 }
 

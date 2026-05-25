@@ -99,4 +99,23 @@ describe('Vault', () => {
     vault.advance()
     expect(vault.error()).not.toBeNull()
   })
+
+  it('runs one-off ad-hoc queries against current rules and facts', () => {
+    const vault = new Vault()
+    vault.setFile('notes/a.md', NOTE_A, 1)
+    vault.setFile('notes/b.md', NOTE_B_PROJECT, 1)
+    vault.advance()
+
+    // ProjectFile is an IDB defined by a rule in NOTE_A.
+    const r = vault.runQuery('ProjectFile(p)')
+    expect(r.error).toBeNull()
+    expect(r.columns).toEqual(['p'])
+    expect(r.rows.map((row) => row[0]).sort()).toEqual([
+      'notes/a.md',
+      'notes/b.md',
+    ])
+
+    // A malformed query reports an error instead of throwing.
+    expect(vault.runQuery('this is (not valid').error).not.toBeNull()
+  })
 })

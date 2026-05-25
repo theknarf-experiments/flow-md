@@ -5,6 +5,7 @@
 //   GET /queries?file=<rel>     → { error, queries: QueryResult[] }
 //   GET /queries?abspath=<abs>  → same, but resolved against the vault root
 //   GET /query/<id>             → QueryResult | 404
+//   GET /run?q=<datalog>        → { error, columns, rows } for a one-off query
 //
 // `file` is a vault-relative path (forward slashes), matching how the watcher
 // keys files. `abspath` lets a client (e.g. the editor) pass the buffer's
@@ -38,6 +39,12 @@ export function createHttpServer(vault: Vault, root: string): Server {
         ? toRel(abspath)
         : (url.searchParams.get('file') ?? undefined)
       return json(res, 200, { error: vault.error(), queries: vault.queries(file) })
+    }
+
+    if (url.pathname === '/run') {
+      const q = url.searchParams.get('q') ?? ''
+      if (!q.trim()) return json(res, 400, { error: 'missing query (?q=)' })
+      return json(res, 200, vault.runQuery(q))
     }
 
     const match = url.pathname.match(/^\/query\/([A-Za-z0-9]+)$/)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseArgs } from '../src/args.js'
+import { parseArgs, parseQueryArgs } from '../src/args.js'
 
 describe('parseArgs', () => {
   it('defaults dir to "." and port to 4747', () => {
@@ -26,5 +26,29 @@ describe('parseArgs', () => {
     expect(parseArgs([])).toBeNull()
     expect(parseArgs(['nope'])).toBeNull()
     expect(parseArgs(['serve', '--bogus'])).toBeNull()
+  })
+})
+
+describe('parseQueryArgs', () => {
+  it('parses a query string with defaults', () => {
+    expect(parseQueryArgs(['query', 'Foo(x)'])).toEqual({
+      query: 'Foo(x)',
+      port: 4747,
+      json: false,
+    })
+  })
+
+  it('parses --port and --json', () => {
+    expect(parseQueryArgs(['query', 'Foo(x)', '--port', '9000', '--json'])).toEqual({
+      query: 'Foo(x)',
+      port: 9000,
+      json: true,
+    })
+  })
+
+  it('returns null without the query subcommand or a query string', () => {
+    expect(parseQueryArgs(['serve'])).toBeNull()
+    expect(parseQueryArgs(['query'])).toBeNull()
+    expect(parseQueryArgs(['query', '--json'])).toBeNull()
   })
 })

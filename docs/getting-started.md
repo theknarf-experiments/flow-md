@@ -41,17 +41,33 @@ derivations; only changing a rule or query rebuilds the program.
 
 ### Endpoints
 
-| Endpoint                 | Returns                                   |
-|--------------------------|-------------------------------------------|
-| `GET /health`            | `{ ok, error }`                           |
-| `GET /queries?file=<rel>`| every query block in that file, with rows |
-| `GET /query/<id>`        | a single query's current result           |
+| Endpoint                  | Returns                                   |
+|---------------------------|-------------------------------------------|
+| `GET /health`             | `{ ok, error }`                           |
+| `GET /queries?file=<rel>` | every query block in that file, with rows |
+| `GET /query/<id>`         | a single query's current result           |
+| `GET /run?q=<datalog>`    | `{ error, columns, rows }` for a one-off query |
 
 `<rel>` is a vault-relative path, e.g. `getting-started.md`.
 
 ```bash
 curl -s 'localhost:4747/queries?file=index.md' | jq
 ```
+
+## One-off queries
+
+`flow-md query` sends an ad-hoc Datalog query to a running server and prints the
+result — no need to add a `datalog-query` block to a file. It sees all the same
+rules and facts the server has loaded:
+
+```bash
+flow-md query 'ReferencePage(path)'
+flow-md query 'FrontmatterNumber(path, "order", n), n > 5'   # ad-hoc + typed
+flow-md query 'Tag(path, "guide")' --json                    # machine-readable
+```
+
+Use `--port` to target a server on a non-default port. Like any query, the body
+must bind at least one variable (see [[writing-queries]]).
 
 ## Render results in your editor
 

@@ -112,4 +112,20 @@ describe('watcher + http integration', () => {
     const q = vault.queries('a.md')[0]!
     expect(q.rows.map((r) => r[0]).sort()).toEqual(['a.md', 'b.md'])
   })
+
+  it('answers a one-off query via GET /run', async () => {
+    const res = await fetch(`${base}/run?q=${encodeURIComponent('ProjectFile(p)')}`)
+    const body = (await res.json()) as {
+      error: string | null
+      columns: string[]
+      rows: unknown[][]
+    }
+    expect(body.error).toBeNull()
+    expect(body.columns).toEqual(['p'])
+    // a.md (and b.md from the previous test) are project-tagged.
+    expect(body.rows.map((r) => r[0])).toContain('a.md')
+
+    // Missing query string → 400.
+    expect((await fetch(`${base}/run`)).status).toBe(400)
+  })
 })
