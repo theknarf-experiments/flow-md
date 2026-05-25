@@ -15,8 +15,8 @@ incrementally as you edit.
 This `docs/` folder *is* a flow-md vault. Every query block below is real:
 
 ```bash
-pnpm -F @flow-md/server build
-node packages/server/dist/bin.js serve docs/
+pnpm build
+node packages/cli/dist/bin.js serve docs/
 ```
 
 …then open any page in Vim with the plugin installed, and the tables render

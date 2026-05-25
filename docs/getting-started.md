@@ -31,7 +31,7 @@ git submodule update --init
 Point `flow-md serve` at any directory of markdown:
 
 ```bash
-node packages/server/dist/bin.js serve docs/ --port 4747
+node packages/cli/dist/bin.js serve docs/ --port 4747
 ```
 
 It scans the folder, builds the program from every `datalog` block, evaluates
