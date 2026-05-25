@@ -1,6 +1,7 @@
 ---
 title: Schema
 tags: [reference]
+order: 3
 ---
 
 # Schema

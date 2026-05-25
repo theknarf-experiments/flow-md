@@ -1,6 +1,7 @@
 ---
 title: Vim plugin
 tags: [guide]
+order: 7
 ---
 
 # Vim plugin

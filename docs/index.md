@@ -1,6 +1,7 @@
 ---
 title: flow-md
 tags: [reference]
+order: 1
 ---
 
 # flow-md
@@ -34,6 +35,7 @@ File(path, mtime)
 
 - [[getting-started]] — install, build, run the server.
 - [[schema]] — the facts flow-md derives from every note.
+- [[frontmatter]] — query YAML frontmatter values, including typed numbers.
 - [[writing-rules]] — define your own relations with `datalog` blocks.
 - [[writing-queries]] — ask questions with `datalog-query` blocks.
 - [[vim-plugin]] — render results inline in Vim.

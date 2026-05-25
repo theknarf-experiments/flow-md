@@ -130,6 +130,11 @@ function emitFrontmatter(path: string, yamlSrc: string, facts: Fact[]): void {
     for (const item of items) {
       const s = item == null ? '' : String(item)
       facts.push({ rel: 'Frontmatter', row: [path, key, s] })
+      // Numeric values also get a typed fact so rules can compare/aggregate
+      // them numerically (the string form sorts lexicographically).
+      if (typeof item === 'number' && Number.isFinite(item)) {
+        facts.push({ rel: 'FrontmatterNumber', row: [path, key, item] })
+      }
       if (key === 'tags' || key === 'tag') {
         facts.push({ rel: 'Tag', row: [path, s] })
       }

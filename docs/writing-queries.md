@@ -1,6 +1,7 @@
 ---
 title: Writing queries
 tags: [guide]
+order: 5
 ---
 
 # Writing queries

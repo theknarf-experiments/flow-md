@@ -1,6 +1,7 @@
 ---
 title: Writing rules
 tags: [guide]
+order: 4
 ---
 
 # Writing rules

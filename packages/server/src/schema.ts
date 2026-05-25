@@ -30,6 +30,10 @@ export const EDB_SCHEMA: EdbDef[] = [
     attrs: [['path', 'string'], ['key', 'string'], ['value', 'string']],
   },
   {
+    name: 'FrontmatterNumber',
+    attrs: [['path', 'string'], ['key', 'string'], ['num', 'float']],
+  },
+  {
     name: 'CodeBlock',
     attrs: [['path', 'string'], ['lang', 'string'], ['line', 'number']],
   },

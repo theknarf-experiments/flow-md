@@ -1,6 +1,7 @@
 ---
 title: Getting started
 tags: [guide]
+order: 2
 ---
 
 # Getting started

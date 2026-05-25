@@ -82,4 +82,35 @@ describe('parseMarkdown', () => {
       ['notes/my-note.md', 'js', 22],
     ])
   })
+
+  it('emits typed FrontmatterNumber facts for numeric values', () => {
+    const numeric = [
+      '---',
+      'priority: 3',
+      'weight: 1.5',
+      'order: 10',
+      'title: My Note',
+      'version: "2"',
+      '---',
+      '# H',
+    ].join('\n')
+    const p = parseMarkdown('n.md', numeric, 1)
+
+    expect(rows(p.facts, 'FrontmatterNumber')).toEqual([
+      ['n.md', 'order', 10],
+      ['n.md', 'priority', 3],
+      ['n.md', 'weight', 1.5],
+    ])
+    // Strings (incl. quoted "2") are not numeric facts...
+    expect(rows(p.facts, 'FrontmatterNumber')).not.toContainEqual([
+      'n.md',
+      'version',
+      2,
+    ])
+    // ...but every key, numeric or not, still appears as a string Frontmatter fact.
+    const fm = rows(p.facts, 'Frontmatter')
+    expect(fm).toContainEqual(['n.md', 'priority', '3'])
+    expect(fm).toContainEqual(['n.md', 'version', '2'])
+    expect(fm).toContainEqual(['n.md', 'title', 'My Note'])
+  })
 })
