@@ -9,7 +9,7 @@
 // Wiki-links ([[Target]]) and #tags are scraped from text nodes, so they
 // never pick up matches inside code spans or fenced blocks.
 
-import type { Code, Heading, Link, Root, Text, Yaml } from 'mdast'
+import type { Code, Heading, Link, ListItem, Root, Text, Yaml } from 'mdast'
 import { toString as mdToString } from 'mdast-util-to-string'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
@@ -73,6 +73,20 @@ export function parseMarkdown(
       case 'link':
         facts.push({ rel: 'Link', row: [path, (node as Link).url, 'md'] })
         break
+      case 'listItem': {
+        // A GFM task-list item (`- [ ]` / `- [x]`) carries a boolean `checked`;
+        // plain list items have it null/undefined. Use the item's own leading
+        // paragraph so nested sub-items don't bleed into the text (they emit
+        // their own Task facts as the walk visits them).
+        const li = node as ListItem
+        if (typeof li.checked === 'boolean') {
+          const para = li.children.find((c) => c.type === 'paragraph')
+          const text = (para ? mdToString(para) : mdToString(li)).trim()
+          const status = li.checked ? 'closed' : 'open'
+          facts.push({ rel: 'Task', row: [path, status, text, lineOf(node)] })
+        }
+        break
+      }
       case 'code': {
         const c = node as Code
         const lang = (c.lang ?? '').toLowerCase()

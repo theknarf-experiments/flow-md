@@ -37,6 +37,16 @@ export const EDB_SCHEMA: EdbDef[] = [
     name: 'CodeBlock',
     attrs: [['path', 'string'], ['lang', 'string'], ['line', 'number']],
   },
+  {
+    // GFM task-list items: status is "open" (- [ ]) or "closed" (- [x]).
+    name: 'Task',
+    attrs: [
+      ['path', 'string'],
+      ['status', 'string'],
+      ['text', 'string'],
+      ['line', 'number'],
+    ],
+  },
 ]
 
 /** Relation names that are EDBs — used to tell schema relations apart from

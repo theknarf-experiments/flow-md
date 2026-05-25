@@ -38,6 +38,7 @@ File(path, mtime)
 - [[frontmatter]] — query YAML frontmatter values, including typed numbers.
 - [[writing-rules]] — define your own relations with `datalog` blocks.
 - [[writing-queries]] — ask questions with `datalog-query` blocks.
+- [[tasks]] — list every `- [ ]` / `- [x]` todo across the vault.
 - [[vim-plugin]] — render results inline in Vim.
 - [[examples]] — a cookbook of working queries.
 

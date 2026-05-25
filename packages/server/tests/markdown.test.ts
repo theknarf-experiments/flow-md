@@ -113,4 +113,24 @@ describe('parseMarkdown', () => {
     expect(fm).toContainEqual(['n.md', 'version', '2'])
     expect(fm).toContainEqual(['n.md', 'title', 'My Note'])
   })
+
+  it('extracts GFM task-list items as open/closed Task facts', () => {
+    const sample = [
+      '# Todos',
+      '',
+      '- [ ] write the parser',
+      '- [x] ship the spike',
+      '- a normal bullet, not a task',
+      '- [ ] nested parent',
+      '  - [x] sub-item done',
+    ].join('\n')
+    const tasks = rows(parseMarkdown('todo.md', sample, 1).facts, 'Task')
+
+    expect(tasks).toContainEqual(['todo.md', 'open', 'write the parser', 3])
+    expect(tasks).toContainEqual(['todo.md', 'closed', 'ship the spike', 4])
+    expect(tasks).toContainEqual(['todo.md', 'open', 'nested parent', 6])
+    expect(tasks).toContainEqual(['todo.md', 'closed', 'sub-item done', 7])
+    // plain bullets are not tasks
+    expect(tasks.map((t) => t[2])).not.toContain('a normal bullet, not a task')
+  })
 })
