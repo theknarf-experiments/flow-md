@@ -1,0 +1,54 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//flow-md//docs//EN
+BEGIN:VEVENT
+UID:kickoff-2026-06@flow-md.example
+SUMMARY:Project kickoff
+DTSTART:20260615T100000Z
+DTEND:20260615T110000Z
+LOCATION:Conference Room A
+STATUS:CONFIRMED
+CATEGORIES:work,important
+DESCRIPTION:Initial planning meeting for the Q3 roadmap.
+ORGANIZER;CN=The Boss:mailto:boss@flow-md.example
+ATTENDEE;CN=Alice:mailto:alice@flow-md.example
+ATTENDEE;CN=Bob:mailto:bob@flow-md.example
+END:VEVENT
+BEGIN:VEVENT
+UID:standup-weekly@flow-md.example
+SUMMARY:Weekly standup
+DTSTART:20260616T090000Z
+DTEND:20260616T093000Z
+LOCATION:Zoom
+STATUS:CONFIRMED
+CATEGORIES:work
+RRULE:FREQ=WEEKLY;BYDAY=MO
+ORGANIZER;CN=Alice:mailto:alice@flow-md.example
+ATTENDEE;CN=Alice:mailto:alice@flow-md.example
+ATTENDEE;CN=Bob:mailto:bob@flow-md.example
+ATTENDEE;CN=Carol:mailto:carol@flow-md.example
+END:VEVENT
+BEGIN:VEVENT
+UID:code-review-2026-06@flow-md.example
+SUMMARY:Pull-request review session
+DTSTART:20260617T140000Z
+DTEND:20260617T150000Z
+LOCATION:Zoom
+STATUS:CONFIRMED
+CATEGORIES:work
+ATTENDEE;CN=Alice:mailto:alice@flow-md.example
+ATTENDEE;CN=Carol:mailto:carol@flow-md.example
+END:VEVENT
+BEGIN:VEVENT
+UID:one-on-one-weekly@flow-md.example
+SUMMARY:1:1 with manager
+DTSTART:20260619T150000Z
+DTEND:20260619T153000Z
+LOCATION:Conference Room B
+STATUS:TENTATIVE
+CATEGORIES:work,important
+RRULE:FREQ=WEEKLY;BYDAY=FR
+ORGANIZER;CN=The Boss:mailto:boss@flow-md.example
+ATTENDEE;CN=Alice:mailto:alice@flow-md.example
+END:VEVENT
+END:VCALENDAR

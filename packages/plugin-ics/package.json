@@ -1,13 +1,11 @@
 {
-  "name": "@flow-md/cli",
+  "name": "@flow-md/plugin-ics",
   "version": "0.1.0",
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "TheKnarf",
-  "bin": {
-    "flow-md": "dist/bin.js"
-  },
-  "files": ["dist"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
@@ -16,9 +14,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@flow-md/plugin-ics": "workspace:*",
-    "@flow-md/plugin-markdown": "workspace:*",
-    "@flow-md/server": "workspace:*"
+    "@flow-md/plugin-api": "workspace:*",
+    "node-ical": "^0.20.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
