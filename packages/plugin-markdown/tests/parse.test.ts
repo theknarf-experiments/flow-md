@@ -1,5 +1,6 @@
+import type { Fact } from '@flow-md/plugin-api'
 import { describe, expect, it } from 'vitest'
-import { type Fact, parseMarkdown } from '../src/markdown.js'
+import { parseMarkdown } from '../src/parse.js'
 
 const SAMPLE = `---
 title: My Note

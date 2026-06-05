@@ -9,6 +9,7 @@
 // Wiki-links ([[Target]]) and #tags are scraped from text nodes, so they
 // never pick up matches inside code spans or fenced blocks.
 
+import type { Fact, ParseResult } from '@flow-md/plugin-api'
 import type { Code, Heading, Link, ListItem, Root, Text, Yaml } from 'mdast'
 import { toString as mdToString } from 'mdast-util-to-string'
 import remarkFrontmatter from 'remark-frontmatter'
@@ -17,26 +18,8 @@ import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { parse as parseYaml } from 'yaml'
 
-export type Cell = string | number
-
-export interface Fact {
-  rel: string
-  row: Cell[]
-}
-
-export interface QueryBlock {
-  /** 1-based line of the opening fence, for inline rendering. */
-  line: number
-  source: string
-}
-
-export interface ParsedFile {
-  path: string
-  facts: Fact[]
-  /** Sources of ```datalog blocks, to be assembled into the program. */
-  rules: string[]
-  queries: QueryBlock[]
-}
+export const RULE_LANG = 'datalog'
+export const QUERY_LANG = 'datalog-query'
 
 const processor = unified()
   .use(remarkParse)
@@ -51,11 +34,11 @@ export function parseMarkdown(
   path: string,
   content: string,
   mtime: number,
-): ParsedFile {
+): ParseResult {
   const tree = processor.parse(content) as Root
   const facts: Fact[] = [{ rel: 'File', row: [path, mtime] }]
   const rules: string[] = []
-  const queries: QueryBlock[] = []
+  const queries: ParseResult['queries'] = []
 
   walk(tree, (node) => {
     switch (node.type) {
@@ -90,9 +73,9 @@ export function parseMarkdown(
       case 'code': {
         const c = node as Code
         const lang = (c.lang ?? '').toLowerCase()
-        if (lang === 'datalog') {
+        if (lang === RULE_LANG) {
           rules.push(c.value)
-        } else if (lang === 'datalog-query') {
+        } else if (lang === QUERY_LANG) {
           queries.push({ line: lineOf(node), source: c.value })
         } else {
           facts.push({ rel: 'CodeBlock', row: [path, c.lang ?? '', lineOf(node)] })
@@ -113,7 +96,7 @@ export function parseMarkdown(
     }
   })
 
-  return { path, facts: dedup(facts), rules, queries }
+  return { facts: dedup(facts), rules, queries }
 }
 
 interface UNode {
@@ -156,7 +139,7 @@ function emitFrontmatter(path: string, yamlSrc: string, facts: Fact[]): void {
   }
 }
 
-const SEP = '\u0001'
+const SEP = ''
 
 function dedup(facts: Fact[]): Fact[] {
   const seen = new Set<string>()

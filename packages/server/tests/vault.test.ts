@@ -1,5 +1,8 @@
+import { markdownPlugin } from '@flow-md/plugin-markdown'
 import { describe, expect, it } from 'vitest'
 import { Vault } from '../src/vault.js'
+
+const plugins = [markdownPlugin]
 
 // Built from line arrays because a ``` fence inside a backtick template
 // literal would terminate the template.
@@ -33,7 +36,7 @@ function projectQuery(vault: Vault) {
 
 describe('Vault', () => {
   it('builds a session and answers an embedded query', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile('notes/a.md', NOTE_A, 1)
     vault.advance()
 
@@ -44,7 +47,7 @@ describe('Vault', () => {
   })
 
   it('incrementally folds a new content-only file into an existing query', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile('notes/a.md', NOTE_A, 1)
     vault.advance()
 
@@ -59,7 +62,7 @@ describe('Vault', () => {
   })
 
   it('retracts facts when a file stops matching, and on removal', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile('notes/a.md', NOTE_A, 1)
     vault.setFile('notes/b.md', NOTE_B_PROJECT, 1)
     vault.advance()
@@ -77,7 +80,7 @@ describe('Vault', () => {
   })
 
   it('rebuilds the program when a rule block changes', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile('notes/a.md', NOTE_A, 1)
     vault.advance()
     expect(projectQuery(vault).rows).toEqual([['notes/a.md']])
@@ -90,7 +93,7 @@ describe('Vault', () => {
   })
 
   it('reports a build error for a malformed query without throwing', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile(
       'notes/bad.md',
       md('```datalog-query', 'this is not (valid datalog', '```'),
@@ -101,7 +104,7 @@ describe('Vault', () => {
   })
 
   it('runs one-off ad-hoc queries against current rules and facts', () => {
-    const vault = new Vault()
+    const vault = new Vault(plugins)
     vault.setFile('notes/a.md', NOTE_A, 1)
     vault.setFile('notes/b.md', NOTE_B_PROJECT, 1)
     vault.advance()

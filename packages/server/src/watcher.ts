@@ -1,7 +1,8 @@
-// Filesystem watcher: turns markdown file events into Vault updates.
+// Filesystem watcher: turns file events into Vault updates. The vault tells
+// us which extensions its plugins claim, so non-matching files are skipped.
 //
 // chokidar v4 dropped glob support, so we watch the root directory and filter
-// with an `ignored` predicate (only *.md files; skip dotdirs and
+// with an `ignored` predicate (only the vault's extensions; skip dotdirs and
 // node_modules). File reads are serialized through a promise chain so a burst
 // of edits can't interleave; advance() is debounced so one fixpoint covers a
 // whole batch of changes.
@@ -24,6 +25,7 @@ export function watchVault(
 ): WatchHandle {
   const abs = path.resolve(root)
   const rel = (p: string) => path.relative(abs, p).split(path.sep).join('/')
+  const watched = new Set(vault.watchedExtensions())
 
   let isReady = false
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -64,7 +66,8 @@ export function watchVault(
       ) {
         return true
       }
-      return !!stats?.isFile() && !p.endsWith('.md')
+      if (!stats?.isFile()) return false
+      return !watched.has(path.extname(p).toLowerCase())
     },
   })
 

@@ -1,0 +1,17 @@
+{
+  "name": "@flow-md/plugin-api",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "TheKnarf",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

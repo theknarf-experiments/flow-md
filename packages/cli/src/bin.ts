@@ -10,6 +10,7 @@
 
 import path from 'node:path'
 import { Vault, createHttpServer, watchVault } from '@flow-md/server'
+import { markdownPlugin } from '@flow-md/plugin-markdown'
 import {
   type Args,
   type QueryArgs,
@@ -20,7 +21,7 @@ import {
 
 async function runServe(args: Args): Promise<void> {
   const root = path.resolve(args.dir)
-  const vault = new Vault(args.options)
+  const vault = new Vault([markdownPlugin], args.options)
   const watcher = watchVault(root, vault)
   const server = createHttpServer(vault, root)
 

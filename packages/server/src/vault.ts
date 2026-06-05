@@ -1,5 +1,9 @@
 // The vault engine: owns the flow-ts session and the query registry.
 //
+// File parsing is delegated to plugins (see PluginRegistry). The vault stays
+// agnostic about file formats — it only knows EDB facts and Datalog rule /
+// query block sources.
+//
 // Two update paths, matching the v1 design:
 //   • Content-only edit (facts changed, rules/queries unchanged) → apply the
 //     per-file fact delta to the live session and advance(). Incremental.
@@ -8,24 +12,20 @@
 //     incremental too, by splicing rules into a running graph.)
 //
 // The program is assembled as Datalog *text* and parsed in one shot:
-//   .in          the fixed EDB schema (schema.ts)
+//   .in          the EDB schema (union of plugin schemas)
 //   .printsize   one empty-attr `.decl` per distinct rule-head name not in
 //                the EDB set — flow-ts infers arity from the rules
-//   .rule        every ```datalog block, plus one synthetic rule per
-//                ```datalog-query block: `Q<hash>(vars) :- <body>.`
+//   .rule        every rule block, plus one synthetic rule per query block:
+//                `Q<hash>(vars) :- <body>.`
 // Heads must be non-empty, so a variable-less existence query becomes
 // `Q<hash>(1) :- <body>.` with a single boolean-ish column.
 
+import type { Cell, Fact, ParseResult, Plugin, QueryBlock } from '@flow-md/plugin-api'
 import { parseProgram } from '@flow-ts/parsing'
 import { type ProgramSession, openSession } from 'flow-ts'
 import { createHash } from 'node:crypto'
-import {
-  type Cell,
-  type Fact,
-  type ParsedFile,
-  parseMarkdown,
-} from './markdown.js'
-import { EDB_NAMES, edbSectionText } from './schema.js'
+import { PluginRegistry } from './registry.js'
+import { type SchemaView, buildSchema, edbSectionText } from './schema.js'
 
 const SEP = String.fromCharCode(1)
 
@@ -47,6 +47,13 @@ interface QueryEntry {
   counts: Map<string, { row: Cell[]; mult: number }>
 }
 
+interface ParsedFile {
+  path: string
+  facts: Fact[]
+  rules: string[]
+  queries: QueryBlock[]
+}
+
 export interface VaultOptions {
   optLevel?: number | null
   noSharing?: boolean
@@ -55,6 +62,8 @@ export interface VaultOptions {
 export class Vault {
   private readonly files = new Map<string, ParsedFile>()
   private readonly options: VaultOptions
+  private readonly registry: PluginRegistry
+  private readonly schema: SchemaView
   private session: ProgramSession | null = null
   private programDirty = true
   private pending: Array<{ rel: string; row: Cell[]; diff: number }> = []
@@ -63,14 +72,35 @@ export class Vault {
   /** Last build error, surfaced to clients; cleared on a successful build. */
   private buildError: string | null = null
 
-  constructor(options: VaultOptions = {}) {
+  constructor(plugins: readonly Plugin[], options: VaultOptions = {}) {
+    this.registry = new PluginRegistry(plugins)
+    this.schema = buildSchema(plugins)
     this.options = options
   }
 
+  /** True if any registered plugin claims this file path. */
+  accepts(path: string): boolean {
+    return this.registry.pluginFor(path) !== null
+  }
+
+  /** File extensions watchers should subscribe to. */
+  watchedExtensions(): string[] {
+    return this.registry.extensions()
+  }
+
   /** Add or replace a file. Computes the fact delta and flags a program
-   *  rebuild if the file's rule/query blocks changed. */
+   *  rebuild if the file's rule/query blocks changed. Files whose extension
+   *  isn't claimed by any plugin are silently ignored. */
   setFile(path: string, content: string, mtime: number): void {
-    const next = parseMarkdown(path, content, mtime)
+    const plugin = this.registry.pluginFor(path)
+    if (!plugin) return
+    const parsed = plugin.parse(path, content, mtime)
+    const next: ParsedFile = {
+      path,
+      facts: parsed.facts,
+      rules: parsed.rules,
+      queries: parsed.queries,
+    }
     const prev = this.files.get(path)
     this.diffFacts(prev?.facts ?? [], next.facts)
     const ruleChange = prev
@@ -167,9 +197,9 @@ export class Vault {
 
   /** Build the program text plus the query registry entries. */
   private assemble(): { programText: string; queries: QueryEntry[] } {
-    const edbSection = edbSectionText()
+    const edbSection = edbSectionText(this.schema)
 
-    // User rules: parse the ```datalog blocks (EDB + rule program, no IDB
+    // User rules: parse the collected rule blocks (EDB + rule program, no IDB
     // section needed for parsing) to recover their head names.
     const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
     const userRules = ruleText.trim()
@@ -177,7 +207,7 @@ export class Vault {
       : []
     const headNames = new Set<string>()
     for (const r of userRules) {
-      if (!EDB_NAMES.has(r.head.name)) headNames.add(r.head.name)
+      if (!this.schema.names.has(r.head.name)) headNames.add(r.head.name)
     }
 
     // Synthetic query rules.
@@ -236,7 +266,7 @@ export class Vault {
         .map((n) => `.decl ${n}()`)
         .join('\n')}`
       const allRules = [ruleText, adHoc].filter((t) => t.trim()).join('\n')
-      const programText = `${edbSectionText()}\n${idbSection}\n.rule\n${allRules}`
+      const programText = `${edbSectionText(this.schema)}\n${idbSection}\n.rule\n${allRules}`
 
       const counts = new Map<string, { row: Cell[]; mult: number }>()
       const session = openSession(
@@ -264,16 +294,16 @@ export class Vault {
     }
   }
 
-  /** Parse all ```datalog blocks together to recover the user's rule text and
-   *  the set of IDB head names (everything not in the EDB schema). */
+  /** Parse all rule blocks together to recover the user's rule text and the
+   *  set of IDB head names (everything not in the EDB schema). */
   private collectUserRules(): { ruleText: string; headNames: Set<string> } {
     const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
     const userRules = ruleText.trim()
-      ? parseProgram(`${edbSectionText()}\n.rule\n${ruleText}`).rules
+      ? parseProgram(`${edbSectionText(this.schema)}\n.rule\n${ruleText}`).rules
       : []
     const headNames = new Set<string>()
     for (const r of userRules) {
-      if (!EDB_NAMES.has(r.head.name)) headNames.add(r.head.name)
+      if (!this.schema.names.has(r.head.name)) headNames.add(r.head.name)
     }
     return { ruleText, headNames }
   }
@@ -334,3 +364,7 @@ function toResult(e: QueryEntry): QueryResult {
   const rows = [...e.counts.values()].filter((c) => c.mult > 0).map((c) => c.row)
   return { id: e.id, path: e.path, line: e.line, columns: e.columns, rows }
 }
+
+/** Re-export so consumers can avoid a direct @flow-md/plugin-api dep when
+ *  they only need the value types. */
+export type { Cell, Fact, QueryBlock } from '@flow-md/plugin-api'

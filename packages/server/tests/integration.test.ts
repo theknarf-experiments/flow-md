@@ -1,3 +1,4 @@
+import { markdownPlugin } from '@flow-md/plugin-markdown'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -42,7 +43,7 @@ describe('watcher + http integration', () => {
   beforeAll(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'flow-md-'))
     await writeFile(path.join(dir, 'a.md'), NOTE, 'utf8')
-    vault = new Vault()
+    vault = new Vault([markdownPlugin])
     watcher = watchVault(dir, vault)
     await watcher.ready
     server = createHttpServer(vault, dir)

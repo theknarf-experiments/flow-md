@@ -26,6 +26,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@flow-md/plugin-markdown':
+        specifier: workspace:*
+        version: link:../plugin-markdown
       '@flow-md/server':
         specifier: workspace:*
         version: link:../server
@@ -40,17 +43,17 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.19)(lightningcss@1.32.0)
 
-  packages/server:
+  packages/plugin-api:
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/plugin-markdown:
     dependencies:
-      '@flow-ts/parsing':
+      '@flow-md/plugin-api':
         specifier: workspace:*
-        version: link:../../vendor/flow-ts/packages/parsing
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
-      flow-ts:
-        specifier: workspace:*
-        version: link:../../vendor/flow-ts/packages/flow-ts
+        version: link:../plugin-api
       mdast-util-to-string:
         specifier: ^4.0.0
         version: 4.0.0
@@ -73,6 +76,34 @@ importers:
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.32.0)
+
+  packages/server:
+    dependencies:
+      '@flow-md/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+      '@flow-ts/parsing':
+        specifier: workspace:*
+        version: link:../../vendor/flow-ts/packages/parsing
+      chokidar:
+        specifier: ^4.0.3
+        version: 4.0.3
+      flow-ts:
+        specifier: workspace:*
+        version: link:../../vendor/flow-ts/packages/flow-ts
+    devDependencies:
+      '@flow-md/plugin-markdown':
+        specifier: workspace:*
+        version: link:../plugin-markdown
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19

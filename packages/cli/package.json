@@ -16,6 +16,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@flow-md/plugin-markdown": "workspace:*",
     "@flow-md/server": "workspace:*"
   },
   "devDependencies": {

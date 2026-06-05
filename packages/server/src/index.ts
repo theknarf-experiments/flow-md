@@ -1,13 +1,17 @@
 // Public API of @flow-md/server.
 
 export { Vault, type QueryResult, type VaultOptions } from './vault.js'
-export {
-  parseMarkdown,
-  type Cell,
-  type Fact,
-  type ParsedFile,
-  type QueryBlock,
-} from './markdown.js'
-export { EDB_SCHEMA, EDB_NAMES, edbSectionText } from './schema.js'
+export { buildSchema, edbSectionText, type SchemaView } from './schema.js'
+export { PluginRegistry } from './registry.js'
 export { watchVault, type WatchHandle } from './watcher.js'
 export { createHttpServer } from './server.js'
+export type {
+  Cell,
+  CodeBlockLangs,
+  DataType,
+  EdbDef,
+  Fact,
+  ParseResult,
+  Plugin,
+  QueryBlock,
+} from '@flow-md/plugin-api'

@@ -1,5 +1,5 @@
 {
-  "name": "@flow-md/server",
+  "name": "@flow-md/plugin-markdown",
   "version": "0.1.0",
   "type": "module",
   "license": "AGPL-3.0-or-later",
@@ -15,12 +15,15 @@
   },
   "dependencies": {
     "@flow-md/plugin-api": "workspace:*",
-    "@flow-ts/parsing": "workspace:*",
-    "flow-ts": "workspace:*",
-    "chokidar": "^4.0.3"
+    "mdast-util-to-string": "^4.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
-    "@flow-md/plugin-markdown": "workspace:*",
+    "@types/mdast": "^4.0.4",
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
