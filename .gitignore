@@ -13,6 +13,8 @@ coverage/
 .turbo/
 .cache/
 .eslintcache
+.vite/
+.tanstack/
 
 # Logs
 *.log

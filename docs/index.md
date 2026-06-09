@@ -39,8 +39,10 @@ File(path, mtime)
 - [[writing-rules]] — define your own relations with `datalog` blocks.
 - [[writing-queries]] — ask questions with `datalog-query` blocks.
 - [[tasks]] — list every `- [ ]` / `- [x]` todo across the vault.
+- [[updating]] — edit a query result and write it back to the source file.
 - [[calendar]] — index `.ics` files alongside markdown and query both.
 - [[vim-plugin]] — render results inline in Vim.
+- [[app]] — the Obsidian-style web app with live, editable dataviews.
 - [[examples]] — a cookbook of working queries.
 
 ## How it fits together

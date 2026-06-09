@@ -1,3 +1,5 @@
 procs:
   server:
     shell: node packages/cli/dist/bin.js serve docs/ --port 4747
+  app:
+    shell: pnpm --filter @flow-md/app dev
