@@ -1,0 +1,27 @@
+---
+title: Task board
+tags: [example]
+order: 11
+---
+
+# Task board
+
+This page is **MDX**: markdown plus components. The board below is driven by
+the same `Task` relation as [[tasks]] — every card is a `- [ ]` item
+somewhere in this vault, and moving a card between lanes rewrites the
+checkbox in its source file through the update path.
+
+<Kanban
+  query="Task(path, status, text, line)"
+  groupBy="status"
+  title="text"
+  lanes="open,closed"
+/>
+
+Madness check: the plain dataview over the same facts.
+
+```datalog-query
+Task(path, status, text, line)
+```
+
+- [ ] drag this card to closed (with the ▶ button)

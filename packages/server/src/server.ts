@@ -8,8 +8,13 @@
 //   GET  /run?q=<datalog>       → { error, columns, writable, rows }
 //   GET  /files                 → { error, files: string[] }
 //   GET  /contents              → { error, files: [{ path, content, mtime }] }
+//   GET  /dirs                  → { dirs: string[] } (all folders, incl. empty)
 //   GET  /file?path=<rel>       → { path, content } (raw source text)
 //   PUT  /file                  → save { path, content }; new files allowed
+//   POST /mkdir                 → create a folder { path }
+//   POST /move                  → rename/move a file or folder { from, to }
+//   DELETE /file?path=<rel>     → delete a file
+//   DELETE /folder?path=<rel>   → delete a folder recursively
 //   POST /update                → write a query-result edit back to source
 //   POST /delete                → remove the source text behind a fact
 //   POST /insert                → add source text deriving a new fact
@@ -40,7 +45,16 @@
 // locator columns the client can't know yet (line numbers) are passed as 0.
 
 import type { Cell } from '@flow-md/plugin-api'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
 import {
   type IncomingMessage,
   type Server,
@@ -60,26 +74,36 @@ export function createHttpServer(vault: Vault, root: string): Server {
     res.setHeader('access-control-allow-origin', '*')
 
     if (req.method === 'OPTIONS') {
-      res.setHeader('access-control-allow-methods', 'GET, POST, PUT, OPTIONS')
+      res.setHeader(
+        'access-control-allow-methods',
+        'GET, POST, PUT, DELETE, OPTIONS',
+      )
       res.setHeader('access-control-allow-headers', 'content-type')
       res.writeHead(204)
       return res.end()
     }
+
+    const fail = (err: unknown) =>
+      json(res, 500, { error: err instanceof Error ? err.message : String(err) })
 
     const pathname = req.url?.split('?')[0]
     if (
       req.method === 'POST' &&
       (pathname === '/update' || pathname === '/delete' || pathname === '/insert')
     ) {
-      handleMutation(pathname.slice(1), req, res, vault, absRoot).catch((err) =>
-        json(res, 500, { error: err instanceof Error ? err.message : String(err) }),
-      )
+      handleMutation(pathname.slice(1), req, res, vault, absRoot).catch(fail)
       return
     }
     if (req.method === 'PUT' && pathname === '/file') {
-      handleSave(req, res, vault, absRoot).catch((err) =>
-        json(res, 500, { error: err instanceof Error ? err.message : String(err) }),
-      )
+      handleSave(req, res, vault, absRoot).catch(fail)
+      return
+    }
+    if (req.method === 'POST' && (pathname === '/mkdir' || pathname === '/move')) {
+      handleFs(pathname.slice(1), req, res, vault, absRoot).catch(fail)
+      return
+    }
+    if (req.method === 'DELETE' && (pathname === '/file' || pathname === '/folder')) {
+      handleRemove(pathname.slice(1), req, res, vault, absRoot).catch(fail)
       return
     }
     if (req.method !== 'GET') {
@@ -98,6 +122,14 @@ export function createHttpServer(vault: Vault, root: string): Server {
 
     if (url.pathname === '/contents') {
       return json(res, 200, { error: vault.error(), files: vault.contents() })
+    }
+
+    if (url.pathname === '/dirs') {
+      walkDirs(absRoot, '').then(
+        (dirs) => json(res, 200, { dirs }),
+        (err) => json(res, 500, { error: String(err) }),
+      )
+      return
     }
 
     if (url.pathname === '/file') {
@@ -254,6 +286,101 @@ async function handleSave(
   await rename(tmp, target)
   const st = await stat(target)
   vault.setFile(rel, body.content, st.mtimeMs)
+  vault.advance()
+  json(res, 200, { error: vault.error(), path: rel })
+}
+
+/** All folders under the root (relative, forward slashes), including empty
+ *  ones — the vault only knows about files, but the sidebar should show a
+ *  freshly created folder before anything lives in it. */
+async function walkDirs(absRoot: string, rel: string): Promise<string[]> {
+  const out: string[] = []
+  const here = rel ? path.join(absRoot, rel) : absRoot
+  const entries = await readdir(here, { withFileTypes: true })
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith('.') || e.name === 'node_modules') continue
+    const sub = rel ? `${rel}/${e.name}` : e.name
+    out.push(sub)
+    out.push(...(await walkDirs(absRoot, sub)))
+  }
+  return out.sort()
+}
+
+/** POST /mkdir { path } and POST /move { from, to }. Moves cover files and
+ *  whole folders; the vault is updated in place from its cached contents so
+ *  clients see the move on their next poll without waiting on the watcher. */
+async function handleFs(
+  kind: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  vault: Vault,
+  absRoot: string,
+): Promise<void> {
+  let body: { path?: string; from?: string; to?: string }
+  try {
+    body = JSON.parse(await readBody(req)) as typeof body
+  } catch {
+    return json(res, 400, { error: 'invalid JSON body' })
+  }
+
+  if (kind === 'mkdir') {
+    const target = resolveInRoot(absRoot, body.path ?? '')
+    if (!target) return json(res, 400, { error: 'invalid path' })
+    await mkdir(target, { recursive: true })
+    return json(res, 200, { error: null, path: body.path })
+  }
+
+  // move
+  const from = resolveInRoot(absRoot, body.from ?? '')
+  const to = resolveInRoot(absRoot, body.to ?? '')
+  if (!from || !to) return json(res, 400, { error: 'invalid path' })
+  const st = await stat(from).catch(() => null)
+  if (!st) return json(res, 404, { error: `nothing at "${body.from}"` })
+  if (!st.isDirectory() && !vault.accepts(body.to!)) {
+    return json(res, 400, { error: 'target extension not claimed by any plugin' })
+  }
+  await mkdir(path.dirname(to), { recursive: true })
+  await rename(from, to)
+
+  // Re-key the vault's entries from its cached contents.
+  const prefix = `${body.from!}/`
+  for (const f of vault.contents()) {
+    if (st.isDirectory() && f.path.startsWith(prefix)) {
+      vault.removeFile(f.path)
+      vault.setFile(`${body.to!}/${f.path.slice(prefix.length)}`, f.content, f.mtime)
+    } else if (!st.isDirectory() && f.path === body.from) {
+      vault.removeFile(f.path)
+      vault.setFile(body.to!, f.content, f.mtime)
+    }
+  }
+  vault.advance()
+  json(res, 200, { error: vault.error(), from: body.from, to: body.to })
+}
+
+/** DELETE /file?path= and DELETE /folder?path= . */
+async function handleRemove(
+  kind: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+  vault: Vault,
+  absRoot: string,
+): Promise<void> {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  const rel = url.searchParams.get('path') ?? ''
+  const target = resolveInRoot(absRoot, rel)
+  if (!target) return json(res, 400, { error: 'invalid path' })
+
+  if (kind === 'file') {
+    await unlink(target).catch(() => null)
+    vault.removeFile(rel)
+  } else {
+    await rm(target, { recursive: true, force: true })
+    const prefix = `${rel}/`
+    for (const p of vault.paths()) {
+      if (p.startsWith(prefix)) vault.removeFile(p)
+    }
+  }
   vault.advance()
   json(res, 200, { error: vault.error(), path: rel })
 }

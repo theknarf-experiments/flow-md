@@ -1,0 +1,23 @@
+---
+title: Graph
+tags: [example]
+order: 12
+---
+
+# Connected notes
+
+The classic Obsidian graph, as a Datalog view: nodes are notes, edges come
+from the `Link(src, dst, kind)` relation the markdown plugin extracts from
+`[[wiki links]]` and `[markdown](links)`. Click a node to open it; hover to
+highlight its neighbourhood.
+
+<Graph query='Link(src, dst, "wiki")' />
+
+Because it's just a query, any derived relation works as the edge set. Pages
+that share a tag:
+
+```datalog
+CoTagged(a, b, tag) :- Tag(a, tag), Tag(b, tag), a != b.
+```
+
+<Graph query="CoTagged(a, b, tag)" from="a" to="b" />

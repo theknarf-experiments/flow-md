@@ -156,6 +156,60 @@ describe('watcher + http integration', () => {
     ).toBe(400)
   })
 
+  it('creates folders, moves and deletes files and folders', async () => {
+    // mkdir shows up in /dirs even while empty.
+    expect(
+      (
+        await fetch(`${base}/mkdir`, {
+          method: 'POST',
+          body: JSON.stringify({ path: 'projects/alpha' }),
+        })
+      ).status,
+    ).toBe(200)
+    const dirs = (await (await fetch(`${base}/dirs`)).json()) as { dirs: string[] }
+    expect(dirs.dirs).toContain('projects/alpha')
+
+    // Move a file into it; the vault re-keys immediately.
+    await fetch(`${base}/file`, {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'moveme.md', content: '# Move me' }),
+    })
+    const mv = await fetch(`${base}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ from: 'moveme.md', to: 'projects/alpha/moved.md' }),
+    })
+    expect(mv.status).toBe(200)
+    expect(vault.paths()).toContain('projects/alpha/moved.md')
+    expect(vault.paths()).not.toContain('moveme.md')
+
+    // Rename the folder: every file under it re-keys.
+    await fetch(`${base}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ from: 'projects/alpha', to: 'projects/beta' }),
+    })
+    expect(vault.paths()).toContain('projects/beta/moved.md')
+
+    // Delete the file, then the folder.
+    await fetch(`${base}/file?path=${encodeURIComponent('projects/beta/moved.md')}`, {
+      method: 'DELETE',
+    })
+    expect(vault.paths()).not.toContain('projects/beta/moved.md')
+    await fetch(`${base}/folder?path=projects`, { method: 'DELETE' })
+    const after = (await (await fetch(`${base}/dirs`)).json()) as { dirs: string[] }
+    expect(after.dirs).not.toContain('projects')
+
+    // Traversal is rejected on every fs endpoint.
+    expect(
+      (
+        await fetch(`${base}/move`, {
+          method: 'POST',
+          body: JSON.stringify({ from: 'a.md', to: '../escape.md' }),
+        })
+      ).status,
+    ).toBe(400)
+    expect((await fetch(`${base}/folder?path=..`, { method: 'DELETE' })).status).toBe(400)
+  })
+
   it('answers CORS preflights and marks responses cross-origin-safe', async () => {
     const pre = await fetch(`${base}/queries`, { method: 'OPTIONS' })
     expect(pre.status).toBe(204)

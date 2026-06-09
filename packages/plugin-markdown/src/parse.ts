@@ -14,6 +14,7 @@ import type { Code, Heading, Link, ListItem, Root, Text, Yaml } from 'mdast'
 import { toString as mdToString } from 'mdast-util-to-string'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkGfm from 'remark-gfm'
+import remarkMdx from 'remark-mdx'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
 import { parse as parseYaml } from 'yaml'
@@ -26,6 +27,14 @@ const processor = unified()
   .use(remarkFrontmatter, ['yaml'])
   .use(remarkGfm)
 
+// MDX shares the whole fact model; remark-mdx adds the JSX/expression node
+// types, which the walk simply doesn't visit (their text children still are).
+const mdxProcessor = unified()
+  .use(remarkParse)
+  .use(remarkFrontmatter, ['yaml'])
+  .use(remarkGfm)
+  .use(remarkMdx)
+
 const WIKILINK = /\[\[([^\]]+)\]\]/g
 // A tag starts at a word boundary, begins with a letter, and may nest (a/b).
 const TAG = /(?:^|\s)#([A-Za-z][\w/-]*)/g
@@ -35,7 +44,31 @@ export function parseMarkdown(
   content: string,
   mtime: number,
 ): ParseResult {
-  const tree = processor.parse(content) as Root
+  return parseWith(processor, path, content, mtime)
+}
+
+/** `.mdx` parsing: same facts, MDX syntax tolerated. Malformed JSX (which
+ *  remark-mdx throws on, unlike plain markdown) degrades to a File-only
+ *  result instead of poisoning the vault. */
+export function parseMdx(
+  path: string,
+  content: string,
+  mtime: number,
+): ParseResult {
+  try {
+    return parseWith(mdxProcessor, path, content, mtime)
+  } catch {
+    return { facts: [{ rel: 'File', row: [path, mtime] }], rules: [], queries: [] }
+  }
+}
+
+function parseWith(
+  proc: typeof processor,
+  path: string,
+  content: string,
+  mtime: number,
+): ParseResult {
+  const tree = proc.parse(content) as Root
   const facts: Fact[] = [{ rel: 'File', row: [path, mtime] }]
   const rules: string[] = []
   const queries: ParseResult['queries'] = []
