@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseArgs, parseQueryArgs } from '../src/args.js'
+import { parseArgs, parseQueryArgs, parseUpdateArgs } from '../src/args.js'
 
 describe('parseArgs', () => {
   it('defaults dir to "." and port to 4747', () => {
@@ -50,5 +50,47 @@ describe('parseQueryArgs', () => {
     expect(parseQueryArgs(['serve'])).toBeNull()
     expect(parseQueryArgs(['query'])).toBeNull()
     expect(parseQueryArgs(['query', '--json'])).toBeNull()
+  })
+})
+
+describe('parseUpdateArgs', () => {
+  const FULL = [
+    'update',
+    'Task(p, s, t, l)',
+    '--row',
+    '["a.md","open","x",3]',
+    '--column',
+    's',
+    '--value',
+    'closed',
+  ]
+
+  it('parses a full invocation', () => {
+    expect(parseUpdateArgs(FULL)).toEqual({
+      query: 'Task(p, s, t, l)',
+      row: ['a.md', 'open', 'x', 3],
+      column: 's',
+      value: 'closed',
+      port: 4747,
+      json: false,
+    })
+  })
+
+  it('parses --port and --json', () => {
+    expect(parseUpdateArgs([...FULL, '--port', '9000', '--json'])).toMatchObject({
+      port: 9000,
+      json: true,
+    })
+  })
+
+  it('returns null when required pieces are missing or malformed', () => {
+    expect(parseUpdateArgs(['update', 'Foo(x)'])).toBeNull()
+    expect(
+      parseUpdateArgs(['update', 'Foo(x)', '--row', 'not json', '--column', 'x', '--value', 'y']),
+    ).toBeNull()
+    expect(
+      parseUpdateArgs(['update', 'Foo(x)', '--row', '[{"a":1}]', '--column', 'x', '--value', 'y']),
+    ).toBeNull()
+    expect(parseUpdateArgs(['query', 'Foo(x)'])).toBeNull()
   })
 })

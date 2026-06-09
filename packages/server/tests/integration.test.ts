@@ -114,6 +114,56 @@ describe('watcher + http integration', () => {
     expect(q.rows.map((r) => r[0]).sort()).toEqual(['a.md', 'b.md'])
   })
 
+  it('lists files, serves raw content and saves edits', async () => {
+    const files = (await (await fetch(`${base}/files`)).json()) as {
+      files: string[]
+    }
+    expect(files.files).toContain('a.md')
+
+    const bulk = (await (await fetch(`${base}/contents`)).json()) as {
+      files: Array<{ path: string; content: string; mtime: number }>
+    }
+    const entry = bulk.files.find((f) => f.path === 'a.md')
+    expect(entry?.content).toBe(NOTE)
+    expect(entry?.mtime).toBeGreaterThan(0)
+
+    const got = (await (
+      await fetch(`${base}/file?path=a.md`)
+    ).json()) as { path: string; content: string }
+    expect(got.content).toBe(NOTE)
+
+    // Save a new file through PUT /file; the vault folds it in immediately.
+    const res = await fetch(`${base}/file`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'sub/new.md',
+        content: md('---', 'tags: [project]', '---', '# New'),
+      }),
+    })
+    expect(res.status).toBe(200)
+    const q = vault.queries('a.md')[0]!
+    expect(q.rows.map((r) => r[0])).toContain('sub/new.md')
+
+    // Path traversal and unclaimed extensions are rejected.
+    expect((await fetch(`${base}/file?path=../secret.md`)).status).toBe(400)
+    expect(
+      (
+        await fetch(`${base}/file`, {
+          method: 'PUT',
+          body: JSON.stringify({ path: 'x.exe', content: 'nope' }),
+        })
+      ).status,
+    ).toBe(400)
+  })
+
+  it('answers CORS preflights and marks responses cross-origin-safe', async () => {
+    const pre = await fetch(`${base}/queries`, { method: 'OPTIONS' })
+    expect(pre.status).toBe(204)
+    expect(pre.headers.get('access-control-allow-methods')).toContain('PUT')
+    const got = await fetch(`${base}/health`)
+    expect(got.headers.get('access-control-allow-origin')).toBe('*')
+  })
+
   it('answers a one-off query via GET /run', async () => {
     const res = await fetch(`${base}/run?q=${encodeURIComponent('ProjectFile(p)')}`)
     const body = (await res.json()) as {

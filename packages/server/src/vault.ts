@@ -24,6 +24,14 @@ import type { Cell, Fact, ParseResult, Plugin, QueryBlock } from '@flow-md/plugi
 import { parseProgram } from '@flow-ts/parsing'
 import { type ProgramSession, openSession } from 'flow-ts'
 import { createHash } from 'node:crypto'
+import {
+  type ResolvedUpdate,
+  queryVars,
+  resolveFact,
+  resolveUpdate,
+  stripBody,
+  writableColumns,
+} from './lineage.js'
 import { PluginRegistry } from './registry.js'
 import { type SchemaView, buildSchema, edbSectionText } from './schema.js'
 
@@ -35,7 +43,11 @@ export interface QueryResult {
   path: string
   /** 1-based line of the query block's opening fence. */
   line: number
+  /** The query body as written, so clients can resolve updates against it. */
+  source: string
   columns: string[]
+  /** Columns an edit can be written back through (see lineage.ts). */
+  writable: string[]
   rows: Cell[][]
 }
 
@@ -43,12 +55,18 @@ interface QueryEntry {
   id: string
   path: string
   line: number
+  source: string
   columns: string[]
+  writable: string[]
   counts: Map<string, { row: Cell[]; mult: number }>
 }
 
 interface ParsedFile {
   path: string
+  /** Raw source text, kept so bulk readers (GET /contents) need no disk IO
+   *  and always see exactly what the session was built from. */
+  content: string
+  mtime: number
   facts: Fact[]
   rules: string[]
   queries: QueryBlock[]
@@ -64,6 +82,12 @@ export class Vault {
   private readonly options: VaultOptions
   private readonly registry: PluginRegistry
   private readonly schema: SchemaView
+  /** rel → writable attr names, from plugins that implement updateFact. */
+  private readonly writableAttrs = new Map<string, Set<string>>()
+  /** Relations whose facts can be deleted from / inserted into source. For
+   *  inserts, the value is the index of the declared path attribute. */
+  private readonly deletable = new Set<string>()
+  private readonly insertable = new Map<string, number>()
   private session: ProgramSession | null = null
   private programDirty = true
   private pending: Array<{ rel: string; row: Cell[]; diff: number }> = []
@@ -76,7 +100,63 @@ export class Vault {
     this.registry = new PluginRegistry(plugins)
     this.schema = buildSchema(plugins)
     this.options = options
+    for (const p of plugins) {
+      for (const w of p.writable ?? []) this.registerWritable(p, w)
+    }
   }
+
+  /** Validate one `writable` declaration against the plugin's schema and
+   *  methods, then index its capabilities. Failing fast here turns a
+   *  misdeclared plugin into a startup error instead of a silent no-op (or a
+   *  write into the wrong place) later. */
+  private registerWritable(
+    p: Plugin,
+    w: NonNullable<Plugin['writable']>[number],
+  ): void {
+    const bad = (msg: string): never => {
+      throw new Error(`plugin "${p.name}": ${msg}`)
+    }
+    const def = p.schema.find((d) => d.name === w.rel)
+    if (!def) {
+      bad(`writable relation "${w.rel}" is not in the plugin's schema`)
+      return
+    }
+    const attrNames = def.attrs.map(([n]) => n)
+    for (const c of w.cols) {
+      if (!attrNames.includes(c)) {
+        bad(`writable column "${w.rel}.${c}" is not in the relation's schema`)
+      }
+    }
+    if (w.cols.length > 0) {
+      if (!p.updateFact) bad(`"${w.rel}" declares writable columns but no updateFact`)
+      const set = this.writableAttrs.get(w.rel) ?? new Set()
+      for (const c of w.cols) set.add(c)
+      this.writableAttrs.set(w.rel, set)
+    }
+    if (w.canDelete) {
+      if (!p.deleteFact) bad(`"${w.rel}" declares canDelete but no deleteFact`)
+      this.deletable.add(w.rel)
+    }
+    if (w.canInsert) {
+      if (!p.insertFact) bad(`"${w.rel}" declares canInsert but no insertFact`)
+      if (!w.pathAttr) bad(`"${w.rel}" declares canInsert but no pathAttr`)
+      const idx = attrNames.indexOf(w.pathAttr!)
+      if (idx < 0) {
+        bad(`pathAttr "${w.rel}.${w.pathAttr}" is not in the relation's schema`)
+      }
+      if (def.attrs[idx]![1] !== 'string') {
+        bad(`pathAttr "${w.rel}.${w.pathAttr}" must be a string attribute`)
+      }
+      const prev = this.insertable.get(w.rel)
+      if (prev !== undefined && prev !== idx) {
+        bad(`"${w.rel}" is declared insertable with conflicting path attributes`)
+      }
+      this.insertable.set(w.rel, idx)
+    }
+  }
+
+  private readonly isWritable = (rel: string, attr: string): boolean =>
+    this.writableAttrs.get(rel)?.has(attr) ?? false
 
   /** True if any registered plugin claims this file path. */
   accepts(path: string): boolean {
@@ -97,6 +177,8 @@ export class Vault {
     const parsed = plugin.parse(path, content, mtime)
     const next: ParsedFile = {
       path,
+      content,
+      mtime,
       facts: parsed.facts,
       rules: parsed.rules,
       queries: parsed.queries,
@@ -151,6 +233,20 @@ export class Vault {
 
   error(): string | null {
     return this.buildError
+  }
+
+  /** Vault-relative paths of every indexed file, sorted. */
+  paths(): string[] {
+    return [...this.files.keys()].sort()
+  }
+
+  /** Raw content of every indexed file — the bulk sync endpoint's payload,
+   *  so client stores can mirror the whole vault in one request. */
+  contents(): Array<{ path: string; content: string; mtime: number }> {
+    return this.paths().map((p) => {
+      const f = this.files.get(p)!
+      return { path: f.path, content: f.content, mtime: f.mtime }
+    })
   }
 
   // --- internals ---------------------------------------------------------
@@ -223,7 +319,9 @@ export class Vault {
           id,
           path: file.path,
           line: q.line,
+          source: q.source,
           columns,
+          writable: writableColumns(q.source, this.schema, this.isWritable, userRules),
           counts: new Map(),
         })
         queryTexts.push(`${id}(${headArgs}) :- ${stripBody(q.source)}.`)
@@ -251,10 +349,11 @@ export class Vault {
   runQuery(source: string): {
     error: string | null
     columns: string[]
+    writable: string[]
     rows: Cell[][]
   } {
     try {
-      const { ruleText, headNames } = this.collectUserRules()
+      const { ruleText, headNames, rules } = this.collectUserRules()
       const vars = queryVars(source)
       const headArgs = vars.length ? vars.join(', ') : '1'
       const columns = vars.length ? vars : ['exists']
@@ -287,25 +386,202 @@ export class Vault {
       const rows = [...counts.values()]
         .filter((c) => c.mult > 0)
         .map((c) => c.row)
-      return { error: null, columns, rows }
+      return {
+        error: null,
+        columns,
+        writable: writableColumns(source, this.schema, this.isWritable, rules),
+        rows,
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
-      return { error, columns: [], rows: [] }
+      return { error, columns: [], writable: [], rows: [] }
     }
   }
 
-  /** Parse all rule blocks together to recover the user's rule text and the
-   *  set of IDB head names (everything not in the EDB schema). */
-  private collectUserRules(): { ruleText: string; headNames: Set<string> } {
+  /** Trace an edit of one cell of a query result back to the source fact it
+   *  came from, plus the vault-relative file that owns it. Throws with a
+   *  human-readable message when the edit can't be resolved unambiguously. */
+  resolveUpdate(
+    source: string,
+    oldRow: Cell[],
+    column: string,
+    value: Cell,
+  ): ResolvedUpdate & { path: string } {
+    const resolved = resolveUpdate({
+      source,
+      columns: queryVars(source),
+      oldRow,
+      column,
+      value,
+      schema: this.schema,
+      rules: this.collectUserRules().rules,
+      isWritable: this.isWritable,
+      findFacts: this.findFacts,
+    })
+    return { ...resolved, path: this.ownerOf(resolved.oldFact) }
+  }
+
+  /** Resolve a delete request to the owning file plus the complete fact.
+   *  Accepts either a complete fact (`rel` + full row) or a query-result row
+   *  (`source` + row, traced through lineage like an update). */
+  resolveDelete(input: {
+    rel?: string
+    source?: string
+    row: Cell[]
+  }): { path: string; fact: Fact } {
+    let fact: Fact
+    if (input.source) {
+      fact = resolveFact({
+        source: input.source,
+        columns: queryVars(input.source),
+        row: input.row,
+        ...(input.rel !== undefined ? { rel: input.rel } : {}),
+        schema: this.schema,
+        rules: this.collectUserRules().rules,
+        accepts: (rel) => this.deletable.has(rel),
+        findFacts: this.findFacts,
+      })
+    } else {
+      if (!input.rel) throw new Error('delete needs a relation (rel) or a query (q/id)')
+      const def = this.schema.defs.find((d) => d.name === input.rel)
+      if (!def) throw new Error(`unknown relation "${input.rel}"`)
+      if (def.attrs.length !== input.row.length) {
+        throw new Error(
+          `${input.rel} has ${def.attrs.length} columns, row has ${input.row.length}`,
+        )
+      }
+      fact = { rel: input.rel, row: input.row }
+    }
+    if (!this.deletable.has(fact.rel)) {
+      throw new Error(`facts of ${fact.rel} cannot be deleted by any plugin`)
+    }
+    return { path: this.ownerOf(fact), fact }
+  }
+
+  /** Validate an insert request and locate the target file via the
+   *  relation's declared path attribute; locator columns the client can't
+   *  know (e.g. `line`) are 0 / "". */
+  resolveInsert(rel: string, row: Cell[]): { path: string; fact: Fact } {
+    const pathIdx = this.insertable.get(rel)
+    if (pathIdx === undefined) {
+      throw new Error(`facts of ${rel} cannot be inserted by any plugin`)
+    }
+    const def = this.schema.defs.find((d) => d.name === rel)!
+    if (def.attrs.length !== row.length) {
+      throw new Error(
+        `${rel} has ${def.attrs.length} columns, row has ${row.length}`,
+      )
+    }
+    const path = row[pathIdx]
+    if (typeof path !== 'string' || !path) {
+      throw new Error(
+        `${rel}.${def.attrs[pathIdx]![0]} must name the target file`,
+      )
+    }
+    if (!this.files.has(path)) {
+      throw new Error(`no file "${path}" in the vault`)
+    }
+    return { path, fact: { rel, row } }
+  }
+
+  /** Apply a resolved update to a file's current content: re-verify the old
+   *  fact is still derivable from `content` (the concurrency check), then let
+   *  the owning plugin splice in the change. Returns the new content. */
+  applyFactUpdate(
+    path: string,
+    content: string,
+    oldFact: Fact,
+    newFact: Fact,
+  ): string {
+    const plugin = this.registry.pluginFor(path)
+    if (!plugin?.updateFact) {
+      throw new Error(`no plugin can write back to "${path}"`)
+    }
+    const key = factKey(oldFact)
+    const current = plugin.parse(path, content, 0).facts
+    if (!current.some((f) => factKey(f) === key)) {
+      throw new Error(
+        'the file changed and no longer contains the fact being updated',
+      )
+    }
+    return plugin.updateFact(content, oldFact, newFact)
+  }
+
+  /** Delete-path analogue of applyFactUpdate: verify, then splice out. */
+  applyFactDelete(path: string, content: string, fact: Fact): string {
+    const plugin = this.registry.pluginFor(path)
+    if (!plugin?.deleteFact) {
+      throw new Error(`no plugin can delete facts from "${path}"`)
+    }
+    const key = factKey(fact)
+    const current = plugin.parse(path, content, 0).facts
+    if (!current.some((f) => factKey(f) === key)) {
+      throw new Error(
+        'the file changed and no longer contains the fact being deleted',
+      )
+    }
+    return plugin.deleteFact(content, fact)
+  }
+
+  /** Insert-path analogue. No staleness check: the fact doesn't exist yet. */
+  applyFactInsert(path: string, content: string, fact: Fact): string {
+    const plugin = this.registry.pluginFor(path)
+    if (!plugin?.insertFact) {
+      throw new Error(`no plugin can insert facts into "${path}"`)
+    }
+    return plugin.insertFact(content, fact)
+  }
+
+  /** Current facts of `rel` matching the non-null cells of `partial`. */
+  private readonly findFacts = (
+    rel: string,
+    partial: Array<Cell | null>,
+  ): Cell[][] => {
+    const out: Cell[][] = []
+    for (const file of this.files.values()) {
+      for (const f of file.facts) {
+        if (f.rel !== rel) continue
+        if (partial.every((c, i) => c === null || f.row[i] === c)) {
+          out.push(f.row)
+        }
+      }
+    }
+    return out
+  }
+
+  /** The single file whose facts contain `fact`. */
+  private ownerOf(fact: Fact): string {
+    const key = factKey(fact)
+    const owners: string[] = []
+    for (const file of this.files.values()) {
+      if (file.facts.some((f) => factKey(f) === key)) owners.push(file.path)
+    }
+    if (owners.length === 0) {
+      throw new Error('the source fact is no longer in the vault (stale result?)')
+    }
+    if (owners.length > 1) {
+      throw new Error(`several files carry this fact: ${owners.join(', ')}`)
+    }
+    return owners[0]!
+  }
+
+  /** Parse all rule blocks together to recover the user's rule text, the
+   *  parsed rules (for lineage), and the set of IDB head names (everything
+   *  not in the EDB schema). */
+  private collectUserRules(): {
+    ruleText: string
+    headNames: Set<string>
+    rules: ReturnType<typeof parseProgram>['rules']
+  } {
     const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
-    const userRules = ruleText.trim()
+    const rules = ruleText.trim()
       ? parseProgram(`${edbSectionText(this.schema)}\n.rule\n${ruleText}`).rules
       : []
     const headNames = new Set<string>()
-    for (const r of userRules) {
+    for (const r of rules) {
       if (!this.schema.names.has(r.head.name)) headNames.add(r.head.name)
     }
-    return { ruleText, headNames }
+    return { ruleText, headNames, rules }
   }
 
   private feedAllFacts(session: ProgramSession): void {
@@ -328,30 +604,6 @@ function programChanged(a: ParsedFile, b: ParsedFile): boolean {
   )
 }
 
-function stripBody(source: string): string {
-  return source.trim().replace(/\.\s*$/, '')
-}
-
-/** Recover a query body's variables in order of first appearance, by parsing
- *  it as the body of a throwaway rule (head needs a non-empty arg, so `0`). */
-function queryVars(source: string): string[] {
-  const probe = parseProgram(
-    `.printsize\n.decl Probe()\n.rule\nProbe(0) :- ${stripBody(source)}.`,
-  )
-  const seen = new Set<string>()
-  const vars: string[] = []
-  for (const p of probe.rules[0]!.rhs) {
-    if (p.kind !== 'Atom') continue
-    for (const arg of p.atom.args) {
-      if (arg.kind === 'Var' && !seen.has(arg.name)) {
-        seen.add(arg.name)
-        vars.push(arg.name)
-      }
-    }
-  }
-  return vars
-}
-
 function queryId(path: string, line: number, source: string): string {
   const h = createHash('sha1')
     .update(`${path}\n${line}\n${source}`)
@@ -362,7 +614,15 @@ function queryId(path: string, line: number, source: string): string {
 
 function toResult(e: QueryEntry): QueryResult {
   const rows = [...e.counts.values()].filter((c) => c.mult > 0).map((c) => c.row)
-  return { id: e.id, path: e.path, line: e.line, columns: e.columns, rows }
+  return {
+    id: e.id,
+    path: e.path,
+    line: e.line,
+    source: e.source,
+    columns: e.columns,
+    writable: e.writable,
+    rows,
+  }
 }
 
 /** Re-export so consumers can avoid a direct @flow-md/plugin-api dep when
