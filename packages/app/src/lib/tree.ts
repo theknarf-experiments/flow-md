@@ -8,23 +8,30 @@ export interface TreeNode {
   children?: TreeNode[]
 }
 
-export function buildTree(paths: readonly string[]): TreeNode[] {
+/** `dirs` seeds explicit directory nodes (so empty folders show up); file
+ *  paths imply the rest. */
+export function buildTree(
+  paths: readonly string[],
+  dirs: readonly string[] = [],
+): TreeNode[] {
   const root: TreeNode[] = []
-  for (const p of [...paths].sort()) {
+  const ensure = (p: string, isDir: boolean): void => {
     let level = root
     let prefix = ''
     const parts = p.split('/')
     parts.forEach((name, i) => {
       prefix = prefix ? `${prefix}/${name}` : name
-      const isDir = i < parts.length - 1
+      const dir = isDir || i < parts.length - 1
       let node = level.find((n) => n.path === prefix)
       if (!node) {
-        node = isDir ? { name, path: prefix, children: [] } : { name, path: prefix }
+        node = dir ? { name, path: prefix, children: [] } : { name, path: prefix }
         level.push(node)
       }
-      if (isDir) level = (node.children ??= [])
+      if (dir) level = (node.children ??= [])
     })
   }
+  for (const d of dirs) ensure(d, true)
+  for (const p of [...paths].sort()) ensure(p, false)
   sortLevel(root)
   return root
 }

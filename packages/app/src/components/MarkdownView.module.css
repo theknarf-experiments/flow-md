@@ -1,0 +1,44 @@
+.markdown h1, .markdown h2, .markdown h3 { line-height: 1.25; }
+.markdown a { color: var(--accent); }
+.markdown code {
+  background: var(--bg-raise);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-family: var(--mono);
+  font-size: 0.85em;
+}
+.markdown pre {
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote {
+  border-left: 3px solid var(--accent-dim);
+  margin-left: 0;
+  padding-left: 1rem;
+  color: var(--fg-dim);
+}
+
+/* GFM task items keep their upstream (global) class. */
+.markdown li:global(.task-list-item) { list-style: none; margin-left: -1.2rem; }
+.markdown li:global(.task-list-item) input {
+  margin-right: 0.45rem;
+  accent-color: var(--accent);
+}
+
+.wiki { text-decoration-style: dashed; }
+.broken { color: var(--danger); text-decoration: line-through; }
+
+.ruleBlock { position: relative; }
+.blockTag {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.6rem;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}

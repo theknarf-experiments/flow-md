@@ -21,6 +21,7 @@ import {
 import { useMemo, useState } from 'react'
 import type { Cell, QueryResult } from '../lib/api.js'
 import { editCell } from '../lib/db.js'
+import styles from './DataView.module.css'
 
 const rowKey = (row: Cell[]): string => JSON.stringify(row)
 
@@ -57,9 +58,9 @@ export function DataView(props: {
 
   if (!result) {
     return (
-      <div className="dataview">
-        <pre className="dataview-source">{source.trim()}</pre>
-        <p className="dataview-empty">no results yet — is the server happy?</p>
+      <div className={styles.dataview} data-testid="dataview">
+        <pre className={styles.source}>{source.trim()}</pre>
+        <p className={styles.empty}>no results yet — is the server happy?</p>
       </div>
     )
   }
@@ -76,7 +77,7 @@ export function DataView(props: {
   }
 
   return (
-    <div className="dataview">
+    <div className={styles.dataview} data-testid="dataview">
       <table>
         <thead>
           {table.getHeaderGroups().map((group) => (
@@ -86,7 +87,7 @@ export function DataView(props: {
                 return (
                   <th
                     key={h.id}
-                    className="sortable"
+                    className={styles.sortable}
                     onClick={h.column.getToggleSortingHandler()}
                     aria-sort={
                       sort === 'asc'
@@ -98,11 +99,11 @@ export function DataView(props: {
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
                     {result.writable.includes(h.column.id) && (
-                      <span className="pen"> ✎</span>
+                      <span className={styles.pen}> ✎</span>
                     )}
                     {/* Always rendered at a fixed width so toggling sort
                         doesn't change the column's measured size. */}
-                    <span className="sort">
+                    <span className={styles.sort}>
                       {sort === 'asc' ? '▲' : sort === 'desc' ? '▼' : ''}
                     </span>
                   </th>
@@ -125,8 +126,8 @@ export function DataView(props: {
                   // had, so opening the editor never resizes the column; the
                   // input overlays it absolutely.
                   return (
-                    <td key={cell.id} className="editing">
-                      <span className="cell-ghost">
+                    <td key={cell.id} className={styles.editing}>
+                      <span className={styles.cellGhost}>
                         {String(cell.getValue() ?? '')}
                       </span>
                       <input
@@ -145,7 +146,7 @@ export function DataView(props: {
                 return (
                   <td
                     key={cell.id}
-                    className={writable ? 'writable' : ''}
+                    className={writable ? styles.writable : ''}
                     onClick={
                       writable
                         ? () => {
@@ -163,14 +164,14 @@ export function DataView(props: {
           ))}
           {result.rows.length === 0 && (
             <tr>
-              <td className="dataview-empty" colSpan={result.columns.length}>
+              <td className={styles.empty} colSpan={result.columns.length}>
                 no rows
               </td>
             </tr>
           )}
         </tbody>
       </table>
-      <div className="dataview-foot">
+      <div className={styles.foot}>
         <code>{result.source.trim()}</code>
         <span>
           {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}

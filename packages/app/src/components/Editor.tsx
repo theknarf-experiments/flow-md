@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { saveNote } from '../lib/db.js'
+import styles from './Editor.module.css'
 
 export function Editor(props: { path: string; initial: string }) {
   const { path, initial } = props
@@ -29,7 +30,7 @@ export function Editor(props: { path: string; initial: string }) {
   }
 
   return (
-    <div className="editor">
+    <div className={styles.editor}>
       <textarea
         value={text}
         spellCheck={false}
@@ -44,11 +45,11 @@ export function Editor(props: { path: string; initial: string }) {
           }
         }}
       />
-      <div className="editor-bar">
+      <div className={styles.bar}>
         <button type="button" disabled={status !== 'dirty'} onClick={save}>
           save
         </button>
-        <span className={`status ${status}`}>
+        <span className={`${styles.status} ${status === 'dirty' ? styles.dirty : ''}`}>
           {status === 'dirty' ? 'unsaved changes' : status}
         </span>
         {error && <span className="offline">{error}</span>}

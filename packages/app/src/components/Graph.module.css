@@ -1,0 +1,42 @@
+.wrap {
+  margin: 1rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-side);
+  overflow: hidden;
+}
+
+.svg { display: block; width: 100%; height: auto; }
+
+.edge { stroke: var(--accent-dim); stroke-opacity: 0.55; stroke-width: 1; }
+.edgeDim { stroke: var(--border); stroke-opacity: 0.4; stroke-width: 1; }
+
+.node { cursor: pointer; }
+.node circle {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  transition: fill 120ms;
+}
+.node:hover circle { fill: #fff; }
+.node text {
+  fill: var(--fg-dim);
+  font-size: 10px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.node:hover text { fill: var(--fg); }
+
+.nodeDim { opacity: 0.25; }
+.ghost circle { fill: var(--bg-raise); stroke: var(--fg-dim); }
+.ghost { cursor: default; }
+
+.caption {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  background: var(--bg-raise);
+  display: flex;
+  justify-content: space-between;
+}
+.caption code { background: none; }

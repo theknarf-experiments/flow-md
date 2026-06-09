@@ -1,0 +1,79 @@
+.csv {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.csv table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.csv th {
+  text-align: left;
+  background: var(--bg-raise);
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: var(--accent); }
+.sort {
+  display: inline-block;
+  width: 1.1em;
+  color: var(--accent);
+  font-size: 0.7em;
+  margin-left: 0.2em;
+}
+
+.csv td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.cell { cursor: pointer; }
+.cell:hover { background: var(--bg-raise); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+
+.editing { position: relative; }
+.editing .ghost { visibility: hidden; white-space: pre; }
+.editing input {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  padding: 0 0.3rem;
+}
+
+.rowActions { width: 2rem; }
+.rowActions button {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  visibility: hidden;
+}
+tr:hover .rowActions button { visibility: visible; }
+.rowActions button:hover { color: var(--danger); }
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  background: var(--bg-raise);
+}
+.foot button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0.1rem 0.6rem;
+}
+.foot button:hover { color: var(--fg); border-color: var(--accent-dim); }

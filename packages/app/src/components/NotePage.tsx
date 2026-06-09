@@ -6,9 +6,14 @@
 import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useState } from 'react'
+import type { QueryResult } from '../lib/api.js'
 import { notesCollection, queriesCollection } from '../lib/db.js'
+import { CsvView } from './CsvView.js'
 import { Editor } from './Editor.js'
+import { IcsView } from './IcsView.js'
 import { MarkdownView } from './MarkdownView.js'
+import { MdxView } from './MdxView.js'
+import styles from './NotePage.module.css'
 
 export function NotePage({ path }: { path: string }) {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
@@ -30,7 +35,7 @@ export function NotePage({ path }: { path: string }) {
 
   if (!note) {
     return (
-      <div className="note">
+      <div className={styles.note}>
         <p className="hint">
           nothing at <code>{path}</code> (yet — still syncing, or the file is
           gone)
@@ -39,36 +44,31 @@ export function NotePage({ path }: { path: string }) {
     )
   }
 
-  const isMarkdown = path.endsWith('.md')
   return (
-    <div className="note">
-      <header className="note-head">
-        <h2 className="note-path">{path}</h2>
-        {isMarkdown && (
-          <div className="mode-switch">
-            <button
-              type="button"
-              className={mode === 'view' ? 'active' : ''}
-              onClick={() => setMode('view')}
-            >
-              view
-            </button>
-            <button
-              type="button"
-              className={mode === 'edit' ? 'active' : ''}
-              onClick={() => setMode('edit')}
-            >
-              edit
-            </button>
-          </div>
-        )}
+    <div className={styles.note}>
+      <header className={styles.head}>
+        <h2 className={styles.path}>{path}</h2>
+        <div className={styles.modeSwitch}>
+          <button
+            type="button"
+            className={mode === 'view' ? styles.active : ''}
+            onClick={() => setMode('view')}
+          >
+            view
+          </button>
+          <button
+            type="button"
+            className={mode === 'edit' ? styles.active : ''}
+            onClick={() => setMode('edit')}
+          >
+            edit
+          </button>
+        </div>
       </header>
-      {!isMarkdown ? (
-        <pre className="raw">{note.content}</pre>
-      ) : mode === 'edit' ? (
+      {mode === 'edit' ? (
         <Editor key={path} path={path} initial={note.content} />
       ) : (
-        <MarkdownView
+        <FileView
           path={path}
           content={note.content}
           queries={queries ?? []}
@@ -77,4 +77,25 @@ export function NotePage({ path }: { path: string }) {
       )}
     </div>
   )
+}
+
+/** Pick the view for a file by extension; raw text is the fallback. */
+function FileView(props: {
+  path: string
+  content: string
+  queries: QueryResult[]
+  files: string[]
+}) {
+  const { path, content, queries, files } = props
+  if (path.endsWith('.md')) {
+    return (
+      <MarkdownView path={path} content={content} queries={queries} files={files} />
+    )
+  }
+  if (path.endsWith('.mdx')) {
+    return <MdxView path={path} content={content} queries={queries} files={files} />
+  }
+  if (path.endsWith('.ics')) return <IcsView content={content} />
+  if (path.endsWith('.csv')) return <CsvView path={path} content={content} />
+  return <pre className={styles.raw}>{content}</pre>
 }

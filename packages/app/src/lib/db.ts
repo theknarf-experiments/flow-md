@@ -81,6 +81,18 @@ export const notesCollection = createCollection(
   }),
 )
 
+/** Folders (including empty ones) for the sidebar tree. */
+export const dirsCollection = createCollection(
+  queryCollectionOptions<{ path: string }>({
+    id: 'dirs',
+    queryKey: ['dirs'],
+    queryFn: async () => (await api.dirs()).map((path) => ({ path })),
+    getKey: (d) => d.path,
+    queryClient,
+    refetchInterval: 4000,
+  }),
+)
+
 export const queriesCollection = createCollection(
   queryCollectionOptions<QueryResult>({
     id: 'queries',
@@ -155,6 +167,38 @@ export function toggleTask(
     draft.content = lines.join('\n')
   })
   return tx.isPersisted.promise
+}
+
+// File-system operations (rename, delete, folders) are rare enough that we
+// skip optimistic overlays: call the server, then refetch both collections
+// so the tree and any open note converge immediately.
+
+async function refetchFs(): Promise<void> {
+  await Promise.all([
+    notesCollection.utils.refetch(),
+    dirsCollection.utils.refetch(),
+    queriesCollection.utils.refetch(),
+  ])
+}
+
+export async function makeFolder(path: string): Promise<void> {
+  await api.mkdir(path)
+  await refetchFs()
+}
+
+export async function movePath(from: string, to: string): Promise<void> {
+  await api.move(from, to)
+  await refetchFs()
+}
+
+export async function deleteFile(path: string): Promise<void> {
+  await api.deleteFile(path)
+  await refetchFs()
+}
+
+export async function deleteFolder(path: string): Promise<void> {
+  await api.deleteFolder(path)
+  await refetchFs()
 }
 
 export function editCell(

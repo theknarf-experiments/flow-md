@@ -68,6 +68,22 @@ export const api = {
       body: JSON.stringify({ path, content }),
     }),
 
+  /** Every folder under the vault root, including empty ones. */
+  dirs: async () => (await call<{ dirs: string[] }>('/dirs')).dirs,
+
+  mkdir: (path: string) =>
+    call('/mkdir', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  /** Rename/move a file or a whole folder. */
+  move: (from: string, to: string) =>
+    call('/move', { method: 'POST', body: JSON.stringify({ from, to }) }),
+
+  deleteFile: (path: string) =>
+    call(`/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+
+  deleteFolder: (path: string) =>
+    call(`/folder?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+
   queriesFor: async (file: string) =>
     await call<{ error: string | null; queries: QueryResult[] }>(
       `/queries?file=${encodeURIComponent(file)}`,

@@ -5,6 +5,7 @@
 import { useLiveQuery } from '@tanstack/react-db'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { notesCollection } from '../lib/db.js'
+import styles from './index.module.css'
 
 export const Route = createFileRoute('/')({
   component: Landing,
@@ -15,7 +16,7 @@ function Landing() {
   const all = (notes ?? []).map((n) => n.path)
   const md = all.filter((f) => f.endsWith('.md'))
   return (
-    <div className="landing">
+    <div className={styles.landing}>
       <h1>flow-md</h1>
       <p>
         A markdown vault as a live Datalog notebook. {md.length} notes

@@ -1,0 +1,39 @@
+.note {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem 4rem;
+}
+
+.head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.path {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  margin: 0;
+}
+
+.modeSwitch button {
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0.2rem 0.7rem;
+}
+.modeSwitch button:first-child { border-radius: 6px 0 0 6px; }
+.modeSwitch button:last-child { border-radius: 0 6px 6px 0; }
+.modeSwitch button.active { color: #fff; background: var(--accent-dim); }
+
+.raw {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+}

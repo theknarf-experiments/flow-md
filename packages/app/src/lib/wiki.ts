@@ -47,19 +47,20 @@ function text(value: string): Text {
 }
 
 /** Resolve a wiki target against the vault's file list, Obsidian-style:
- *  exact path match first, then unique basename match (with or without the
- *  .md extension). Returns null when nothing (or several things) match. */
+ *  exact path match first (as written, then with .md/.mdx appended), then a
+ *  unique basename match. Returns null when nothing (or several things)
+ *  match. */
 export function resolveWikiTarget(
   target: string,
   files: readonly string[],
 ): string | null {
-  const want = target.endsWith('.md') ? target : `${target}.md`
-  if (files.includes(want)) return want
-  if (files.includes(target)) return target
-  const base = want.toLowerCase()
-  const hits = files.filter((f) => {
-    const name = f.split('/').at(-1)?.toLowerCase()
-    return name === base
-  })
+  const candidates = [target, `${target}.md`, `${target}.mdx`]
+  for (const c of candidates) {
+    if (files.includes(c)) return c
+  }
+  const names = new Set(candidates.map((c) => c.split('/').at(-1)!.toLowerCase()))
+  const hits = files.filter((f) =>
+    names.has(f.split('/').at(-1)?.toLowerCase() ?? ''),
+  )
   return hits.length === 1 ? hits[0]! : null
 }

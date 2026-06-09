@@ -40,6 +40,12 @@ describe('remarkWikiLinks', () => {
 describe('resolveWikiTarget', () => {
   const files = ['index.md', 'docs/tasks.md', 'docs/sub/tasks.md', 'a/unique.md']
 
+  it('resolves mdx targets too', () => {
+    const withMdx = [...files, 'board.mdx']
+    expect(resolveWikiTarget('board', withMdx)).toBe('board.mdx')
+    expect(resolveWikiTarget('board.mdx', withMdx)).toBe('board.mdx')
+  })
+
   it('prefers exact paths, with or without .md', () => {
     expect(resolveWikiTarget('index', files)).toBe('index.md')
     expect(resolveWikiTarget('docs/tasks.md', files)).toBe('docs/tasks.md')

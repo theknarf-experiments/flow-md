@@ -41,6 +41,9 @@ File(path, mtime)
 - [[tasks]] — list every `- [ ]` / `- [x]` todo across the vault.
 - [[updating]] — edit a query result and write it back to the source file.
 - [[calendar]] — index `.ics` files alongside markdown and query both.
+- [[csv]] — every cell of a `.csv` becomes a fact you can join against.
+- [[board.mdx|board]] — an MDX page with a Datalog-driven kanban board.
+- [[graph.mdx|graph]] — the connected-notes graph, as a Datalog view.
 - [[vim-plugin]] — render results inline in Vim.
 - [[app]] — the Obsidian-style web app with live, editable dataviews.
 - [[examples]] — a cookbook of working queries.

@@ -1,0 +1,63 @@
+.agenda { display: flex; flex-direction: column; gap: 1rem; }
+
+.day {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.event {
+  display: flex;
+  gap: 1rem;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+}
+.event[data-cancelled] { opacity: 0.55; }
+.event[data-cancelled] .summary { text-decoration: line-through; }
+
+.time {
+  flex-shrink: 0;
+  width: 7.5rem;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding-top: 0.15rem;
+}
+
+.body { display: flex; flex-direction: column; min-width: 0; }
+
+.summary { font-weight: 600; }
+
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.4rem;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+.detail {
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

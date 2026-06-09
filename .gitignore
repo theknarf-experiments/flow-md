@@ -40,3 +40,4 @@ Session.vim
 # OS
 .DS_Store
 Thumbs.db
+storybook-static/

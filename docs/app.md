@@ -49,6 +49,18 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **Offline reads**: the sync cache persists to localStorage, so the vault
   still renders with the server unreachable. Writes need the server — flow-md
   is the source of truth, not a CRDT.
+- **⌘K command palette** (Tanstack Hotkeys): fuzzy file search, free-text
+  search across every note's content, and app commands. **⌘B** toggles the
+  sidebar (there are buttons too).
+- **File management in the sidebar**: file-type icons, rename files,
+  create/rename/delete folders and subfolders (empty folders included).
+- **More file types**: `.ics` renders as a date-grouped agenda, `.csv` as an
+  editable grid (Tanstack Table — click cells, add/delete rows), and `.mdx`
+  is markdown plus components.
+- **MDX component registry**: `<Kanban query="Task(path, status, text, line)"
+  groupBy="status" …/>` renders a board whose lane moves rewrite the source
+  checkbox, and `<Graph/>` draws the Obsidian-style connected-notes graph
+  from any edge-shaped query. See [[board.mdx|board]] and [[graph.mdx|graph]].
 
 ## Data layer
 
@@ -69,10 +81,17 @@ Components read these with `useLiveQuery` and never fetch directly.
 ```
 packages/app/src
 ├── routes/           __root (sidebar shell), index, note.$ (splat = path)
-├── components/       FileTree, NotePage, MarkdownView, DataView, Editor
-└── lib/              db.ts (TanStack DB collections + mutations),
-                      api.ts (server client), tree.ts, wiki.ts, usePoll.ts
+├── components/       FileTree, NotePage, MarkdownView, MdxView, DataView,
+│                     Kanban, Graph, IcsView, CsvView, CommandPalette, Editor
+│                     (+ *.module.css and *.stories.tsx per component)
+└── lib/              db.ts (TanStack DB collections + mutations), api.ts,
+                      tree.ts, wiki.ts, fuzzy.ts, ics.ts, graph.ts, icons.ts
 ```
+
+Styling is per-component CSS Modules over a small global base (theme
+variables + shared utilities). Components have Storybook stories
+(`pnpm --filter @flow-md/app storybook`) and portable-story tests that
+render every story in CI.
 
 The markdown pipeline is react-markdown + remark-gfm plus two tiny remark
 plugins: one turns `[[target]]` spans into `wiki:` links, one stamps each

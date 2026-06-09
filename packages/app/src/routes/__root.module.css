@@ -1,0 +1,55 @@
+.shell {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--bg-side);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.sidebarHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.ghost {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+}
+.ghost:hover { color: var(--fg); border-color: var(--accent-dim); }
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Slim affordance to reopen a hidden sidebar. */
+.reveal {
+  position: fixed;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 50;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0.15rem 0.5rem;
+}
+.reveal:hover { color: var(--fg); border-color: var(--accent-dim); }

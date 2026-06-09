@@ -1,0 +1,72 @@
+.dataview {
+  border: 1px solid var(--accent-dim);
+  border-radius: 8px;
+  margin: 1rem 0;
+  overflow: hidden;
+}
+
+.dataview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.dataview th {
+  text-align: left;
+  background: var(--bg-raise);
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+.pen { color: var(--accent); font-size: 0.8em; }
+.sortable { cursor: pointer; user-select: none; }
+.sortable:hover { color: var(--accent); }
+/* Fixed-width slot so the arrow appearing doesn't shift the column. */
+.sort {
+  display: inline-block;
+  width: 1.1em;
+  color: var(--accent);
+  font-size: 0.7em;
+  margin-left: 0.2em;
+}
+
+.dataview td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.writable { cursor: pointer; }
+.writable:hover { background: var(--bg-raise); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+
+/* Editing keeps the column's measured width: the ghost span holds the old
+   text invisibly in flow while the input overlays the whole cell. */
+.editing { position: relative; }
+.editing .cellGhost { visibility: hidden; white-space: pre; }
+.editing input {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  padding: 0 0.3rem;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  background: var(--bg-raise);
+}
+.foot code { background: none; }
+
+.empty { color: var(--fg-dim); padding: 0.5rem 0.75rem; margin: 0; }
+.source {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}

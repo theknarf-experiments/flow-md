@@ -1,0 +1,33 @@
+.editor textarea {
+  width: 100%;
+  min-height: 70vh;
+  background: var(--bg-side);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+.editor textarea:focus { outline: 1px solid var(--accent-dim); }
+
+.bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+.bar button {
+  background: var(--accent-dim);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  cursor: pointer;
+  padding: 0.3rem 1rem;
+}
+.bar button:disabled { opacity: 0.4; cursor: default; }
+
+.status { color: var(--fg-dim); font-size: 0.8rem; }
+.status.dirty { color: var(--accent); }

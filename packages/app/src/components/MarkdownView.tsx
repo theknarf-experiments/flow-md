@@ -38,6 +38,7 @@ import type { QueryResult } from '../lib/api.js'
 import { toggleTask } from '../lib/db.js'
 import { remarkWikiLinks, resolveWikiTarget } from '../lib/wiki.js'
 import { DataView } from './DataView.js'
+import styles from './MarkdownView.module.css'
 
 /** Stamp each task-list item with its 1-based source line. */
 function remarkTaskLines() {
@@ -54,7 +55,8 @@ function remarkTaskLines() {
   }
 }
 
-const PLUGINS = [
+/** Shared by MarkdownView and MdxView — the remark pipeline is identical. */
+export const MD_PLUGINS = [
   remarkGfm,
   [remarkFrontmatter, ['yaml']],
   remarkWikiLinks,
@@ -73,13 +75,16 @@ const Ctx = createContext<MdContext>({
   onToggle: () => {},
 })
 
-export function MarkdownView(props: {
+/** Context + error banner around any markdown-ish renderer (plain markdown
+ *  or evaluated MDX): wires task toggling, query results and wiki-link
+ *  resolution for the stable component overrides below. */
+export function MdProvider(props: {
   path: string
-  content: string
   queries: QueryResult[]
   files: readonly string[]
+  children: ReactNode
 }) {
-  const { path, content, queries, files } = props
+  const { path, queries, files, children } = props
   const [error, setError] = useState<string | null>(null)
 
   const ctx = useMemo<MdContext>(
@@ -100,18 +105,30 @@ export function MarkdownView(props: {
   )
 
   return (
-    <div className="markdown">
+    <div className={styles.markdown}>
       {error && <p className="offline">{error}</p>}
-      <Ctx.Provider value={ctx}>
-        <Markdown
-          remarkPlugins={PLUGINS as never}
-          components={COMPONENTS}
-          urlTransform={(url) => url}
-        >
-          {content}
-        </Markdown>
-      </Ctx.Provider>
+      <Ctx.Provider value={ctx}>{children}</Ctx.Provider>
     </div>
+  )
+}
+
+export function MarkdownView(props: {
+  path: string
+  content: string
+  queries: QueryResult[]
+  files: readonly string[]
+}) {
+  const { path, content, queries, files } = props
+  return (
+    <MdProvider path={path} queries={queries} files={files}>
+      <Markdown
+        remarkPlugins={MD_PLUGINS as never}
+        components={MD_COMPONENTS}
+        urlTransform={(url) => url}
+      >
+        {content}
+      </Markdown>
+    </MdProvider>
   )
 }
 
@@ -132,8 +149,8 @@ const PreBlock: Components['pre'] = ({ node, children }) => {
     }
     if (cls.includes('language-datalog')) {
       return (
-        <pre className="rule-block">
-          <span className="block-tag">rules</span>
+        <pre className={styles.ruleBlock}>
+          <span className={styles.blockTag}>rules</span>
           {children}
         </pre>
       )
@@ -174,12 +191,12 @@ const Anchor: Components['a'] = ({ href, children }) => {
     const resolved = resolveWikiTarget(target, files)
     if (resolved) {
       return (
-        <Link to="/note/$" params={{ _splat: resolved }} className="wiki">
+        <Link to="/note/$" params={{ _splat: resolved }} className={styles.wiki}>
           {children}
         </Link>
       )
     }
-    return <span className="wiki broken">{children}</span>
+    return <span className={`${styles.wiki} ${styles.broken}`}>{children}</span>
   }
   return (
     <a href={href} target="_blank" rel="noreferrer">
@@ -188,7 +205,7 @@ const Anchor: Components['a'] = ({ href, children }) => {
   )
 }
 
-const COMPONENTS: Components = {
+export const MD_COMPONENTS: Components = {
   pre: PreBlock,
   li: ListItem,
   a: Anchor,

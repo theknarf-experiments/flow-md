@@ -10,15 +10,20 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist .vite .tanstack"
+    "clean": "rm -rf dist .vite .tanstack storybook-static",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
+    "@flow-md/plugin-csv": "workspace:^",
+    "@mdx-js/mdx": "^3.1.1",
     "@tanstack/db": "^0.6.8",
     "@tanstack/query-core": "^5.101.0",
     "@tanstack/query-db-collection": "^1.0.40",
     "@tanstack/query-persist-client-core": "^5.101.0",
     "@tanstack/query-sync-storage-persister": "^5.101.0",
     "@tanstack/react-db": "^0.1.86",
+    "@tanstack/react-hotkeys": "^0.10.0",
     "@tanstack/react-router": "^1.95.0",
     "@tanstack/react-start": "^1.95.0",
     "@tanstack/react-table": "^8.21.3",
@@ -30,12 +35,16 @@
     "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
+    "@storybook/react-vite": "^10.4.3",
+    "@testing-library/react": "^16.3.2",
     "@types/mdast": "^4.0.4",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^5.0.0",
+    "jsdom": "^29.1.1",
     "remark-parse": "^11.0.0",
+    "storybook": "^10.4.3",
     "typescript": "^5.7.0",
     "unified": "^11.0.5",
     "vite": "^7.0.0",

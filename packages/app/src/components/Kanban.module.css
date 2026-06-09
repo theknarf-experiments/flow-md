@@ -1,0 +1,82 @@
+.board {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.lane {
+  flex: 1;
+  min-width: 180px;
+  background: var(--bg-side);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem;
+}
+
+.laneTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.count {
+  background: var(--bg-raise);
+  border-radius: 8px;
+  padding: 0 0.45rem;
+  font-weight: 400;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.card {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  background: var(--bg-raise);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+}
+
+.cardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cardTitle { font-size: 0.9rem; }
+.cardMeta {
+  color: var(--fg-dim);
+  font-size: 0.72rem;
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0.1rem;
+  visibility: hidden;
+}
+.card:hover .move { visibility: visible; }
+.move:hover { color: var(--accent); }
+
+.empty {
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 0.6rem 0;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}

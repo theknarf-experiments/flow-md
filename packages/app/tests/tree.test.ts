@@ -19,4 +19,13 @@ describe('buildTree', () => {
     expect(tree[0]!.path).toBe('docs')
     expect(tree[0]!.children![0]!.path).toBe('docs/x.md')
   })
+
+  it('seeds explicit (possibly empty) folders from dirs', () => {
+    const tree = buildTree(['a/x.md'], ['empty', 'a/sub'])
+    expect(tree.map((n) => n.name)).toEqual(['a', 'empty'])
+    expect(tree[1]!.children).toEqual([])
+    const a = tree[0]!
+    expect(a.children!.map((n) => n.name)).toEqual(['sub', 'x.md'])
+    expect(a.children![0]!.children).toEqual([])
+  })
 })
