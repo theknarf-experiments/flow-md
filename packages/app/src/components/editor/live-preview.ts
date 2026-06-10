@@ -27,7 +27,13 @@ import {
 } from '@codemirror/view'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { frontmatterRange, frontmatterSummary } from '../../lib/blocks.js'
-import { CheckboxWidget, DataViewWidget, TableWidget } from './widgets.js'
+import { scanJsxBlocks } from './jsx.js'
+import {
+  CheckboxWidget,
+  DataViewWidget,
+  JsxWidget,
+  TableWidget,
+} from './widgets.js'
 
 export interface LivePreviewConfig {
   path: string
@@ -151,10 +157,12 @@ function buildBlocks(
     }
   }
 
+  const fences: Array<{ from: number; to: number }> = []
   syntaxTree(state).iterate({
     enter(node: SyntaxNodeRef): boolean | undefined {
       if (node.to <= fmTo) return false
       if (node.name === 'FencedCode') {
+        fences.push({ from: node.from, to: node.to })
         const info = node.node.getChild('CodeInfo')
         const lang = info ? doc.sliceString(info.from, info.to) : ''
         if (lang === 'datalog-query' && !touchesLines(node.from, node.to)) {
@@ -183,6 +191,21 @@ function buildBlocks(
       return undefined
     },
   })
+
+  // JSX component blocks (MDX): rendered while the caret is elsewhere,
+  // raw JSX text when it's inside. Fenced code is excluded from the scan
+  // so a ```jsx example never evaluates.
+  for (const span of scanJsxBlocks(doc.toString(), fences)) {
+    if (span.from < fmTo) continue
+    if (touchesLines(span.from, span.to)) continue
+    out.push(
+      Decoration.replace({
+        widget: new JsxWidget(span.source),
+        block: true,
+      }).range(span.from, span.to),
+    )
+  }
+
   return Decoration.set(
     out.sort((a, b) => a.from - b.from),
     true,
@@ -240,6 +263,25 @@ function build(
     const fmEnd = doc.line(fm.end).to
     fmTo = fmEnd
     if (touchesLines(0, fmEnd)) lines(0, fmEnd, 'cm-frontmatter-src')
+  }
+
+  // Revealed JSX blocks (widgets live in the block field) read as source.
+  {
+    const fences: Array<{ from: number; to: number }> = []
+    syntaxTree(state).iterate({
+      enter(node) {
+        if (node.name === 'FencedCode') {
+          fences.push({ from: node.from, to: node.to })
+          return false
+        }
+        return undefined
+      },
+    })
+    for (const span of scanJsxBlocks(doc.toString(), fences)) {
+      if (span.from >= fmTo && touchesLines(span.from, span.to)) {
+        lines(span.from, span.to, 'cm-codeblock')
+      }
+    }
   }
 
   for (const range of view.visibleRanges) {

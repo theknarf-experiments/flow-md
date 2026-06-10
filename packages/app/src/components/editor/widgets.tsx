@@ -11,16 +11,21 @@
 // rebuilds — a React root that remounted on every keystroke would lose its
 // state (open cell editors, sort order) and thrash.
 
+import { evaluate } from '@mdx-js/mdx'
 import { syntaxTree } from '@codemirror/language'
 import { EditorView, WidgetType } from '@codemirror/view'
 import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
-import type { ReactNode } from 'react'
+import { type ComponentType, type ReactNode, useEffect, useState } from 'react'
 import { type Root, createRoot } from 'react-dom/client'
+import * as runtime from 'react/jsx-runtime'
 import { queriesCollection } from '../../lib/db.js'
 import { type MdTable, parseMdTable, serializeMdTable } from '../../lib/mdtable.js'
 import { DataView } from '../DataView.js'
+import { Graph } from '../Graph.js'
+import { Kanban } from '../Kanban.js'
 import { MdTableGrid } from './MdTableGrid.js'
+import widgetStyles from './widgets.module.css'
 
 // --- checkbox ------------------------------------------------------------------
 
@@ -178,6 +183,95 @@ export class TableWidget extends ReactWidget {
       />
     )
   }
+}
+
+// --- JSX blocks (MDX) ---------------------------------------------------------
+
+/** Components MDX notes can use without importing. */
+const REGISTRY = { Kanban, Graph }
+
+/** Compile one JSX/MDX snippet to a component, cached by source — widgets
+ *  rebuild on every decoration pass, the compiler shouldn't run again. */
+const compiled = new Map<string, Promise<ComponentType<{ components?: object }>>>()
+function compileJsx(source: string) {
+  let p = compiled.get(source)
+  if (!p) {
+    p = evaluate(source, { ...runtime }).then(
+      (mod) => mod.default as ComponentType<{ components?: object }>,
+    )
+    compiled.set(source, p)
+    p.catch(() => compiled.delete(source)) // don't cache failures
+  }
+  return p
+}
+
+/** A JSX block in an MDX note: renders the evaluated component while the
+ *  caret is elsewhere; a hover ✎ (or clicking into the block) reveals the
+ *  raw JSX for text editing. */
+export class JsxWidget extends ReactWidget {
+  constructor(readonly source: string) {
+    super()
+  }
+
+  override eq(other: JsxWidget): boolean {
+    return other.source === this.source
+  }
+
+  render(view: EditorView, dom: HTMLElement): ReactNode {
+    return (
+      <JsxBlock
+        source={this.source}
+        onEdit={() => {
+          const pos = view.posAtDOM(dom)
+          view.dispatch({ selection: { anchor: pos } })
+          view.focus()
+        }}
+      />
+    )
+  }
+}
+
+function JsxBlock(props: { source: string; onEdit: () => void }) {
+  const { source, onEdit } = props
+  const [state, setState] = useState<{
+    Comp: ComponentType<{ components?: object }> | null
+    error: string | null
+  }>({ Comp: null, error: null })
+
+  useEffect(() => {
+    let alive = true
+    compileJsx(source).then(
+      (Comp) => alive && setState({ Comp, error: null }),
+      (err: unknown) =>
+        alive &&
+        setState({
+          Comp: null,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+    )
+    return () => {
+      alive = false
+    }
+  }, [source])
+
+  return (
+    <div className={widgetStyles.jsx} data-testid="jsx-widget">
+      {state.error && <p className="offline">jsx error: {state.error}</p>}
+      {state.Comp && <state.Comp components={REGISTRY} />}
+      {!state.Comp && !state.error && (
+        <p className="hint">rendering component…</p>
+      )}
+      <button
+        type="button"
+        className={widgetStyles.jsxEdit}
+        title="edit component source"
+        data-testid="jsx-edit"
+        onClick={onEdit}
+      >
+        ✎
+      </button>
+    </div>
+  )
 }
 
 /** The Table syntax node currently rendered at this widget's position. */

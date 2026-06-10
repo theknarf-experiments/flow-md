@@ -97,18 +97,4 @@ export const api = {
   insert: (rel: string, row: Cell[]) => post('/insert', { rel, row }),
 
   deleteFact: (rel: string, row: Cell[]) => post('/delete', { rel, row }),
-
-  /** Toggle the GFM task at `line` of `file`. Pins path and line as
-   *  constants so the row is fully determined, then writes the new status
-   *  through the regular update path. */
-  async toggleTask(file: string, line: number, open: boolean): Promise<void> {
-    const q = `Task("${file}", status, text, ${line})`
-    const r = await this.run(q)
-    if (r.error) throw new Error(r.error)
-    const row = r.rows[0]
-    if (!row || r.rows.length !== 1) {
-      throw new Error(`no unique task at ${file}:${line}`)
-    }
-    await this.update({ q, row, column: 'status', value: open ? 'open' : 'closed' })
-  },
 }

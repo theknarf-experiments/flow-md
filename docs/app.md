@@ -50,13 +50,14 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   and frontmatter collapses to a `⋯ title, tags` chip. Edits save through
   the optimistic store, debounced; because the source is the document,
   files stay byte-exact apart from what you actually type.
-- `.mdx` notes keep the block-editing view (click a block to edit its
-  source in place, `Enter` continues into a new block, arrows walk block
-  boundaries) — a remark plugin stamps source positions through MDX
-  compilation, including onto JSX blocks, so `<Kanban/>` gets a hover-✎
-  that opens its own source. A `</>` toggle in the header still opens any
-  file as raw text — the escape hatch for broken MDX, `.ics` files, or
-  wholesale rewrites.
+- `.mdx` notes live-edit the same way: JSX blocks are just another rich
+  block — rendered as their evaluated component (`<Kanban/>` is a live,
+  draggable board *inside the editor*) while the caret is elsewhere, raw
+  JSX text when it's inside (hover-✎ jumps in). A small scanner finds
+  component spans, since multi-line JSX isn't valid CommonMark; compiled
+  snippets are cached by source. A `</>` toggle in the header still opens
+  any file as raw text — the escape hatch for half-typed JSX, `.ics`
+  files, or wholesale rewrites.
 - **Optimistic everything**: mutations render instantly from TanStack DB's
   optimistic overlay and roll back automatically (with the server's reason
   shown) if the write is rejected — e.g. a stale row hitting the concurrency

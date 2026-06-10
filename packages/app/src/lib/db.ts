@@ -152,23 +152,6 @@ export function newNote(path: string): Promise<unknown> {
   return tx.isPersisted.promise
 }
 
-/** Flip the checkbox on `line` (1-based) of the note. Optimistic: the
- *  markdown re-renders from the overlay before the save round-trips. */
-export function toggleTask(
-  path: string,
-  line: number,
-  checked: boolean,
-): Promise<unknown> {
-  const tx = notesCollection.update(path, (draft) => {
-    const lines = draft.content.split('\n')
-    const cur = lines[line - 1]
-    if (cur === undefined) throw new Error(`no line ${line} in ${path}`)
-    lines[line - 1] = cur.replace(/\[[ xX]\]/, checked ? '[x]' : '[ ]')
-    draft.content = lines.join('\n')
-  })
-  return tx.isPersisted.promise
-}
-
 // File-system operations (rename, delete, folders) are rare enough that we
 // skip optimistic overlays: call the server, then refetch both collections
 // so the tree and any open note converge immediately.
