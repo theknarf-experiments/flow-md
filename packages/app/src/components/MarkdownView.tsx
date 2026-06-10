@@ -52,6 +52,7 @@ import {
   insertBlock,
   replaceLines,
   sliceLines,
+  unwrapFlow,
 } from '../lib/blocks.js'
 import { saveNote, toggleTask } from '../lib/db.js'
 import { remarkWikiLinks, resolveWikiTarget } from '../lib/wiki.js'
@@ -88,6 +89,9 @@ interface Editing {
   caret: number
   /** True when the range is an insertion point (start = end + 1). */
   insert?: boolean
+  /** Edit-session id: keys the editor so each session mounts fresh, even
+   *  when two consecutive sessions target the same range. */
+  seq: number
 }
 
 interface MdContext {
@@ -97,11 +101,19 @@ interface MdContext {
   onToggle: (line: number, checked: boolean) => void
   editing: Editing | null
   beginEdit: (range: BlockRange, caret?: number) => void
-  commitEdit: (editing: Editing, draft: string) => void
-  /** Commit, then keep writing in a fresh block right below. */
-  continueBelow: (editing: Editing, draft: string) => void
+  /** `initial` is the text the editor displayed (unwrapped for flow blocks),
+   *  so dirty checks compare like with like — an untouched pass through a
+   *  block must never rewrite the file. */
+  commitEdit: (editing: Editing, draft: string, initial: string) => void
+  /** Commit if dirty, then keep writing in a fresh block right below. */
+  continueBelow: (editing: Editing, draft: string, initial: string) => void
   /** Commit if dirty, then move the caret into the neighbouring block. */
-  navigate: (editing: Editing, draft: string, dir: 'up' | 'down') => void
+  navigate: (
+    editing: Editing,
+    draft: string,
+    initial: string,
+    dir: 'up' | 'down',
+  ) => void
   cancelEdit: () => void
   /** Blocks announce their ranges so navigation knows the document order. */
   register: (range: BlockRange) => () => void
@@ -139,6 +151,7 @@ export function MdProvider(props: {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing | null>(null)
   const blocks = useRef(new Map<string, BlockRange>())
+  const seq = useRef(0)
 
   const register = useCallback((range: BlockRange) => {
     const key = `${range.start}:${range.end}`
@@ -186,9 +199,6 @@ export function MdProvider(props: {
       return { lastLine: e.range.start - 1 + newLines, delta: newLines - oldLines }
     }
 
-    const isDirty = (e: Editing, draft: string) =>
-      draft !== (e.insert || e.range.start < 1 ? '' : sliceLines(content, e.range))
-
     return {
       content,
       queries,
@@ -199,19 +209,29 @@ export function MdProvider(props: {
         toggleTask(path, line, checked).then(() => setError(null), report)
       },
       editing,
-      beginEdit: (range, caret = -1) => setEditing({ range, caret }),
+      beginEdit: (range, caret = -1) =>
+        setEditing({ range, caret, seq: ++seq.current }),
       cancelEdit: () => setEditing(null),
       register,
-      commitEdit: (e, draft) => {
+      commitEdit: (e, draft, initial) => {
         setEditing(null)
-        if (isDirty(e, draft)) apply(e, draft)
+        if (draft !== initial) apply(e, draft)
       },
-      continueBelow: (e, draft) => {
-        const { lastLine } = apply(e, draft)
+      continueBelow: (e, draft, initial) => {
+        if (draft === initial && e.range.start < 1) {
+          // Enter on an untouched append editor: stay at the tail.
+          setEditing({ range: APPEND, caret: 0, insert: true, seq: ++seq.current })
+          return
+        }
+        const { lastLine } =
+          draft !== initial
+            ? apply(e, draft)
+            : { lastLine: Math.max(e.range.end, 0) }
         setEditing({
           range: { start: lastLine + 1, end: lastLine },
           caret: 0,
           insert: true,
+          seq: ++seq.current,
         })
       },
       insertHost: (mine) => {
@@ -230,8 +250,8 @@ export function MdProvider(props: {
         }
         return true
       },
-      navigate: (e, draft, dir) => {
-        const dirty = isDirty(e, draft)
+      navigate: (e, draft, initial, dir) => {
+        const dirty = draft !== initial
         const { delta } = dirty ? apply(e, draft) : { delta: 0 }
         const sorted = [...blocks.current.values()].sort((a, b) => a.start - b.start)
         const target =
@@ -241,7 +261,9 @@ export function MdProvider(props: {
         if (!target) {
           // Walking down past the last block keeps writing (append editor).
           setEditing(
-            dir === 'down' ? { range: APPEND, caret: 0, insert: true } : null,
+            dir === 'down'
+              ? { range: APPEND, caret: 0, insert: true, seq: ++seq.current }
+              : null,
           )
           return
         }
@@ -249,6 +271,7 @@ export function MdProvider(props: {
         setEditing({
           range: { start: target.start + shift, end: target.end + shift },
           caret: dir === 'down' ? 0 : -1,
+          seq: ++seq.current,
         })
       },
     }
@@ -334,14 +357,15 @@ function InsertionEditor() {
   if (!editing) return null
   return (
     <BlockEditor
+      key={editing.seq}
       initial=""
       caret={0}
       kind="flow"
       placeholder="write…"
-      onCommit={(draft) => commitEdit(editing, draft)}
+      onCommit={(draft) => commitEdit(editing, draft, '')}
       onCancel={cancelEdit}
-      onContinue={(draft) => continueBelow(editing, draft)}
-      onNavigate={(dir, draft) => navigate(editing, draft, dir)}
+      onContinue={(draft) => continueBelow(editing, draft, '')}
+      onNavigate={(dir, draft) => navigate(editing, draft, '', dir)}
     />
   )
 }
@@ -360,15 +384,22 @@ function useBlockEditor(range: BlockRange | null, kind: BlockKind): ReactNode | 
   if (!range || !editing || editing.insert || !sameRange(editing.range, range)) {
     return null
   }
+  // Flow blocks edit as one logical line: hard-wrapped source joins so the
+  // editor wraps at the column width exactly like the rendered text. The
+  // unwrapped form is also what dirty checks compare against, so merely
+  // passing through a block never rewrites the file.
+  const raw = sliceLines(content, range)
+  const initial = kind === 'flow' ? unwrapFlow(raw) : raw
   return (
     <BlockEditor
-      initial={sliceLines(content, range)}
+      key={editing.seq}
+      initial={initial}
       caret={editing.caret}
       kind={kind}
-      onCommit={(draft) => commitEdit(editing, draft)}
+      onCommit={(draft) => commitEdit(editing, draft, initial)}
       onCancel={cancelEdit}
-      onContinue={(draft) => continueBelow(editing, draft)}
-      onNavigate={(dir, draft) => navigate(editing, draft, dir)}
+      onContinue={(draft) => continueBelow(editing, draft, initial)}
+      onNavigate={(dir, draft) => navigate(editing, draft, initial, dir)}
     />
   )
 }

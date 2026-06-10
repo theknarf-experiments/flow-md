@@ -6,6 +6,7 @@ import {
   insertBlock,
   replaceLines,
   sliceLines,
+  unwrapFlow,
 } from '../src/lib/blocks.js'
 
 const NOTE = ['---', 'title: X', 'tags: [a]', '---', '# Head', '', 'one', 'two', ''].join('\n')
@@ -37,6 +38,25 @@ describe('sliceLines / replaceLines', () => {
   it('round-trips: slice then replace with itself is identity', () => {
     const range = { start: 5, end: 5 }
     expect(replaceLines(NOTE, range, sliceLines(NOTE, range))).toBe(NOTE)
+  })
+})
+
+describe('unwrapFlow', () => {
+  it('joins hard-wrapped source lines into one logical line', () => {
+    expect(unwrapFlow('one two\nthree four\nfive')).toBe('one two three four five')
+  })
+
+  it('preserves GFM hard breaks (trailing two spaces / backslash)', () => {
+    expect(unwrapFlow('line one  \nline two')).toBe('line one  \nline two')
+    expect(unwrapFlow('line one\\\nline two')).toBe('line one\\\nline two')
+  })
+
+  it('leaves blank-line separations alone', () => {
+    expect(unwrapFlow('a\n\nb')).toBe('a\n\nb')
+  })
+
+  it('is a no-op on single lines', () => {
+    expect(unwrapFlow('just one line')).toBe('just one line')
   })
 })
 

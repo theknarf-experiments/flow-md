@@ -44,6 +44,20 @@ export function replaceLines(
   return [...before, ...middle, ...after].join('\n')
 }
 
+/** Join hard-wrapped source lines into one logical line for editing flow
+ *  blocks (paragraphs, headings): a single newline inside a paragraph is a
+ *  markdown soft break, so the rendered text reflows to the column width
+ *  while the source shows its literal ~76-col wrapping — joining makes the
+ *  editor wrap exactly like the rendered block. GFM hard breaks (a line
+ *  ending in two spaces or a backslash) are real <br>s and survive. */
+export function unwrapFlow(text: string): string {
+  return text.replace(/([^\n])\n(?!\n)/g, (_, last: string, at: number) => {
+    const line = text.slice(0, at + 1)
+    if (line.endsWith('  ') || last === '\\') return `${last}\n`
+    return `${last} `
+  })
+}
+
 /** Insert `draft` as a standalone block after `afterLine` (0 = top of the
  *  file), padding with blank lines so it doesn't merge into neighbours.
  *  Returns the new content plus the inserted block's line range, so the

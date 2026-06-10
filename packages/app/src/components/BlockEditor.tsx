@@ -41,6 +41,18 @@ export function BlockEditor(props: {
     el.setSelectionRange(at, at)
   }, [caret])
 
+  // Autosize: soft-wrapped logical lines make `rows` useless — measure.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [])
+  const resize = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }
+
   // Wrap the terminal actions so exactly one fires (a commit must suppress
   // the blur that follows it, Escape must suppress the blur-commit, ...).
   const finish = (action: (draft: string) => void) => {
@@ -93,8 +105,11 @@ export function BlockEditor(props: {
       spellCheck={false}
       value={draft}
       placeholder={placeholder}
-      rows={Math.max(draft.split('\n').length, 1)}
-      onChange={(e) => setDraft(e.target.value)}
+      rows={1}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        resize(e.target)
+      }}
       onBlur={commit}
       onKeyDown={onKeyDown}
     />
