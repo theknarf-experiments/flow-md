@@ -11,12 +11,23 @@ import { evaluate } from '@mdx-js/mdx'
 import { type ComponentType, useEffect, useState } from 'react'
 import * as runtime from 'react/jsx-runtime'
 import type { QueryResult } from '../lib/api.js'
+import { remarkBlockPositions } from '../lib/remark-block-positions.js'
 import { Graph } from './Graph.js'
 import { Kanban } from './Kanban.js'
-import { MD_COMPONENTS, MD_PLUGINS, MdProvider } from './MarkdownView.js'
+import {
+  MD_COMPONENTS,
+  MD_PLUGINS,
+  MdProvider,
+  editableJsx,
+} from './MarkdownView.js'
 
-/** Components MDX notes can use without importing. */
-const REGISTRY = { Kanban, Graph }
+/** Components MDX notes can use without importing — wrapped so each JSX
+ *  block is editable via the source range remarkBlockPositions hands it. */
+const REGISTRY = { Kanban: editableJsx(Kanban), Graph: editableJsx(Graph) }
+
+/** Markdown pipeline plus position stamping: compiled MDX passes no `node`
+ *  prop, so block ranges travel as data attributes instead. */
+const MDX_PLUGINS = [...MD_PLUGINS, remarkBlockPositions] as const
 
 type MdxComponent = ComponentType<{ components?: Record<string, unknown> }>
 
@@ -36,7 +47,7 @@ export function MdxView(props: {
     let alive = true
     evaluate(content, {
       ...runtime,
-      remarkPlugins: MD_PLUGINS as never,
+      remarkPlugins: MDX_PLUGINS as never,
     }).then(
       (mod) => {
         if (alive) {

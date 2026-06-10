@@ -44,6 +44,35 @@ export function replaceLines(
   return [...before, ...middle, ...after].join('\n')
 }
 
+/** Insert `draft` as a standalone block after `afterLine` (0 = top of the
+ *  file), padding with blank lines so it doesn't merge into neighbours.
+ *  Returns the new content plus the inserted block's line range, so the
+ *  caller can keep editing relative to it. */
+export function insertBlock(
+  content: string,
+  afterLine: number,
+  draft: string,
+): { content: string; range: BlockRange } {
+  const lines = content.split('\n')
+  const before = lines.slice(0, afterLine)
+  const after = lines.slice(afterLine)
+  const mid = draft === '' ? [] : draft.split('\n')
+  const padBefore = before.length > 0 && before[before.length - 1]!.trim() !== ''
+  const padAfter = after.length > 0 && after[0]!.trim() !== ''
+  const out = [
+    ...before,
+    ...(padBefore ? [''] : []),
+    ...mid,
+    ...(padAfter ? [''] : []),
+    ...after,
+  ]
+  const start = before.length + (padBefore ? 1 : 0) + 1
+  return {
+    content: out.join('\n'),
+    range: { start, end: start + Math.max(mid.length - 1, 0) },
+  }
+}
+
 /** The frontmatter block (`---` fenced YAML at the very top), if present. */
 export function frontmatterRange(content: string): BlockRange | null {
   const lines = content.split('\n')

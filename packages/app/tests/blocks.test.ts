@@ -3,6 +3,7 @@ import {
   APPEND,
   frontmatterRange,
   frontmatterSummary,
+  insertBlock,
   replaceLines,
   sliceLines,
 } from '../src/lib/blocks.js'
@@ -36,6 +37,31 @@ describe('sliceLines / replaceLines', () => {
   it('round-trips: slice then replace with itself is identity', () => {
     const range = { start: 5, end: 5 }
     expect(replaceLines(NOTE, range, sliceLines(NOTE, range))).toBe(NOTE)
+  })
+})
+
+describe('insertBlock', () => {
+  it('pads with blank lines against non-empty neighbours', () => {
+    const { content, range } = insertBlock('para one\npara two', 1, 'inserted')
+    expect(content).toBe('para one\n\ninserted\n\npara two')
+    expect(range).toEqual({ start: 3, end: 3 })
+  })
+
+  it('skips padding when neighbours are already blank', () => {
+    const { content, range } = insertBlock('a\n\nb', 2, 'mid')
+    expect(content).toBe('a\n\nmid\n\nb')
+    expect(range).toEqual({ start: 3, end: 3 })
+  })
+
+  it('inserts at the very top and bottom', () => {
+    expect(insertBlock('body', 0, 'top').content).toBe('top\n\nbody')
+    const tail = insertBlock('body\n', 2, 'tail')
+    expect(tail.content).toBe('body\n\ntail')
+  })
+
+  it('reports multi-line ranges so editing can continue from them', () => {
+    const { range } = insertBlock('a\n\nb', 2, 'x\ny')
+    expect(range).toEqual({ start: 3, end: 4 })
   })
 })
 

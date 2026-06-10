@@ -1,21 +1,22 @@
-// One coherent view: rendered markdown that is also the editor. Every block
-// (paragraph, heading, list, quote, table, code fence) knows its source line
-// range from remark positions; clicking a block swaps it for an inline
-// source editor (BlockEditor), and committing splices the draft back into
-// the note through the optimistic save path — so the block re-renders
+// One continuous view: rendered markdown that is also the editor, with no
+// open/close sensation. Clicking a block swaps it for an in-flow source
+// editor with the caret where you clicked; Enter at the end of a paragraph
+// commits and keeps writing in a fresh block below; arrow keys walk the
+// caret across block boundaries like one document. Committing splices the
+// draft back into the note through the optimistic save, so blocks re-render
 // instantly. Interactive elements (links, checkboxes, dataview cells) keep
-// their own behaviour; clicks on them never enter edit mode.
+// their own behaviour and never enter edit mode.
 //
-// On top of that, the flow-md behaviours from before:
+// Block positions come from remark `node.position` in plain markdown; in
+// MDX (where compiled JSX passes no node prop) they arrive as
+// data-block-start/end attributes stamped by remarkBlockPositions — including
+// on JSX components like <Kanban/>, which makes those blocks editable too.
 //
-//   • `datalog-query` fences render as live DataView tables (matched to the
-//     server's QueryResult by fence line) with a ✎ in the footer to edit the
-//     query source; `datalog` fences render as styled rule blocks.
-//   • Task checkboxes toggle optimistically through the notes collection.
-//   • `[[wiki links]]` become router links, resolved against the file list.
-//   • Frontmatter renders as a collapsed chip above the note — click to
-//     edit it as text, instead of being invisible like before.
-//   • A trailing "+" affordance appends a new block to the note.
+// The flow-md behaviours from before all still apply: datalog-query fences
+// render live DataViews (✎ in the footer edits the fence), datalog fences
+// render as rule blocks, checkboxes toggle through the notes collection,
+// wiki links resolve, frontmatter shows as an editable chip, and a trailing
+// "+" appends a block.
 //
 // The component overrides are module-level and read their dynamic inputs
 // from context. This is load-bearing, not style: inline closures would get a
@@ -31,8 +32,11 @@ import {
   type ReactNode,
   createContext,
   isValidElement,
+  useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import Markdown, { type Components } from 'react-markdown'
@@ -45,12 +49,13 @@ import {
   type BlockRange,
   frontmatterRange,
   frontmatterSummary,
+  insertBlock,
   replaceLines,
   sliceLines,
 } from '../lib/blocks.js'
 import { saveNote, toggleTask } from '../lib/db.js'
 import { remarkWikiLinks, resolveWikiTarget } from '../lib/wiki.js'
-import { BlockEditor } from './BlockEditor.js'
+import { type BlockKind, BlockEditor } from './BlockEditor.js'
 import { DataView } from './DataView.js'
 import styles from './MarkdownView.module.css'
 
@@ -77,27 +82,48 @@ export const MD_PLUGINS = [
   remarkTaskLines,
 ] as const
 
+interface Editing {
+  range: BlockRange
+  /** Caret offset into the block source; -1 = end. */
+  caret: number
+  /** True when the range is an insertion point (start = end + 1). */
+  insert?: boolean
+}
+
 interface MdContext {
   content: string
   queries: QueryResult[]
   files: readonly string[]
   onToggle: (line: number, checked: boolean) => void
-  /** Block currently being edited (or APPEND), null when just reading. */
-  editing: BlockRange | null
-  beginEdit: (range: BlockRange) => void
-  commitEdit: (range: BlockRange, draft: string) => void
+  editing: Editing | null
+  beginEdit: (range: BlockRange, caret?: number) => void
+  commitEdit: (editing: Editing, draft: string) => void
+  /** Commit, then keep writing in a fresh block right below. */
+  continueBelow: (editing: Editing, draft: string) => void
+  /** Commit if dirty, then move the caret into the neighbouring block. */
+  navigate: (editing: Editing, draft: string, dir: 'up' | 'down') => void
   cancelEdit: () => void
+  /** Blocks announce their ranges so navigation knows the document order. */
+  register: (range: BlockRange) => () => void
+  /** True when this block (or the document tail) should render the active
+   *  insertion editor directly above itself. */
+  insertHost: (mine: BlockRange | 'tail') => boolean
 }
 
+const noop = () => {}
 const Ctx = createContext<MdContext>({
   content: '',
   queries: [],
   files: [],
-  onToggle: () => {},
+  onToggle: noop,
   editing: null,
-  beginEdit: () => {},
-  commitEdit: () => {},
-  cancelEdit: () => {},
+  beginEdit: noop,
+  commitEdit: noop,
+  continueBelow: noop,
+  navigate: noop,
+  cancelEdit: noop,
+  register: () => noop,
+  insertHost: () => false,
 })
 
 /** Context + error banner + frontmatter chip + append affordance around any
@@ -111,11 +137,58 @@ export function MdProvider(props: {
 }) {
   const { path, content, queries, files, children } = props
   const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState<BlockRange | null>(null)
+  const [editing, setEditing] = useState<Editing | null>(null)
+  const blocks = useRef(new Map<string, BlockRange>())
+
+  const register = useCallback((range: BlockRange) => {
+    const key = `${range.start}:${range.end}`
+    blocks.current.set(key, range)
+    return () => {
+      blocks.current.delete(key)
+    }
+  }, [])
 
   const ctx = useMemo<MdContext>(() => {
     const report = (err: unknown) =>
       setError(err instanceof Error ? err.message : String(err))
+    const save = (next: string) =>
+      saveNote(path, next).then(() => setError(null), report)
+
+    /** Apply a draft to the note; returns the committed block's last line
+     *  (in the *new* content) and the line-count delta, for follow-ups. */
+    const apply = (
+      e: Editing,
+      draft: string,
+    ): { lastLine: number; delta: number } => {
+      if (e.insert || e.range.start < 1) {
+        if (draft.trim() === '') {
+          return { lastLine: Math.max(e.range.end, 0), delta: 0 }
+        }
+        const after = e.range.start < 1 ? content.split('\n').length : e.range.start - 1
+        const r =
+          e.range.start < 1
+            ? (() => {
+                const next = replaceLines(content, APPEND, draft)
+                const lastLine = next.split('\n').length - 1
+                void save(next)
+                return { lastLine, delta: lastLine - after }
+              })()
+            : (() => {
+                const { content: next, range } = insertBlock(content, after, draft)
+                void save(next)
+                return { lastLine: range.end, delta: range.end - after }
+              })()
+        return r
+      }
+      const oldLines = e.range.end - e.range.start + 1
+      const newLines = draft === '' ? 0 : draft.split('\n').length
+      void save(replaceLines(content, e.range, draft))
+      return { lastLine: e.range.start - 1 + newLines, delta: newLines - oldLines }
+    }
+
+    const isDirty = (e: Editing, draft: string) =>
+      draft !== (e.insert || e.range.start < 1 ? '' : sliceLines(content, e.range))
+
     return {
       content,
       queries,
@@ -126,17 +199,60 @@ export function MdProvider(props: {
         toggleTask(path, line, checked).then(() => setError(null), report)
       },
       editing,
-      beginEdit: setEditing,
-      commitEdit: (range, draft) => {
-        setEditing(null)
-        saveNote(path, replaceLines(content, range, draft)).then(
-          () => setError(null),
-          report,
-        )
-      },
+      beginEdit: (range, caret = -1) => setEditing({ range, caret }),
       cancelEdit: () => setEditing(null),
+      register,
+      commitEdit: (e, draft) => {
+        setEditing(null)
+        if (isDirty(e, draft)) apply(e, draft)
+      },
+      continueBelow: (e, draft) => {
+        const { lastLine } = apply(e, draft)
+        setEditing({
+          range: { start: lastLine + 1, end: lastLine },
+          caret: 0,
+          insert: true,
+        })
+      },
+      insertHost: (mine) => {
+        if (!editing || !(editing.insert || editing.range.start < 1)) return false
+        const at = editing.range.start
+        if (mine === 'tail') {
+          if (at < 1) return true
+          for (const b of blocks.current.values()) {
+            if (b.start >= at) return false
+          }
+          return true
+        }
+        if (at < 1 || mine.start < at) return false
+        for (const b of blocks.current.values()) {
+          if (b.start >= at && b.start < mine.start) return false
+        }
+        return true
+      },
+      navigate: (e, draft, dir) => {
+        const dirty = isDirty(e, draft)
+        const { delta } = dirty ? apply(e, draft) : { delta: 0 }
+        const sorted = [...blocks.current.values()].sort((a, b) => a.start - b.start)
+        const target =
+          dir === 'down'
+            ? sorted.find((b) => b.start > e.range.end)
+            : [...sorted].reverse().find((b) => b.end < e.range.start)
+        if (!target) {
+          // Walking down past the last block keeps writing (append editor).
+          setEditing(
+            dir === 'down' ? { range: APPEND, caret: 0, insert: true } : null,
+          )
+          return
+        }
+        const shift = dirty && target.start > e.range.start ? delta : 0
+        setEditing({
+          range: { start: target.start + shift, end: target.end + shift },
+          caret: dir === 'down' ? 0 : -1,
+        })
+      },
     }
-  }, [path, content, queries, files, editing])
+  }, [path, content, queries, files, editing, register])
 
   return (
     <div className={styles.markdown}>
@@ -180,54 +296,117 @@ function isInteractive(target: EventTarget | null): boolean {
   )
 }
 
-function rangeOf(node?: {
+interface PositionedNode {
   position?: { start: { line: number }; end: { line: number } }
-}): BlockRange | null {
-  const start = node?.position?.start.line
-  const end = node?.position?.end.line
+}
+
+/** Block range from remark positions (markdown) or the data attributes
+ *  remarkBlockPositions stamps for MDX. */
+export function rangeFrom(
+  node: PositionedNode | undefined,
+  props?: Record<string, unknown>,
+): BlockRange | null {
+  const start = node?.position?.start.line ?? Number(props?.['data-block-start'] ?? 0)
+  const end = node?.position?.end.line ?? Number(props?.['data-block-end'] ?? 0)
   return start && end ? { start, end } : null
 }
 
-const sameRange = (a: BlockRange | null, b: BlockRange | null) =>
-  !!a && !!b && a.start === b.start && a.end === b.end
+const sameRange = (a: BlockRange, b: BlockRange) =>
+  a.start === b.start && a.end === b.end
 
-/** Either the inline editor for this block, or null when not editing it. */
-function useBlockEditor(range: BlockRange | null): ReactNode | null {
-  const { content, editing, commitEdit, cancelEdit } = useContext(Ctx)
-  if (!range || !sameRange(editing, range)) return null
+/** Caret offset of the current selection inside `el`'s rendered text — set
+ *  by the click that is about to open the editor. Markup characters make
+ *  this approximate for formatted text; exact for plain text. */
+function clickCaret(el: Element): number {
+  const sel = window.getSelection()
+  if (!sel?.focusNode || !el.contains(sel.focusNode)) return -1
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.setEnd(sel.focusNode, sel.focusOffset)
+  return range.toString().length
+}
+
+/** The active insertion editor (a fresh block being written between
+ *  existing ones, or at the tail). Hosted by whichever block insertHost
+ *  picks. */
+function InsertionEditor() {
+  const { editing, commitEdit, continueBelow, navigate, cancelEdit } = useContext(Ctx)
+  if (!editing) return null
+  return (
+    <BlockEditor
+      initial=""
+      caret={0}
+      kind="flow"
+      placeholder="write…"
+      onCommit={(draft) => commitEdit(editing, draft)}
+      onCancel={cancelEdit}
+      onContinue={(draft) => continueBelow(editing, draft)}
+      onNavigate={(dir, draft) => navigate(editing, draft, dir)}
+    />
+  )
+}
+
+/** The inline editor for `range` when it's the active block, else null.
+ *  Also registers the block for arrow-key navigation. */
+function useBlockEditor(range: BlockRange | null, kind: BlockKind): ReactNode | null {
+  const { content, editing, commitEdit, continueBelow, navigate, cancelEdit, register } =
+    useContext(Ctx)
+  const start = range?.start ?? 0
+  const end = range?.end ?? 0
+  useEffect(() => {
+    if (start && end) return register({ start, end })
+    return undefined
+  }, [register, start, end])
+  if (!range || !editing || editing.insert || !sameRange(editing.range, range)) {
+    return null
+  }
   return (
     <BlockEditor
       initial={sliceLines(content, range)}
-      onCommit={(draft) => commitEdit(range, draft)}
+      caret={editing.caret}
+      kind={kind}
+      onCommit={(draft) => commitEdit(editing, draft)}
       onCancel={cancelEdit}
+      onContinue={(draft) => continueBelow(editing, draft)}
+      onNavigate={(dir, draft) => navigate(editing, draft, dir)}
     />
   )
 }
 
 interface BlockProps {
-  node?: { position?: { start: { line: number }; end: { line: number } } }
+  node?: PositionedNode
   children?: ReactNode
   className?: string
 }
 
+const FLOW_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
 /** Wrap a plain block element so clicking it (outside interactive children)
- *  swaps it for the inline source editor. */
-function editable(Tag: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'ol' | 'blockquote' | 'table') {
-  function EditableBlock({ node, children, className }: BlockProps) {
-    const { beginEdit } = useContext(Ctx)
-    const range = rangeOf(node)
-    const editor = useBlockEditor(range)
+ *  swaps it for the in-flow source editor, caret at the click point. */
+function editable(
+  Tag: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'ol' | 'blockquote' | 'table',
+) {
+  function EditableBlock({ node, children, className, ...rest }: BlockProps) {
+    const { beginEdit, insertHost } = useContext(Ctx)
+    const range = rangeFrom(node, rest as Record<string, unknown>)
+    const editor = useBlockEditor(range, FLOW_TAGS.has(Tag) ? 'flow' : 'verbatim')
+    const hostsInsert = range ? insertHost(range) : false
     if (editor) return <>{editor}</>
     const onClick = (e: ReactMouseEvent) => {
-      if (range && !isInteractive(e.target)) beginEdit(range)
+      if (range && !isInteractive(e.target)) {
+        beginEdit(range, clickCaret(e.currentTarget))
+      }
     }
     return (
-      <Tag
-        className={className ? `${className} ${styles.block}` : styles.block}
-        onClick={onClick}
-      >
-        {children}
-      </Tag>
+      <>
+        {hostsInsert && <InsertionEditor />}
+        <Tag
+          className={className ? `${className} ${styles.block}` : styles.block}
+          onClick={onClick}
+        >
+          {children}
+        </Tag>
+      </>
     )
   }
   EditableBlock.displayName = `Editable(${Tag})`
@@ -237,7 +416,7 @@ function editable(Tag: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'o
 function FrontmatterChip() {
   const { content, beginEdit } = useContext(Ctx)
   const range = useMemo(() => frontmatterRange(content), [content])
-  const editor = useBlockEditor(range)
+  const editor = useBlockEditor(range, 'verbatim')
   if (editor) return <>{editor}</>
   if (!range) return null
   return (
@@ -254,9 +433,8 @@ function FrontmatterChip() {
 }
 
 function AppendBlock() {
-  const { beginEdit } = useContext(Ctx)
-  const editor = useBlockEditor(APPEND)
-  if (editor) return <>{editor}</>
+  const { beginEdit, insertHost } = useContext(Ctx)
+  if (insertHost('tail')) return <InsertionEditor />
   return (
     <button
       type="button"
@@ -273,30 +451,37 @@ function AppendBlock() {
 // --- stable component overrides ----------------------------------------------
 
 const PreBlock: Components['pre'] = ({ node, children }) => {
-  const { queries, beginEdit } = useContext(Ctx)
-  const range = rangeOf(node)
-  const editor = useBlockEditor(range)
+  const { queries, beginEdit, insertHost } = useContext(Ctx)
+  const child = Children.toArray(children)[0]
+  const childProps = isValidElement<{
+    className?: string
+    children?: ReactNode
+  }>(child)
+    ? (child.props as Record<string, unknown>)
+    : undefined
+  const range = rangeFrom(node, childProps)
+  const editor = useBlockEditor(range, 'verbatim')
+  const hostsInsert = range ? insertHost(range) : false
   if (editor) return <>{editor}</>
 
-  const child = Children.toArray(children)[0]
+  let body: ReactNode
   if (isValidElement<{ className?: string; children?: ReactNode }>(child)) {
     const cls = child.props.className ?? ''
     const source = String(child.props.children ?? '')
     if (cls.includes('language-datalog-query')) {
-      const line = node?.position?.start.line ?? 0
+      const line = range?.start ?? 0
       const match =
         queries.find((q) => q.line === line) ??
         queries.find((q) => q.source.trim() === source.trim())
-      return (
+      body = (
         <DataView
           source={source}
           result={match ?? null}
           onEditSource={range ? () => beginEdit(range) : undefined}
         />
       )
-    }
-    if (cls.includes('language-datalog')) {
-      return (
+    } else if (cls.includes('language-datalog')) {
+      body = (
         <pre
           className={`${styles.ruleBlock} ${styles.block}`}
           onClick={() => range && beginEdit(range)}
@@ -307,10 +492,16 @@ const PreBlock: Components['pre'] = ({ node, children }) => {
       )
     }
   }
-  return (
+  body ??= (
     <pre className={styles.block} onClick={() => range && beginEdit(range)}>
       {children}
     </pre>
+  )
+  return (
+    <>
+      {hostsInsert && <InsertionEditor />}
+      {body}
+    </>
   )
 }
 
@@ -358,6 +549,38 @@ const Anchor: Components['a'] = ({ href, children }) => {
       {children}
     </a>
   )
+}
+
+/** Wrap an MDX registry component (Kanban, Graph, …) so the JSX block it
+ *  came from is editable too — remarkBlockPositions hands the component its
+ *  own source range as data attributes. */
+export function editableJsx<P extends object>(
+  Comp: React.ComponentType<P>,
+): React.ComponentType<P> {
+  function EditableJsx(props: P & Record<string, unknown>) {
+    const { beginEdit } = useContext(Ctx)
+    const range = rangeFrom(undefined, props)
+    const editor = useBlockEditor(range, 'verbatim')
+    if (editor) return <>{editor}</>
+    return (
+      <div className={styles.jsxBlock}>
+        <Comp {...props} />
+        {range && (
+          <button
+            type="button"
+            className={styles.jsxEdit}
+            title="edit component source"
+            data-testid="jsx-edit"
+            onClick={() => beginEdit(range)}
+          >
+            ✎
+          </button>
+        )}
+      </div>
+    )
+  }
+  EditableJsx.displayName = `EditableJsx(${Comp.displayName ?? Comp.name})`
+  return EditableJsx as React.ComponentType<P>
 }
 
 export const MD_COMPONENTS: Components = {

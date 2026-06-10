@@ -1,15 +1,30 @@
+/* Sits in the text flow: no box, no background jump — just a thin accent
+   rule in the margin marking "this block is source right now". */
 .block {
   display: block;
   width: 100%;
-  background: var(--bg-side);
+  background: none;
   color: var(--fg);
-  border: 1px solid var(--accent-dim);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
-  margin: 0.4rem 0;
+  border: none;
+  border-left: 2px solid var(--accent-dim);
+  border-radius: 0;
+  padding: 0 0 0 0.6rem;
+  margin: 0.4rem 0 0.4rem -0.6rem;
+  resize: none;
+  overflow: hidden;
+}
+.block:focus { outline: none; border-left-color: var(--accent); }
+
+/* Flow blocks (paragraphs, headings) read like the surrounding text. */
+.flow {
+  font: inherit;
+  line-height: 1.6;
+}
+
+/* Verbatim blocks (lists, fences, quotes, tables, frontmatter) read as
+   source. */
+.verbatim {
   font-family: var(--mono);
   font-size: 0.9rem;
   line-height: 1.55;
-  resize: vertical;
 }
-.block:focus { outline: 1px solid var(--accent); }

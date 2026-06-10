@@ -39,16 +39,21 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   in the source file.
 - **Task checkboxes** are real: ticking one rewrites the `- [ ]` in the
   markdown via the same path.
-- **One view, no edit mode**: the rendered note *is* the editor. Click any
-  block — paragraph, heading, list, quote, table, code fence — and it swaps
-  in place for a small source editor (blur or `⌘Enter` commits, `Escape`
-  cancels); the optimistic save re-renders it instantly. Frontmatter shows
-  as a collapsed `⋯ title, tags` chip you can click to edit, dataviews carry
-  a ✎ to edit their query, and a trailing `+` appends a new block. A `</>`
-  toggle in the header opens the whole file as raw text — the escape hatch
-  for broken MDX, `.ics` files, or wholesale rewrites. (In `.mdx` notes the
-  compiled JSX carries no source positions, so block editing degrades
-  gracefully: chip, append and source mode still work.)
+- **One view, no edit mode**: the rendered note *is* the editor, and editing
+  feels continuous rather than modal. Click anywhere in a block — paragraph,
+  heading, list, quote, table, code fence — and it becomes in-flow source
+  with the caret where you clicked. `Enter` at the end of a paragraph
+  commits and keeps writing in a fresh block below (Notion-style;
+  `Shift+Enter` is a literal newline); `ArrowUp`/`ArrowDown` past a block's
+  edge walk the caret into the neighbouring block; blur or `⌘Enter` commits
+  and `Escape` cancels. The optimistic save re-renders committed blocks
+  instantly. Frontmatter shows as a collapsed `⋯ title, tags` chip you can
+  click to edit, dataviews carry a ✎ to edit their query, and a trailing `+`
+  appends a block. This all works in `.mdx` too — a remark plugin stamps
+  source positions through MDX compilation, including onto JSX blocks, so
+  `<Kanban/>` gets a hover-✎ that opens its own source. A `</>` toggle in
+  the header still opens the whole file as raw text — the escape hatch for
+  broken MDX, `.ics` files, or wholesale rewrites.
 - **Optimistic everything**: mutations render instantly from TanStack DB's
   optimistic overlay and roll back automatically (with the server's reason
   shown) if the write is rejected — e.g. a stale row hitting the concurrency
