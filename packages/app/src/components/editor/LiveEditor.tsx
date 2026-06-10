@@ -17,6 +17,7 @@ import {
   markdown,
   markdownLanguage,
 } from '@codemirror/lang-markdown'
+import { languages } from '@codemirror/language-data'
 import { EditorState } from '@codemirror/state'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { useLiveQuery } from '@tanstack/react-db'
@@ -73,7 +74,9 @@ export function LiveEditor(props: { path: string; content: string }) {
         history(),
         drawSelection(),
         EditorView.lineWrapping,
-        markdown({ base: markdownLanguage }),
+        // codeLanguages: fenced blocks parse their info-string language
+        // (lazy-loaded), which the highlight style in live-preview colors.
+        markdown({ base: markdownLanguage, codeLanguages: languages }),
         keymap.of([
           { key: 'Enter', run: insertNewlineContinueMarkup },
           { key: 'Backspace', run: deleteMarkupBackward },

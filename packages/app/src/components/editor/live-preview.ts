@@ -10,7 +10,11 @@
 // pipe tables render editable Tanstack grids (see widgets.tsx), task markers
 // render real checkboxes. Everything else is plain styled text.
 
-import { syntaxTree } from '@codemirror/language'
+import {
+  HighlightStyle,
+  syntaxHighlighting,
+  syntaxTree,
+} from '@codemirror/language'
 import {
   type EditorState,
   type Range,
@@ -26,6 +30,7 @@ import {
   WidgetType,
 } from '@codemirror/view'
 import type { SyntaxNodeRef } from '@lezer/common'
+import { tags as t } from '@lezer/highlight'
 import { frontmatterRange, frontmatterSummary } from '../../lib/blocks.js'
 import { scanJsxBlocks } from './jsx.js'
 import {
@@ -123,8 +128,31 @@ export function livePreview(config: LivePreviewConfig) {
         ),
     },
   )
-  return [blockField, plugin, clickHandler(config), theme]
+  return [
+    blockField,
+    plugin,
+    clickHandler(config),
+    theme,
+    syntaxHighlighting(codeHighlight),
+  ]
 }
+
+/** Token colors for fenced code (the nested language parsers' tags). The
+ *  markdown constructs themselves stay with the reveal decorations — only
+ *  code-shaped tags are listed here, so the two systems never fight. */
+const codeHighlight = HighlightStyle.define([
+  { tag: [t.keyword, t.modifier, t.operatorKeyword], color: '#b294f0' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: '#9ece6a' },
+  { tag: [t.comment, t.blockComment, t.lineComment], color: '#6a6a78', fontStyle: 'italic' },
+  { tag: [t.number, t.bool, t.atom, t.null], color: '#e0af68' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#7aa2f7' },
+  { tag: [t.typeName, t.className, t.namespace], color: '#73daca' },
+  { tag: [t.propertyName, t.attributeName], color: '#7dcfff' },
+  { tag: [t.definition(t.variableName), t.macroName], color: '#dcdce4' },
+  { tag: [t.operator, t.punctuation, t.bracket], color: '#8e8e9a' },
+  { tag: [t.tagName, t.angleBracket], color: '#f7768e' },
+  { tag: t.invalid, color: '#e87e7e' },
+])
 
 /** Block widgets over the whole document: dataview fences, tables and the
  *  frontmatter chip, each rendered while the selection is elsewhere. */
