@@ -63,6 +63,17 @@
 }
 .foot code { background: none; }
 
+.editSource {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+  padding: 0;
+}
+.editSource:hover { color: var(--accent); }
+
 .empty { color: var(--fg-dim); padding: 0.5rem 0.75rem; margin: 0; }
 .source {
   margin: 0;

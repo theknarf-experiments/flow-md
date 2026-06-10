@@ -2,6 +2,11 @@
 // `notes`, dataview results from `queries`, both filtered down to this path.
 // No fetch orchestration here — the db layer syncs, mutations are optimistic,
 // and this component just renders whatever the live queries currently hold.
+//
+// There is no separate edit mode: the rendered view *is* the editor (blocks
+// edit in place, dataview cells and checkboxes write through). The single
+// `</>` toggle opens raw source as an escape hatch — for fixing broken MDX,
+// editing .ics files, or wholesale rewrites.
 
 import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
@@ -16,7 +21,7 @@ import { MdxView } from './MdxView.js'
 import styles from './NotePage.module.css'
 
 export function NotePage({ path }: { path: string }) {
-  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [showSource, setShowSource] = useState(false)
 
   const { data: notes } = useLiveQuery(
     (q) =>
@@ -48,24 +53,17 @@ export function NotePage({ path }: { path: string }) {
     <div className={styles.note}>
       <header className={styles.head}>
         <h2 className={styles.path}>{path}</h2>
-        <div className={styles.modeSwitch}>
-          <button
-            type="button"
-            className={mode === 'view' ? styles.active : ''}
-            onClick={() => setMode('view')}
-          >
-            view
-          </button>
-          <button
-            type="button"
-            className={mode === 'edit' ? styles.active : ''}
-            onClick={() => setMode('edit')}
-          >
-            edit
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`${styles.sourceToggle} ${showSource ? styles.active : ''}`}
+          title={showSource ? 'back to the note' : 'edit raw source'}
+          data-testid="source-toggle"
+          onClick={() => setShowSource(!showSource)}
+        >
+          {'</>'}
+        </button>
       </header>
-      {mode === 'edit' ? (
+      {showSource ? (
         <Editor key={path} path={path} initial={note.content} />
       ) : (
         <FileView

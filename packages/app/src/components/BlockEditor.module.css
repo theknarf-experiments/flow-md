@@ -1,0 +1,15 @@
+.block {
+  display: block;
+  width: 100%;
+  background: var(--bg-side);
+  color: var(--fg);
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+  margin: 0.4rem 0;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+.block:focus { outline: 1px solid var(--accent); }

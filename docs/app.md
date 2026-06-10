@@ -39,9 +39,16 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   in the source file.
 - **Task checkboxes** are real: ticking one rewrites the `- [ ]` in the
   markdown via the same path.
-- **Edit mode**: a plain textarea with `⌘S` save through `PUT /file`. The
-  save feeds the vault directly, so dataviews everywhere update incrementally
-  without waiting on the file watcher.
+- **One view, no edit mode**: the rendered note *is* the editor. Click any
+  block — paragraph, heading, list, quote, table, code fence — and it swaps
+  in place for a small source editor (blur or `⌘Enter` commits, `Escape`
+  cancels); the optimistic save re-renders it instantly. Frontmatter shows
+  as a collapsed `⋯ title, tags` chip you can click to edit, dataviews carry
+  a ✎ to edit their query, and a trailing `+` appends a new block. A `</>`
+  toggle in the header opens the whole file as raw text — the escape hatch
+  for broken MDX, `.ics` files, or wholesale rewrites. (In `.mdx` notes the
+  compiled JSX carries no source positions, so block editing degrades
+  gracefully: chip, append and source mode still work.)
 - **Optimistic everything**: mutations render instantly from TanStack DB's
   optimistic overlay and roll back automatically (with the server's reason
   shown) if the write is rejected — e.g. a stale row hitting the concurrency

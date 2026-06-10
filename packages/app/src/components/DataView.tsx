@@ -28,8 +28,10 @@ const rowKey = (row: Cell[]): string => JSON.stringify(row)
 export function DataView(props: {
   source: string
   result: QueryResult | null
+  /** Edit the query block's source text (wired by the markdown view). */
+  onEditSource?: () => void
 }) {
-  const { source, result } = props
+  const { source, result, onEditSource } = props
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<{ key: string; column: string } | null>(
     null,
@@ -175,6 +177,17 @@ export function DataView(props: {
         <code>{result.source.trim()}</code>
         <span>
           {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'}
+          {onEditSource && (
+            <button
+              type="button"
+              className={styles.editSource}
+              title="edit query"
+              data-testid="dataview-edit-source"
+              onClick={onEditSource}
+            >
+              ✎
+            </button>
+          )}
         </span>
       </div>
       {error && <p className="offline">{error}</p>}

@@ -29,6 +29,47 @@
   accent-color: var(--accent);
 }
 
+/* Click-to-edit blocks: a quiet affordance on hover, nothing while reading. */
+.block { border-radius: 6px; }
+.block:hover {
+  background: color-mix(in srgb, var(--bg-raise) 55%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bg-raise) 55%, transparent);
+  cursor: text;
+}
+
+.frontmatter {
+  display: block;
+  background: var(--bg-side);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  margin: 0 0 1rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.frontmatter:hover { color: var(--fg); border-color: var(--accent-dim); }
+
+.append {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.15rem;
+  margin-top: 1.5rem;
+  opacity: 0.4;
+}
+.append:hover { opacity: 1; color: var(--fg); border-color: var(--accent-dim); }
+
 .wiki { text-decoration-style: dashed; }
 .broken { color: var(--danger); text-decoration: line-through; }
 

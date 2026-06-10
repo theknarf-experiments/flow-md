@@ -58,7 +58,7 @@ export function MdxView(props: {
   }, [content])
 
   return (
-    <MdProvider path={path} queries={queries} files={files}>
+    <MdProvider path={path} content={content} queries={queries} files={files}>
       {compiled.error && (
         <p className="offline">mdx error: {compiled.error}</p>
       )}
