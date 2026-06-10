@@ -48,6 +48,15 @@
   border-radius: 6px;
   padding: 0.4rem 0.5rem;
 }
+.card[draggable='true'] { cursor: grab; }
+.card[draggable='true']:active { cursor: grabbing; }
+.cardDragging { opacity: 0.35; }
+
+/* A lane a dragged card hovers over. */
+.laneOver {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-dim) 14%, var(--bg-side));
+}
 
 .cardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cardTitle { font-size: 0.9rem; }
