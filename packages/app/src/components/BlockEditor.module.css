@@ -2,13 +2,17 @@
    rule in the margin marking "this block is source right now". */
 .block {
   display: block;
-  width: 100%;
+  /* The negative left margin pulls the accent rule into the gutter and the
+     left padding re-aligns the text; growing the width by the same amount
+     keeps the right edge — and therefore the wrap width — identical to the
+     rendered block, so activating never re-flows the text. */
+  width: calc(100% + 0.6rem);
   background: none;
   color: var(--fg);
   border: none;
   border-left: 2px solid var(--accent-dim);
   border-radius: 0;
-  padding: 0 0 0 0.6rem;
+  padding: 0 0 0 calc(0.6rem - 2px);
   margin: 0.4rem 0 0.4rem -0.6rem;
   resize: none;
   overflow: hidden;
