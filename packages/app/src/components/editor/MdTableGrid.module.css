@@ -1,0 +1,72 @@
+.wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0.5rem 0;
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.table th {
+  text-align: left;
+  background: var(--bg-raise);
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  cursor: pointer;
+}
+.table th:hover { color: var(--accent); }
+
+.table td {
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.table td:hover { background: var(--bg-raise); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+.table tr:last-child td { border-bottom: none; }
+
+.editing { position: relative; display: block; }
+.editing .ghost { visibility: hidden; white-space: pre; }
+.editing input {
+  position: absolute;
+  inset: -2px;
+  width: calc(100% + 4px);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  padding: 0 0.2rem;
+}
+
+.actions { width: 2rem; }
+.actions button {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  visibility: hidden;
+  padding: 0;
+}
+th.actions button { visibility: visible; }
+tr:hover .actions button { visibility: visible; }
+.actions button:hover { color: var(--accent); }
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0.6rem;
+  background: var(--bg-raise);
+}
+.foot button {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.foot button:hover { color: var(--fg); }

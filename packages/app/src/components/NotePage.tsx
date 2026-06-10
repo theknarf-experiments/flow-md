@@ -16,8 +16,8 @@ import { notesCollection, queriesCollection } from '../lib/db.js'
 import { CsvView } from './CsvView.js'
 import { Editor } from './Editor.js'
 import { IcsView } from './IcsView.js'
-import { MarkdownView } from './MarkdownView.js'
 import { MdxView } from './MdxView.js'
+import { LiveEditor } from './editor/LiveEditor.js'
 import styles from './NotePage.module.css'
 
 export function NotePage({ path }: { path: string }) {
@@ -86,9 +86,12 @@ function FileView(props: {
 }) {
   const { path, content, queries, files } = props
   if (path.endsWith('.md')) {
-    return (
-      <MarkdownView path={path} content={content} queries={queries} files={files} />
-    )
+    // The CM6 live editor IS the markdown view: source-of-truth document
+    // with Typora-style reveal-at-caret rendering. queries/files reach the
+    // editor's widgets through the live collections, not props.
+    void queries
+    void files
+    return <LiveEditor key={path} path={path} content={content} />
   }
   if (path.endsWith('.mdx')) {
     return <MdxView path={path} content={content} queries={queries} files={files} />

@@ -39,21 +39,24 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   in the source file.
 - **Task checkboxes** are real: ticking one rewrites the `- [ ]` in the
   markdown via the same path.
-- **One view, no edit mode**: the rendered note *is* the editor, and editing
-  feels continuous rather than modal. Click anywhere in a block — paragraph,
-  heading, list, quote, table, code fence — and it becomes in-flow source
-  with the caret where you clicked. `Enter` at the end of a paragraph
-  commits and keeps writing in a fresh block below (Notion-style;
-  `Shift+Enter` is a literal newline); `ArrowUp`/`ArrowDown` past a block's
-  edge walk the caret into the neighbouring block; blur or `⌘Enter` commits
-  and `Escape` cancels. The optimistic save re-renders committed blocks
-  instantly. Frontmatter shows as a collapsed `⋯ title, tags` chip you can
-  click to edit, dataviews carry a ✎ to edit their query, and a trailing `+`
-  appends a block. This all works in `.mdx` too — a remark plugin stamps
-  source positions through MDX compilation, including onto JSX blocks, so
-  `<Kanban/>` gets a hover-✎ that opens its own source. A `</>` toggle in
-  the header still opens the whole file as raw text — the escape hatch for
-  broken MDX, `.ics` files, or wholesale rewrites.
+- **Typora-style live editing**: `.md` notes open in a CodeMirror 6 editor
+  whose document *is* the markdown source, with syntax hidden until the
+  caret touches a construct — click into a bold word and the `**` reveal
+  around it, leave and they vanish; heading `#`s, link targets and
+  `[[wiki-bracket]]`s behave the same (mod+click follows links). Tasks
+  render as real checkboxes, `datalog-query` fences render as live
+  dataviews, **pipe tables render as editable Tanstack grids** (click cells,
+  edit headers, add rows/columns — commits re-serialize just the table),
+  and frontmatter collapses to a `⋯ title, tags` chip. Edits save through
+  the optimistic store, debounced; because the source is the document,
+  files stay byte-exact apart from what you actually type.
+- `.mdx` notes keep the block-editing view (click a block to edit its
+  source in place, `Enter` continues into a new block, arrows walk block
+  boundaries) — a remark plugin stamps source positions through MDX
+  compilation, including onto JSX blocks, so `<Kanban/>` gets a hover-✎
+  that opens its own source. A `</>` toggle in the header still opens any
+  file as raw text — the escape hatch for broken MDX, `.ics` files, or
+  wholesale rewrites.
 - **Optimistic everything**: mutations render instantly from TanStack DB's
   optimistic overlay and roll back automatically (with the server's reason
   shown) if the write is rejected — e.g. a stale row hitting the concurrency

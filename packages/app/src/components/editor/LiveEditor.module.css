@@ -1,0 +1,9 @@
+.editor {
+  min-height: 60vh;
+}
+
+/* The editor host fills the note column; CodeMirror's own theme (in
+   live-preview.ts) handles everything inside the editor. */
+.editor :global(.cm-editor) {
+  background: none;
+}
