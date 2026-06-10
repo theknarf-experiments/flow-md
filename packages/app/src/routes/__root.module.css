@@ -1,15 +1,26 @@
 .shell {
-  display: flex;
   height: 100vh;
 }
 
+/* Floating: the sidebar overlays the content instead of participating in
+   the layout, so opening/closing it never shifts or recenters the note. */
 .sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
   width: 260px;
-  flex-shrink: 0;
+  z-index: 40;
   background: var(--bg-side);
   border-right: 1px solid var(--border);
+  box-shadow: 10px 0 28px rgba(0, 0, 0, 0.3);
   overflow-y: auto;
   padding: 0.75rem;
+  animation: sidebar-in 140ms ease-out;
+}
+
+@keyframes sidebar-in {
+  from { transform: translateX(-100%); }
 }
 
 .sidebarHead {
@@ -35,7 +46,7 @@
 .ghost:hover { color: var(--fg); border-color: var(--accent-dim); }
 
 .content {
-  flex: 1;
+  height: 100vh;
   overflow-y: auto;
 }
 
