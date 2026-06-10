@@ -22,12 +22,24 @@ import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
+import { frontmatterRange } from '../../lib/blocks.js'
 import { notesCollection, saveNote } from '../../lib/db.js'
 import { resolveWikiTarget } from '../../lib/wiki.js'
 import { livePreview } from './live-preview.js'
 import styles from './LiveEditor.module.css'
 
 const SAVE_DEBOUNCE_MS = 500
+
+/** Initial caret: just past the frontmatter, so the chip starts collapsed —
+ *  a selection at position 0 would count as "caret inside the frontmatter"
+ *  and reveal the raw YAML before the user ever clicks. */
+function afterFrontmatter(content: string): number {
+  const fm = frontmatterRange(content)
+  if (!fm) return 0
+  const lines = content.split('\n')
+  const fmChars = lines.slice(0, fm.end).reduce((n, l) => n + l.length + 1, 0)
+  return Math.min(fmChars, content.length)
+}
 
 export function LiveEditor(props: { path: string; content: string }) {
   const { path, content } = props
@@ -56,6 +68,7 @@ export function LiveEditor(props: { path: string; content: string }) {
 
     const state = EditorState.create({
       doc: lastSynced.current,
+      selection: { anchor: afterFrontmatter(lastSynced.current) },
       extensions: [
         history(),
         drawSelection(),
@@ -112,6 +125,12 @@ export function LiveEditor(props: { path: string; content: string }) {
       lastSynced.current = content
       v.dispatch({
         changes: { from: 0, to: v.state.doc.length, insert: content },
+        // An unfocused editor gets a deterministic caret too — a full-doc
+        // replace would otherwise map the selection to ~0, back inside the
+        // frontmatter, popping the chip open.
+        ...(v.hasFocus
+          ? {}
+          : { selection: { anchor: afterFrontmatter(content) } }),
       })
     }
   }, [content])
