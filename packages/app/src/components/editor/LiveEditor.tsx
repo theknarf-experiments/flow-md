@@ -20,13 +20,10 @@ import {
 import { languages } from '@codemirror/language-data'
 import { EditorState } from '@codemirror/state'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
-import { useLiveQuery } from '@tanstack/react-db'
-import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useFlowMd } from '@flow-md/view-api'
+import { useEffect, useRef } from 'react'
 import { frontmatterRange } from '../../lib/blocks.js'
-import { notesCollection, saveNote } from '../../lib/db.js'
-import { makeHost } from '../../lib/host.js'
-import { resolveWikiTarget } from '../../lib/wiki.js'
+import { saveNote } from '../../lib/db.js'
 import { livePreview } from './live-preview.js'
 import styles from './LiveEditor.module.css'
 
@@ -49,24 +46,10 @@ export function LiveEditor(props: { path: string; content: string }) {
   const view = useRef<EditorView | null>(null)
   const lastSynced = useRef(content)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const navigate = useNavigate()
-
-  const { data: notes } = useLiveQuery((q) => q.from({ n: notesCollection }))
-  const filesRef = useRef<string[]>([])
-  filesRef.current = (notes ?? []).map((n) => n.path)
-
-  // The view-plugin host: query/file hooks + cell writer are static (in
-  // makeHost); navigation and wiki resolution close over this editor's
-  // router + current file list. Threaded into the live-preview extensions,
-  // which hand it to JSX widgets so MDX components can reach it.
-  const host = useMemo(
-    () =>
-      makeHost({
-        openNote: (p) => void navigate({ to: '/note/$', params: { _splat: p } }),
-        resolveWiki: (t) => resolveWikiTarget(t, filesRef.current),
-      }),
-    [navigate],
-  )
+  // The single app-level host (provided by the Shell), threaded into the
+  // live-preview extensions so MDX widgets reach it across their detached
+  // React roots.
+  const host = useFlowMd()
 
   // (Re)create the view per file.
   useEffect(() => {

@@ -81,18 +81,6 @@ export const notesCollection = createCollection(
   }),
 )
 
-/** Folders (including empty ones) for the sidebar tree. */
-export const dirsCollection = createCollection(
-  queryCollectionOptions<{ path: string }>({
-    id: 'dirs',
-    queryKey: ['dirs'],
-    queryFn: async () => (await api.dirs()).map((path) => ({ path })),
-    getKey: (d) => d.path,
-    queryClient,
-    refetchInterval: 4000,
-  }),
-)
-
 export const queriesCollection = createCollection(
   queryCollectionOptions<QueryResult>({
     id: 'queries',
@@ -142,47 +130,9 @@ export function saveNote(path: string, content: string): Promise<unknown> {
   return tx.isPersisted.promise
 }
 
-export function newNote(path: string): Promise<unknown> {
-  const title = path.split('/').at(-1)!.replace(/\.md$/, '')
-  const tx = notesCollection.insert({
-    path,
-    content: `# ${title}\n`,
-    mtime: 0,
-  })
-  return tx.isPersisted.promise
-}
-
-// File-system operations (rename, delete, folders) are rare enough that we
-// skip optimistic overlays: call the server, then refetch both collections
-// so the tree and any open note converge immediately.
-
-async function refetchFs(): Promise<void> {
-  await Promise.all([
-    notesCollection.utils.refetch(),
-    dirsCollection.utils.refetch(),
-    queriesCollection.utils.refetch(),
-  ])
-}
-
-export async function makeFolder(path: string): Promise<void> {
-  await api.mkdir(path)
-  await refetchFs()
-}
-
-export async function movePath(from: string, to: string): Promise<void> {
-  await api.move(from, to)
-  await refetchFs()
-}
-
-export async function deleteFile(path: string): Promise<void> {
-  await api.deleteFile(path)
-  await refetchFs()
-}
-
-export async function deleteFolder(path: string): Promise<void> {
-  await api.deleteFolder(path)
-  await refetchFs()
-}
+// File management (rename, delete, new file/folder) is no longer here: it's
+// done through the view-plugin host's row mutations (updateCell / deleteRow /
+// insertRow) against the File and Folder relations, like any other fact.
 
 export function editCell(
   id: string,

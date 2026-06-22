@@ -3,6 +3,8 @@
 // left (toggleable, Mod+B), the active note on the right, and the Mod+K
 // command palette floating above everything.
 
+import { FlowMdHostProvider } from '@flow-md/view-api'
+import { FileTree } from '@flow-md/view-filetree'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useHotkey } from '@tanstack/react-hotkeys'
 import {
@@ -10,16 +12,21 @@ import {
   Outlet,
   Scripts,
   createRootRoute,
+  useLocation,
   useNavigate,
 } from '@tanstack/react-router'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { CommandPalette } from '../components/CommandPalette.js'
-import { FileTree } from '../components/FileTree.js'
 import { api } from '../lib/api.js'
-import { dirsCollection, makeFolder, newNote, notesCollection } from '../lib/db.js'
+import { notesCollection } from '../lib/db.js'
+import { makeHost } from '../lib/host.js'
 import { usePoll } from '../lib/usePoll.js'
+import { resolveWikiTarget } from '../lib/wiki.js'
 import styles from './__root.module.css'
 import '../index.css'
+
+const FILES_QUERY = 'File(path, mtime)'
+const FOLDERS_QUERY = 'Folder(path)'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -65,12 +72,26 @@ function ClientOnly({ children }: { children: ReactNode }) {
 const SIDEBAR_KEY = 'flow-md-sidebar'
 
 function Shell() {
-  // The sidebar renders straight from the notes collection — synced (and
-  // localStorage-cached, so it also renders offline) by the db layer.
-  const { data: notes } = useLiveQuery((q) => q.from({ note: notesCollection }))
-  const { data: dirs } = useLiveQuery((q) => q.from({ dir: dirsCollection }))
   const health = usePoll(() => api.health(), [], 5000)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // The single app-level host: provided to the whole tree so the sidebar
+  // FileTree (and any in-tree view component) can reach it, and read by the
+  // editor (useFlowMd) to thread into its MDX widgets. Query/file hooks and
+  // mutations are static; navigation + wiki resolution close over the router
+  // and the live file list.
+  const { data: notes } = useLiveQuery((q) => q.from({ note: notesCollection }))
+  const filesRef = useRef<string[]>([])
+  filesRef.current = (notes ?? []).map((n) => n.path)
+  const host = useMemo(
+    () =>
+      makeHost({
+        openNote: (p) => void navigate({ to: '/note/$', params: { _splat: p } }),
+        resolveWiki: (t) => resolveWikiTarget(t, filesRef.current),
+      }),
+    [navigate],
+  )
 
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem(SIDEBAR_KEY) !== 'closed',
@@ -87,88 +108,92 @@ function Shell() {
   useHotkey('Mod+K', () => setPaletteOpen((o) => !o), { preventDefault: true })
   useHotkey('Mod+B', toggleSidebar, { preventDefault: true })
 
-  const addNote = async () => {
+  const addNote = () => {
     const name = window.prompt('New note path (e.g. notes/idea.md):')
     if (!name) return
     const path = name.endsWith('.md') ? name : `${name}.md`
-    // Optimistic: the tree shows the note immediately; navigate right away.
-    void newNote(path)
-    void navigate({ to: '/note/$', params: { _splat: path } })
+    // New note = empty file (insert a File row); navigate once it's created.
+    void host
+      .insertRow({ rel: 'File', row: [path, 0] })
+      .then(() => navigate({ to: '/note/$', params: { _splat: path } }))
   }
 
   const addFolder = () => {
     const name = window.prompt('New folder path (e.g. projects/ideas):')
-    if (name) void makeFolder(name)
+    if (name) void host.insertRow({ rel: 'Folder', row: [name] })
   }
 
+  const activePath = location.pathname.startsWith('/note/')
+    ? decodeURIComponent(location.pathname.slice('/note/'.length))
+    : undefined
+
   return (
-    <div className={styles.shell}>
-      {sidebarOpen ? (
-        <aside className={styles.sidebar} data-testid="sidebar">
-          <div className={styles.sidebarHead}>
-            <span className={styles.brand}>flow-md</span>
-            <span>
-              <button
-                type="button"
-                className={styles.ghost}
-                onClick={() => void addNote()}
-              >
-                + note
-              </button>{' '}
-              <button
-                type="button"
-                className={styles.ghost}
-                title="new folder"
-                onClick={addFolder}
-              >
-                + 📁
-              </button>{' '}
-              <button
-                type="button"
-                className={styles.ghost}
-                title="hide sidebar (⌘B)"
-                onClick={toggleSidebar}
-                data-testid="sidebar-hide"
-              >
-                «
-              </button>
-            </span>
-          </div>
-          {health.error && (
-            <p className="offline">
-              server unreachable at <code>{api.base}</code> — showing cached
-              vault
-            </p>
-          )}
-          {health.data?.error && <p className="offline">{health.data.error}</p>}
-          <FileTree
-            files={(notes ?? []).map((n) => n.path)}
-            dirs={(dirs ?? []).map((d) => d.path)}
-          />
-        </aside>
-      ) : (
-        <button
-          type="button"
-          className={styles.reveal}
-          title="show sidebar (⌘B)"
-          onClick={toggleSidebar}
-          data-testid="sidebar-show"
-        >
-          »
-        </button>
-      )}
-      <main className={styles.content}>
-        <Outlet />
-      </main>
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        commands={[
-          { label: 'Toggle sidebar', run: toggleSidebar },
-          { label: 'New note', run: () => void addNote() },
-          { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
-        ]}
-      />
-    </div>
+    <FlowMdHostProvider host={host}>
+      <div className={styles.shell}>
+        {sidebarOpen ? (
+          <aside className={styles.sidebar} data-testid="sidebar">
+            <div className={styles.sidebarHead}>
+              <span className={styles.brand}>flow-md</span>
+              <span>
+                <button type="button" className={styles.ghost} onClick={addNote}>
+                  + note
+                </button>{' '}
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  title="new folder"
+                  onClick={addFolder}
+                >
+                  + 📁
+                </button>{' '}
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  title="hide sidebar (⌘B)"
+                  onClick={toggleSidebar}
+                  data-testid="sidebar-hide"
+                >
+                  «
+                </button>
+              </span>
+            </div>
+            {health.error && (
+              <p className="offline">
+                server unreachable at <code>{api.base}</code> — showing cached
+                vault
+              </p>
+            )}
+            {health.data?.error && <p className="offline">{health.data.error}</p>}
+            <FileTree
+              files={FILES_QUERY}
+              folders={FOLDERS_QUERY}
+              {...(activePath !== undefined ? { activePath } : {})}
+            />
+          </aside>
+        ) : (
+          <button
+            type="button"
+            className={styles.reveal}
+            title="show sidebar (⌘B)"
+            onClick={toggleSidebar}
+            data-testid="sidebar-show"
+          >
+            »
+          </button>
+        )}
+        <main className={styles.content}>
+          <Outlet />
+        </main>
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          commands={[
+            { label: 'Toggle sidebar', run: toggleSidebar },
+            { label: 'New note', run: addNote },
+            { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
+          ]}
+        />
+      </div>
+    </FlowMdHostProvider>
   )
 }

@@ -68,8 +68,12 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **⌘K command palette** (Tanstack Hotkeys): fuzzy file search, free-text
   search across every note's content, and app commands. **⌘B** toggles the
   sidebar (there are buttons too).
-- **File management in the sidebar**: file-type icons, rename files,
-  create/rename/delete folders and subfolders (empty folders included).
+- **The sidebar is a view plugin too**: it's `<FileTree>`, driven by
+  `File(path, mtime)` and `Folder(path)` queries. File-type icons, rename,
+  delete, and create folders/files all run through the host's row mutations —
+  there's no special file-management API. Because it's just a query view, the
+  same component embeds in any note as a filtered index, e.g.
+  `<FileTree files="Tag(path, 'project')" />`.
 - **More file types**: `.ics` renders as a date-grouped agenda, `.csv` as an
   editable grid (Tanstack Table — click cells, add/delete rows), and `.mdx`
   is markdown plus components.
@@ -78,9 +82,9 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   …/>` renders a board whose lane moves (drag or buttons) rewrite the source
   checkbox, and `<Graph/>` draws the Obsidian-style connected-notes graph from
   any edge-shaped query. See [[board.mdx|board]] and [[graph.mdx|graph]]. These
-  ship as standalone packages — `@flow-md/view-kanban`, `@flow-md/view-graph` —
-  built on the `@flow-md/view-api` plugin contract, so new view types can be
-  added (by anyone) without touching the app.
+  ship as standalone packages — `@flow-md/view-kanban`, `@flow-md/view-graph`,
+  `@flow-md/view-filetree` — built on the `@flow-md/view-api` plugin contract,
+  so new view types can be added (by anyone) without touching the app.
 
 ## Data layer
 
@@ -94,26 +98,34 @@ Frontend state lives in two [TanStack DB](https://tanstack.com/db) collections
   updates the row optimistically; the write-through handler diffs the change
   back into `(row, column, value)` and posts the lineage-checked `/update`.
 
-Components read these with `useLiveQuery` and never fetch directly.
+Components read these with `useLiveQuery` and never fetch directly. The file
+list and folders aren't collections — they're `File`/`Folder` Datalog queries
+the sidebar runs through the host.
 
 ## Shape of the code
 
 ```
 packages/app/src
-├── routes/           __root (sidebar shell), index, note.$ (splat = path)
-├── components/       FileTree, NotePage, DataView, IcsView, CsvView,
-│                     CommandPalette, Editor (+ *.module.css per component)
+├── routes/           __root (sidebar shell — builds the app-level host),
+│                     index, note.$ (splat = path)
+├── components/       NotePage, DataView, IcsView, CsvView, CommandPalette,
+│                     Editor (+ *.module.css per component)
 │   └── editor/       LiveEditor + live-preview (CM6 Typora view), widgets,
-│                     MdTableGrid — and where the view-plugin host is built
+│                     MdTableGrid
 ├── lib/              db.ts (TanStack DB collections), api.ts, host.ts (the
-│                     view-plugin host impl), tree, wiki, fuzzy, ics, icons
+│                     view-plugin host impl), wiki, fuzzy, ics
 └── plugins.ts        the registered view plugins → the MDX component registry
 
-packages/view-api      the plugin contract (host interface, FlowMdViewPlugin,
-                       FlowMdHostProvider / useFlowMd)
-packages/view-kanban   the <Kanban> plugin       ┐ depend only on view-api;
-packages/view-graph    the <Graph> plugin         ┘ no app imports
+packages/view-api       the plugin contract (host interface, FlowMdViewPlugin,
+                        FlowMdHostProvider / useFlowMd)
+packages/view-kanban    the <Kanban> plugin       ┐
+packages/view-graph     the <Graph> plugin        │ depend only on view-api;
+packages/view-filetree  the <FileTree> plugin     ┘ no app imports
 ```
+
+The host is built once in the Shell and provided to the whole tree, so the
+sidebar reads it from context and the editor threads the same instance into
+its MDX widgets (which render in detached roots).
 
 A view plugin is a React component (driven by `useQuery` from the host) plus
 a `{ name, components }` export. The app provides the host — query polling,

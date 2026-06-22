@@ -42,6 +42,18 @@ async function updateCell(args: UpdateCellArgs): Promise<void> {
   })
 }
 
+async function deleteRow(args: {
+  rel?: string
+  query?: string
+  row: Cell[]
+}): Promise<void> {
+  await api.deleteRow(args)
+}
+
+async function insertRow(args: { rel: string; row: Cell[] }): Promise<void> {
+  await api.insert(args.rel, args.row)
+}
+
 /** Build a host, given the per-editor navigation + wiki-resolution callbacks. */
 export function makeHost(cbs: {
   openNote: (path: string) => void
@@ -51,6 +63,8 @@ export function makeHost(cbs: {
     useQuery,
     useFiles,
     updateCell,
+    deleteRow,
+    insertRow,
     openNote: cbs.openNote,
     resolveWiki: cbs.resolveWiki,
   }

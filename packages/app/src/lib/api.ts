@@ -42,8 +42,6 @@ export const api = {
 
   health: () => call<{ ok: boolean; error: string | null }>('/health'),
 
-  files: async () => (await call<{ files: string[] }>('/files')).files,
-
   /** Bulk content sync — the whole vault in one request. */
   contents: async () =>
     (
@@ -68,22 +66,6 @@ export const api = {
       body: JSON.stringify({ path, content }),
     }),
 
-  /** Every folder under the vault root, including empty ones. */
-  dirs: async () => (await call<{ dirs: string[] }>('/dirs')).dirs,
-
-  mkdir: (path: string) =>
-    call('/mkdir', { method: 'POST', body: JSON.stringify({ path }) }),
-
-  /** Rename/move a file or a whole folder. */
-  move: (from: string, to: string) =>
-    call('/move', { method: 'POST', body: JSON.stringify({ from, to }) }),
-
-  deleteFile: (path: string) =>
-    call(`/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
-
-  deleteFolder: (path: string) =>
-    call(`/folder?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
-
   queriesFor: async (file: string) =>
     await call<{ error: string | null; queries: QueryResult[] }>(
       `/queries?file=${encodeURIComponent(file)}`,
@@ -96,5 +78,11 @@ export const api = {
 
   insert: (rel: string, row: Cell[]) => post('/insert', { rel, row }),
 
-  deleteFact: (rel: string, row: Cell[]) => post('/delete', { rel, row }),
+  /** Delete a fact by relation (complete row) or by the query it came from. */
+  deleteRow: (args: { rel?: string; query?: string; row: Cell[] }) =>
+    post('/delete', {
+      ...(args.rel !== undefined ? { rel: args.rel } : {}),
+      ...(args.query !== undefined ? { q: args.query } : {}),
+      row: args.row,
+    }),
 }

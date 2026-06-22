@@ -1,4 +1,4 @@
-// File-type icons for the sidebar. Plain emoji: zero deps, readable at 15px.
+// File-type icons for the tree. Plain emoji: zero deps, readable at 15px.
 
 const BY_EXT: Record<string, string> = {
   md: '📝',

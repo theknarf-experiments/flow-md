@@ -23,6 +23,7 @@
     "@codemirror/view": "^6.43.1",
     "@flow-md/plugin-csv": "workspace:^",
     "@flow-md/view-api": "workspace:*",
+    "@flow-md/view-filetree": "workspace:*",
     "@flow-md/view-graph": "workspace:*",
     "@flow-md/view-kanban": "workspace:*",
     "@lezer/common": "^1.5.2",

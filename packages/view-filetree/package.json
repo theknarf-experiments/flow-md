@@ -1,0 +1,29 @@
+{
+  "name": "@flow-md/view-filetree",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "TheKnarf",
+  "description": "Datalog-driven file/folder tree for flow-md — the sidebar and an embeddable note index",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "types": "./src/index.tsx",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@flow-md/view-api": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "react": "^18.3.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

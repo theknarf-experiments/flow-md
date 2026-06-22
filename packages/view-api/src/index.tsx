@@ -67,6 +67,12 @@ export interface FlowMdHost {
   useFiles(): string[]
   /** Write one cell back through the server's lineage-checked update path. */
   updateCell(args: UpdateCellArgs): Promise<void>
+  /** Delete a whole fact (row). Identify it by relation (`rel`, a complete
+   *  row) or by the query it came from (`query`, traced through lineage). */
+  deleteRow(args: { rel?: string; query?: string; row: Cell[] }): Promise<void>
+  /** Insert a fact (row) into a relation — e.g. a new `Folder(path)` or an
+   *  empty `File(path, mtime)`. */
+  insertRow(args: { rel: string; row: Cell[] }): Promise<void>
   /** Resolve a wiki/link target to a vault path (Obsidian-style), or null. */
   resolveWiki(target: string): string | null
   /** Navigate to a note by its vault-relative path. */

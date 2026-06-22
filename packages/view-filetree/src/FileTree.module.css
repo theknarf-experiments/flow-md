@@ -25,8 +25,13 @@
 
 .leaf {
   display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
   color: var(--fg);
-  text-decoration: none;
+  cursor: pointer;
   border-radius: 5px;
   padding: 0.1rem 0.4rem;
   overflow: hidden;

@@ -6,10 +6,15 @@
 // depend only on @flow-md/view-api, so third parties can ship their own.
 
 import type { FlowMdViewPlugin, ViewComponent } from '@flow-md/view-api'
+import { fileTreePlugin } from '@flow-md/view-filetree'
 import { graphPlugin } from '@flow-md/view-graph'
 import { kanbanPlugin } from '@flow-md/view-kanban'
 
-export const viewPlugins: FlowMdViewPlugin[] = [kanbanPlugin, graphPlugin]
+export const viewPlugins: FlowMdViewPlugin[] = [
+  kanbanPlugin,
+  graphPlugin,
+  fileTreePlugin,
+]
 
 /** Flattened JSX-tag → component map for the MDX component registry. */
 export const viewComponents: Record<string, ViewComponent> = Object.fromEntries(

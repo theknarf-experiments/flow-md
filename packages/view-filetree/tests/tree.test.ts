@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildTree } from '../src/lib/tree.js'
+import { buildTree } from '../src/tree.js'
 
 describe('buildTree', () => {
   it('nests directories and sorts dirs before files', () => {
