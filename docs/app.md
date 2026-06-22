@@ -74,9 +74,12 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   there's no special file-management API. Because it's just a query view, the
   same component embeds in any note as a filtered index, e.g.
   `<FileTree files="Tag(path, 'project')" />`.
-- **More file types**: `.ics` renders as a date-grouped agenda, `.csv` as an
-  editable grid (Tanstack Table — click cells, add/delete rows), and `.mdx`
-  is markdown plus components.
+- **More file types**: `.ics` renders as a date-grouped agenda (a view plugin
+  registered as the default `.ics` viewer, reading the ICS plugin's `Event*`
+  facts — no client-side parsing), `.csv` as an editable grid (Tanstack
+  Table), and `.mdx` is markdown plus components. The same calendar is an MDX
+  component too: `<Calendar/>` shows every event in the vault,
+  `<Calendar path="cal/work.ics"/>` scopes to one file.
 - **View plugins**: `.mdx` notes can embed Datalog-query-driven React
   components. `<Kanban query="Task(path, status, text, line)" groupBy="status"
   …/>` renders a board whose lane moves (drag or buttons) rewrite the source
@@ -120,8 +123,14 @@ packages/view-api       the plugin contract (host interface, FlowMdViewPlugin,
                         FlowMdHostProvider / useFlowMd)
 packages/view-kanban    the <Kanban> plugin       ┐
 packages/view-graph     the <Graph> plugin        │ depend only on view-api;
-packages/view-filetree  the <FileTree> plugin     ┘ no app imports
+packages/view-filetree  the <FileTree> plugin     │ no app imports
+packages/view-ics       the <Calendar> plugin     ┘ (also the .ics handler)
 ```
+
+A plugin contributes MDX `components` and/or `fileHandlers` (default viewers
+for a file extension). The app flattens both across all plugins in
+`plugins.ts` — the component registry for MDX, and an extension→viewer map the
+note view consults before falling back to raw text.
 
 The host is built once in the Shell and provided to the whole tree, so the
 sidebar reads it from context and the editor threads the same instance into

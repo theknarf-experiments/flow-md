@@ -7,12 +7,12 @@
 import { composeStories } from '@storybook/react-vite'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
+import * as calendarStories from '../src/components/Calendar.stories.js'
 import * as dataViewStories from '../src/components/DataView.stories.js'
 import * as fileTreeStories from '../src/components/FileTree.stories.js'
-import * as icsStories from '../src/components/IcsView.stories.js'
 
 const fileTree = composeStories(fileTreeStories)
-const ics = composeStories(icsStories)
+const ics = composeStories(calendarStories)
 const dataView = composeStories(dataViewStories)
 
 afterEach(cleanup)
@@ -36,10 +36,11 @@ describe('FileTree stories', () => {
   })
 })
 
-describe('IcsView stories', () => {
-  it('Agenda groups events under day headings', () => {
+describe('Calendar stories', () => {
+  it('Agenda groups events from Event facts', () => {
     render(<ics.Agenda />)
     expect(screen.getByText('Project kickoff')).toBeTruthy()
+    // The timeless event renders as "all day".
     expect(screen.getByText(/all day/)).toBeTruthy()
     // Cancelled events render struck through but present.
     expect(screen.getByText('Team offsite')).toBeTruthy()

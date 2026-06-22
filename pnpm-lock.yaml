@@ -56,6 +56,9 @@ importers:
       '@flow-md/view-graph':
         specifier: workspace:*
         version: link:../view-graph
+      '@flow-md/view-ics':
+        specifier: workspace:*
+        version: link:../view-ics
       '@flow-md/view-kanban':
         specifier: workspace:*
         version: link:../view-kanban
@@ -329,6 +332,25 @@ importers:
         version: 2.1.9(@types/node@22.19.19)(jsdom@29.1.1)(lightningcss@1.32.0)
 
   packages/view-graph:
+    dependencies:
+      '@flow-md/view-api':
+        specifier: workspace:*
+        version: link:../view-api
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.29
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.19)(jsdom@29.1.1)(lightningcss@1.32.0)
+
+  packages/view-ics:
     dependencies:
       '@flow-md/view-api':
         specifier: workspace:*

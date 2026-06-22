@@ -33,6 +33,28 @@ Register the plugin in the app (`packages/app/src/plugins.ts`); its
 `components` are merged into the MDX component registry, so `<Count query=.../>`
 works in any `.mdx` note.
 
+## Default file viewers
+
+A plugin can also register the **default viewer for a file extension** via
+`fileHandlers`. The handler receives the file's vault path and typically
+renders it by querying the file's facts:
+
+```tsx
+function CalendarFile({ path }: { path: string }) {
+  return <Calendar path={path} /> // a query-driven component
+}
+
+export const calendarPlugin: FlowMdViewPlugin = {
+  name: 'calendar',
+  components: { Calendar },
+  fileHandlers: { '.ics': CalendarFile },
+}
+```
+
+Now opening an `.ics` file in the app renders the calendar instead of raw
+text (the `</>` source toggle still shows the raw file). A plugin may supply
+`components`, `fileHandlers`, or both.
+
 ## The host
 
 Reach it with `useFlowMd()` (or the `useQuery` / `useFiles` wrappers):

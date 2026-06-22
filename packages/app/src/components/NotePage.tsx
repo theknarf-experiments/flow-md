@@ -12,9 +12,9 @@ import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useState } from 'react'
 import { notesCollection } from '../lib/db.js'
+import { fileHandlers } from '../plugins.js'
 import { CsvView } from './CsvView.js'
 import { Editor } from './Editor.js'
-import { IcsView } from './IcsView.js'
 import { LiveEditor } from './editor/LiveEditor.js'
 import styles from './NotePage.module.css'
 
@@ -62,7 +62,9 @@ export function NotePage({ path }: { path: string }) {
   )
 }
 
-/** Pick the view for a file by extension; raw text is the fallback. */
+/** Pick the view for a file by extension. Markdown/MDX use the live editor;
+ *  a plugin-registered file handler (e.g. the calendar for `.ics`) wins next;
+ *  CSV has a built-in grid; raw text is the fallback. */
 function FileView(props: { path: string; content: string }) {
   const { path, content } = props
   if (path.endsWith('.md') || path.endsWith('.mdx')) {
@@ -71,7 +73,9 @@ function FileView(props: { path: string; content: string }) {
     // render as widgets that subscribe to the live collections themselves.
     return <LiveEditor key={path} path={path} content={content} />
   }
-  if (path.endsWith('.ics')) return <IcsView content={content} />
+  const ext = path.includes('.') ? `.${path.split('.').pop()}` : ''
+  const Handler = fileHandlers[ext]
+  if (Handler) return <Handler path={path} />
   if (path.endsWith('.csv')) return <CsvView path={path} content={content} />
   return <pre className={styles.raw}>{content}</pre>
 }

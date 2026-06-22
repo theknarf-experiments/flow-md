@@ -84,10 +84,18 @@ export interface FlowMdHost {
 // biome-ignore lint/suspicious/noExplicitAny: MDX passes arbitrary props
 export type ViewComponent = ComponentType<any>
 
-/** A plugin contributes components keyed by the JSX tag used in MDX. */
+/** The default viewer for a file extension: receives the file's vault path
+ *  and renders it (typically by querying the file's facts through the host).
+ *  Registering one lets `flow-md serve`'s app show e.g. `.ics` files with a
+ *  plugin-supplied view instead of raw text. */
+export type FileHandler = ComponentType<{ path: string }>
+
+/** A plugin contributes MDX components (keyed by JSX tag) and/or default
+ *  viewers for file extensions (keyed by extension, with the leading dot). */
 export interface FlowMdViewPlugin {
   name: string
-  components: Record<string, ViewComponent>
+  components?: Record<string, ViewComponent>
+  fileHandlers?: Record<string, FileHandler>
 }
 
 const HostContext = createContext<FlowMdHost | null>(null)

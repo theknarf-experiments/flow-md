@@ -19,6 +19,7 @@ const VIEW_PACKAGES = [
   '@flow-md/view-kanban',
   '@flow-md/view-graph',
   '@flow-md/view-filetree',
+  '@flow-md/view-ics',
 ]
 
 export default defineConfig({

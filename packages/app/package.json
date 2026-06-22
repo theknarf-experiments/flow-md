@@ -25,6 +25,7 @@
     "@flow-md/view-api": "workspace:*",
     "@flow-md/view-filetree": "workspace:*",
     "@flow-md/view-graph": "workspace:*",
+    "@flow-md/view-ics": "workspace:*",
     "@flow-md/view-kanban": "workspace:*",
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
