@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutGraph } from '../src/lib/graph.js'
+import { layoutGraph } from '../src/graph.js'
 
 const EDGES = [
   { from: 'a.md', to: 'b.md' },

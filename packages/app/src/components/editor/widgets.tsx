@@ -14,6 +14,7 @@
 import { evaluate } from '@mdx-js/mdx'
 import { syntaxTree } from '@codemirror/language'
 import { EditorView, WidgetType } from '@codemirror/view'
+import { type FlowMdHost, FlowMdHostProvider } from '@flow-md/view-api'
 import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { type ComponentType, type ReactNode, useEffect, useState } from 'react'
@@ -21,9 +22,8 @@ import { type Root, createRoot } from 'react-dom/client'
 import * as runtime from 'react/jsx-runtime'
 import { queriesCollection } from '../../lib/db.js'
 import { type MdTable, parseMdTable, serializeMdTable } from '../../lib/mdtable.js'
+import { viewComponents } from '../../plugins.js'
 import { DataView } from '../DataView.js'
-import { Graph } from '../Graph.js'
-import { Kanban } from '../Kanban.js'
 import { MdTableGrid } from './MdTableGrid.js'
 import widgetStyles from './widgets.module.css'
 
@@ -187,9 +187,6 @@ export class TableWidget extends ReactWidget {
 
 // --- JSX blocks (MDX) ---------------------------------------------------------
 
-/** Components MDX notes can use without importing. */
-const REGISTRY = { Kanban, Graph }
-
 /** Compile one JSX/MDX snippet to a component, cached by source — widgets
  *  rebuild on every decoration pass, the compiler shouldn't run again. */
 const compiled = new Map<string, Promise<ComponentType<{ components?: object }>>>()
@@ -205,11 +202,16 @@ function compileJsx(source: string) {
   return p
 }
 
-/** A JSX block in an MDX note: renders the evaluated component while the
+/** A JSX block in an MDX note: renders the evaluated component (with the
+ *  registered view components in scope, under the host provider) while the
  *  caret is elsewhere; a hover ✎ (or clicking into the block) reveals the
- *  raw JSX for text editing. */
+ *  raw JSX for text editing. The host is constant for an editor's lifetime,
+ *  so eq() keys on source alone. */
 export class JsxWidget extends ReactWidget {
-  constructor(readonly source: string) {
+  constructor(
+    readonly source: string,
+    readonly host: FlowMdHost,
+  ) {
     super()
   }
 
@@ -221,6 +223,7 @@ export class JsxWidget extends ReactWidget {
     return (
       <JsxBlock
         source={this.source}
+        host={this.host}
         onEdit={() => {
           const pos = view.posAtDOM(dom)
           view.dispatch({ selection: { anchor: pos } })
@@ -231,8 +234,12 @@ export class JsxWidget extends ReactWidget {
   }
 }
 
-function JsxBlock(props: { source: string; onEdit: () => void }) {
-  const { source, onEdit } = props
+function JsxBlock(props: {
+  source: string
+  host: FlowMdHost
+  onEdit: () => void
+}) {
+  const { source, host, onEdit } = props
   const [state, setState] = useState<{
     Comp: ComponentType<{ components?: object }> | null
     error: string | null
@@ -257,7 +264,11 @@ function JsxBlock(props: { source: string; onEdit: () => void }) {
   return (
     <div className={widgetStyles.jsx} data-testid="jsx-widget">
       {state.error && <p className="offline">jsx error: {state.error}</p>}
-      {state.Comp && <state.Comp components={REGISTRY} />}
+      {state.Comp && (
+        <FlowMdHostProvider host={host}>
+          <state.Comp components={viewComponents} />
+        </FlowMdHostProvider>
+      )}
       {!state.Comp && !state.error && (
         <p className="hint">rendering component…</p>
       )}

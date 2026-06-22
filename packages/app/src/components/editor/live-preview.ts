@@ -29,6 +29,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view'
+import type { FlowMdHost } from '@flow-md/view-api'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { tags as t } from '@lezer/highlight'
 import { frontmatterRange, frontmatterSummary } from '../../lib/blocks.js'
@@ -42,10 +43,10 @@ import {
 
 export interface LivePreviewConfig {
   path: string
-  /** Resolve a wiki target to a vault path (null = broken link). */
-  resolveWiki: (target: string) => string | null
-  /** Follow a resolved wiki link (mod+click). */
-  openNote: (path: string) => void
+  /** The view-plugin host — also supplies wiki resolution (`resolveWiki`)
+   *  and note navigation (`openNote`) for the editor's own links, and is
+   *  handed to JSX widgets so MDX components can reach it. */
+  host: FlowMdHost
 }
 
 const WIKILINK = /\[\[([^\]]+)\]\]/g
@@ -228,7 +229,7 @@ function buildBlocks(
     if (touchesLines(span.from, span.to)) continue
     out.push(
       Decoration.replace({
-        widget: new JsxWidget(span.source),
+        widget: new JsxWidget(span.source, config.host),
         block: true,
       }).range(span.from, span.to),
     )
@@ -445,7 +446,7 @@ function build(
       const to = from + m[0].length
       if (from < fmTo) continue
       const target = (m[1] ?? '').split('|')[0]!.split('#')[0]!.trim()
-      const resolved = config.resolveWiki(target)
+      const resolved = config.host.resolveWiki(target)
       mark(from, to, resolved ? 'cm-wikilink' : 'cm-wikilink cm-wikilink-broken')
       if (!touches(from, to)) {
         hide(from, from + 2)
@@ -478,8 +479,8 @@ function clickHandler(config: LivePreviewConfig) {
         const from = line.from + m.index
         if (pos >= from && pos <= from + m[0].length) {
           const target = (m[1] ?? '').split('|')[0]!.split('#')[0]!.trim()
-          const resolved = config.resolveWiki(target)
-          if (resolved) config.openNote(resolved)
+          const resolved = config.host.resolveWiki(target)
+          if (resolved) config.host.openNote(resolved)
           return true
         }
       }

@@ -73,10 +73,14 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **More file types**: `.ics` renders as a date-grouped agenda, `.csv` as an
   editable grid (Tanstack Table — click cells, add/delete rows), and `.mdx`
   is markdown plus components.
-- **MDX component registry**: `<Kanban query="Task(path, status, text, line)"
-  groupBy="status" …/>` renders a board whose lane moves rewrite the source
-  checkbox, and `<Graph/>` draws the Obsidian-style connected-notes graph
-  from any edge-shaped query. See [[board.mdx|board]] and [[graph.mdx|graph]].
+- **View plugins**: `.mdx` notes can embed Datalog-query-driven React
+  components. `<Kanban query="Task(path, status, text, line)" groupBy="status"
+  …/>` renders a board whose lane moves (drag or buttons) rewrite the source
+  checkbox, and `<Graph/>` draws the Obsidian-style connected-notes graph from
+  any edge-shaped query. See [[board.mdx|board]] and [[graph.mdx|graph]]. These
+  ship as standalone packages — `@flow-md/view-kanban`, `@flow-md/view-graph` —
+  built on the `@flow-md/view-api` plugin contract, so new view types can be
+  added (by anyone) without touching the app.
 
 ## Data layer
 
@@ -97,12 +101,25 @@ Components read these with `useLiveQuery` and never fetch directly.
 ```
 packages/app/src
 ├── routes/           __root (sidebar shell), index, note.$ (splat = path)
-├── components/       FileTree, NotePage, MarkdownView, MdxView, DataView,
-│                     Kanban, Graph, IcsView, CsvView, CommandPalette, Editor
-│                     (+ *.module.css and *.stories.tsx per component)
-└── lib/              db.ts (TanStack DB collections + mutations), api.ts,
-                      tree.ts, wiki.ts, fuzzy.ts, ics.ts, graph.ts, icons.ts
+├── components/       FileTree, NotePage, DataView, IcsView, CsvView,
+│                     CommandPalette, Editor (+ *.module.css per component)
+│   └── editor/       LiveEditor + live-preview (CM6 Typora view), widgets,
+│                     MdTableGrid — and where the view-plugin host is built
+├── lib/              db.ts (TanStack DB collections), api.ts, host.ts (the
+│                     view-plugin host impl), tree, wiki, fuzzy, ics, icons
+└── plugins.ts        the registered view plugins → the MDX component registry
+
+packages/view-api      the plugin contract (host interface, FlowMdViewPlugin,
+                       FlowMdHostProvider / useFlowMd)
+packages/view-kanban   the <Kanban> plugin       ┐ depend only on view-api;
+packages/view-graph    the <Graph> plugin         ┘ no app imports
 ```
+
+A view plugin is a React component (driven by `useQuery` from the host) plus
+a `{ name, components }` export. The app provides the host — query polling,
+cell writes, note navigation, wiki resolution — through a React context that
+wraps each MDX block, so a plugin never imports the app or talks to the
+server directly. See `packages/view-api/README.md` for the authoring guide.
 
 Styling is per-component CSS Modules over a small global base (theme
 variables + shared utilities). Components have Storybook stories

@@ -22,9 +22,10 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, drawSelection, keymap } from '@codemirror/view'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { frontmatterRange } from '../../lib/blocks.js'
 import { notesCollection, saveNote } from '../../lib/db.js'
+import { makeHost } from '../../lib/host.js'
 import { resolveWikiTarget } from '../../lib/wiki.js'
 import { livePreview } from './live-preview.js'
 import styles from './LiveEditor.module.css'
@@ -44,7 +45,7 @@ function afterFrontmatter(content: string): number {
 
 export function LiveEditor(props: { path: string; content: string }) {
   const { path, content } = props
-  const host = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const lastSynced = useRef(content)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -54,9 +55,22 @@ export function LiveEditor(props: { path: string; content: string }) {
   const filesRef = useRef<string[]>([])
   filesRef.current = (notes ?? []).map((n) => n.path)
 
+  // The view-plugin host: query/file hooks + cell writer are static (in
+  // makeHost); navigation and wiki resolution close over this editor's
+  // router + current file list. Threaded into the live-preview extensions,
+  // which hand it to JSX widgets so MDX components can reach it.
+  const host = useMemo(
+    () =>
+      makeHost({
+        openNote: (p) => void navigate({ to: '/note/$', params: { _splat: p } }),
+        resolveWiki: (t) => resolveWikiTarget(t, filesRef.current),
+      }),
+    [navigate],
+  )
+
   // (Re)create the view per file.
   useEffect(() => {
-    if (!host.current) return
+    if (!containerRef.current) return
     const save = (doc: string) => {
       if (doc === lastSynced.current) return
       lastSynced.current = doc
@@ -91,17 +105,13 @@ export function LiveEditor(props: { path: string; content: string }) {
           ...defaultKeymap,
           ...historyKeymap,
         ]),
-        livePreview({
-          path,
-          resolveWiki: (target) => resolveWikiTarget(target, filesRef.current),
-          openNote: (p) => void navigate({ to: '/note/$', params: { _splat: p } }),
-        }),
+        livePreview({ path, host }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) schedule(u.view)
         }),
       ],
     })
-    const v = new EditorView({ state, parent: host.current })
+    const v = new EditorView({ state, parent: containerRef.current })
     view.current = v
     return () => {
       if (timer.current) clearTimeout(timer.current)
@@ -111,7 +121,7 @@ export function LiveEditor(props: { path: string; content: string }) {
       view.current = null
     }
     // lastSynced is seeded from `content` when `path` changes (below).
-  }, [path, navigate])
+  }, [path, host])
 
   // Seed and sync external content.
   useEffect(() => {
@@ -138,5 +148,5 @@ export function LiveEditor(props: { path: string; content: string }) {
     }
   }, [content])
 
-  return <div ref={host} className={styles.editor} data-testid="live-editor" />
+  return <div ref={containerRef} className={styles.editor} data-testid="live-editor" />
 }

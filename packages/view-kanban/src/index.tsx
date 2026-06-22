@@ -1,4 +1,4 @@
-// Datalog-driven kanban board, designed to be dropped into an MDX note:
+// Datalog-driven kanban board — a flow-md view plugin. Drop into an MDX note:
 //
 //   <Kanban query="Task(path, status, text, line)"
 //           groupBy="status" title="text" lanes="open,closed" />
@@ -7,13 +7,12 @@
 // picks the lane; `lanes` (optional) fixes lane order and shows empty lanes.
 // Cards drag between lanes (native HTML5 DnD — lane-level moves need no
 // library), and the ◀ ▶ buttons remain as the keyboard-accessible path.
-// Either way the move writes the new lane value through the server's
-// lineage-checked /update — so with the Task example, moving a card
+// Either way the move writes the new lane value through the host's
+// lineage-checked update path — so with the Task example, moving a card
 // literally rewrites the checkbox in the source note.
 
+import { type Cell, type FlowMdViewPlugin, useFlowMd } from '@flow-md/view-api'
 import { type DragEvent, useMemo, useState } from 'react'
-import { type Cell, api } from '../lib/api.js'
-import { usePoll } from '../lib/usePoll.js'
 import styles from './Kanban.module.css'
 
 export function Kanban(props: {
@@ -23,16 +22,16 @@ export function Kanban(props: {
   lanes?: string
 }) {
   const { query, groupBy, title, lanes } = props
+  const host = useFlowMd()
+  const state = host.useQuery(query, { intervalMs: 2500 })
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState<string | null>(null)
   const [dropLane, setDropLane] = useState<string | null>(null)
-  const result = usePoll(() => api.run(query), [query], 2500)
 
-  const columns = result.data?.columns ?? []
-  const rows = result.data?.rows ?? []
+  const { columns, rows, writable: writableCols } = state
   const groupIdx = columns.indexOf(groupBy)
   const titleIdx = title ? columns.indexOf(title) : -1
-  const writable = result.data?.writable.includes(groupBy) ?? false
+  const writable = writableCols.includes(groupBy)
 
   const laneNames = useMemo(() => {
     const declared = (lanes ?? '')
@@ -53,10 +52,10 @@ export function Kanban(props: {
     return out
   }, [lanes, rows, groupIdx])
 
-  if (result.error || result.data?.error) {
-    return <p className="offline">kanban: {result.error ?? result.data?.error}</p>
+  if (state.error) {
+    return <p className="offline">kanban: {state.error}</p>
   }
-  if (result.data && groupIdx < 0) {
+  if (state.ready && groupIdx < 0) {
     return (
       <p className="offline">
         kanban: query has no column "{groupBy}" (columns: {columns.join(', ')})
@@ -71,9 +70,9 @@ export function Kanban(props: {
 
   const move = (row: Cell[], to: string) => {
     if (String(row[groupIdx]) === to) return
-    api
-      .update({ q: query, row, column: groupBy, value: to })
-      .then(() => result.refresh())
+    host
+      .updateCell({ query, row, column: groupBy, value: to })
+      .then(() => state.refresh())
       .then(
         () => setError(null),
         (err: unknown) =>
@@ -189,3 +188,10 @@ export function Kanban(props: {
     </div>
   )
 }
+
+export const kanbanPlugin: FlowMdViewPlugin = {
+  name: 'kanban',
+  components: { Kanban },
+}
+
+export default kanbanPlugin
