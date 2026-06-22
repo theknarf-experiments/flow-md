@@ -114,11 +114,16 @@ describe('watcher + http integration', () => {
     expect(q.rows.map((r) => r[0]).sort()).toEqual(['a.md', 'b.md'])
   })
 
-  it('lists files, serves raw content and saves edits', async () => {
-    const files = (await (await fetch(`${base}/files`)).json()) as {
-      files: string[]
-    }
-    expect(files.files).toContain('a.md')
+  const run = async (q: string) =>
+    (await (
+      await fetch(`${base}/run?q=${encodeURIComponent(q)}`)
+    ).json()) as { rows: Array<Array<string | number>>; error: string | null }
+  const postJson = (ep: string, body: unknown) =>
+    fetch(`${base}/${ep}`, { method: 'POST', body: JSON.stringify(body) })
+
+  it('lists files via a File query, serves raw content and saves edits', async () => {
+    const files = await run('File(path, mtime)')
+    expect(files.rows.map((r) => r[0])).toContain('a.md')
 
     const bulk = (await (await fetch(`${base}/contents`)).json()) as {
       files: Array<{ path: string; content: string; mtime: number }>
@@ -156,58 +161,81 @@ describe('watcher + http integration', () => {
     ).toBe(400)
   })
 
-  it('creates folders, moves and deletes files and folders', async () => {
-    // mkdir shows up in /dirs even while empty.
-    expect(
-      (
-        await fetch(`${base}/mkdir`, {
-          method: 'POST',
-          body: JSON.stringify({ path: 'projects/alpha' }),
-        })
-      ).status,
-    ).toBe(200)
-    const dirs = (await (await fetch(`${base}/dirs`)).json()) as { dirs: string[] }
-    expect(dirs.dirs).toContain('projects/alpha')
+  it('manages files and folders as Datalog fact mutations', async () => {
+    // The mutation handler updates the vault synchronously, but the live
+    // watcher over the shared temp dir churns state in the background, so we
+    // assert against the *converged* vault (waitFor) rather than a snapshot.
 
-    // Move a file into it; the vault re-keys immediately.
+    // New folder = insert a Folder row → mkdir; queryable as Folder(path)
+    // even while empty.
+    expect(
+      (await postJson('insert', { rel: 'Folder', row: ['projects/alpha'] })).status,
+    ).toBe(200)
+    await waitFor(() => vault.folderPaths().includes('projects/alpha'))
+    expect((await run('Folder(path)')).rows.map((r) => r[0])).toContain(
+      'projects/alpha',
+    )
+
+    // A file to move, then rename it = update File.path (filesystem rename).
     await fetch(`${base}/file`, {
       method: 'PUT',
       body: JSON.stringify({ path: 'moveme.md', content: '# Move me' }),
     })
-    const mv = await fetch(`${base}/move`, {
-      method: 'POST',
-      body: JSON.stringify({ from: 'moveme.md', to: 'projects/alpha/moved.md' }),
-    })
-    expect(mv.status).toBe(200)
-    expect(vault.paths()).toContain('projects/alpha/moved.md')
-    expect(vault.paths()).not.toContain('moveme.md')
-
-    // Rename the folder: every file under it re-keys.
-    await fetch(`${base}/move`, {
-      method: 'POST',
-      body: JSON.stringify({ from: 'projects/alpha', to: 'projects/beta' }),
-    })
-    expect(vault.paths()).toContain('projects/beta/moved.md')
-
-    // Delete the file, then the folder.
-    await fetch(`${base}/file?path=${encodeURIComponent('projects/beta/moved.md')}`, {
-      method: 'DELETE',
-    })
-    expect(vault.paths()).not.toContain('projects/beta/moved.md')
-    await fetch(`${base}/folder?path=projects`, { method: 'DELETE' })
-    const after = (await (await fetch(`${base}/dirs`)).json()) as { dirs: string[] }
-    expect(after.dirs).not.toContain('projects')
-
-    // Traversal is rejected on every fs endpoint.
+    await waitFor(() => vault.paths().includes('moveme.md'))
+    const memeRow = (await run('File(path, mtime)')).rows.find(
+      (r) => r[0] === 'moveme.md',
+    )!
     expect(
       (
-        await fetch(`${base}/move`, {
-          method: 'POST',
-          body: JSON.stringify({ from: 'a.md', to: '../escape.md' }),
+        await postJson('update', {
+          q: 'File(path, mtime)',
+          row: memeRow,
+          column: 'path',
+          value: 'projects/alpha/moved.md',
         })
       ).status,
-    ).toBe(400)
-    expect((await fetch(`${base}/folder?path=..`, { method: 'DELETE' })).status).toBe(400)
+    ).toBe(200)
+    await waitFor(
+      () =>
+        vault.paths().includes('projects/alpha/moved.md') &&
+        !vault.paths().includes('moveme.md'),
+    )
+
+    // Rename the folder = update Folder.path; files under it re-key.
+    expect(
+      (
+        await postJson('update', {
+          q: 'Folder(path)',
+          row: ['projects/alpha'],
+          column: 'path',
+          value: 'projects/beta',
+        })
+      ).status,
+    ).toBe(200)
+    await waitFor(() => vault.paths().includes('projects/beta/moved.md'))
+
+    // Delete the file = delete its File row (unlink).
+    const movedRow = (await run('File(path, mtime)')).rows.find(
+      (r) => r[0] === 'projects/beta/moved.md',
+    )!
+    await postJson('delete', { rel: 'File', row: movedRow })
+    await waitFor(() => !vault.paths().includes('projects/beta/moved.md'))
+
+    // Delete the folder = delete its Folder row (rm -r).
+    await postJson('delete', { rel: 'Folder', row: ['projects'] })
+    await waitFor(() => !vault.folderPaths().includes('projects/beta'))
+
+    // Traversal is still rejected.
+    expect(
+      (
+        await postJson('update', {
+          q: 'File(path, mtime)',
+          row: ['a.md', 0],
+          column: 'path',
+          value: '../escape.md',
+        })
+      ).status,
+    ).toBe(409)
   })
 
   it('answers CORS preflights and marks responses cross-origin-safe', async () => {

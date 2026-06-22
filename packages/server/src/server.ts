@@ -6,18 +6,20 @@
 //   GET  /queries?abspath=<abs> → same, but resolved against the vault root
 //   GET  /query/<id>            → QueryResult | 404
 //   GET  /run?q=<datalog>       → { error, columns, writable, rows }
-//   GET  /files                 → { error, files: string[] }
 //   GET  /contents              → { error, files: [{ path, content, mtime }] }
-//   GET  /dirs                  → { dirs: string[] } (all folders, incl. empty)
 //   GET  /file?path=<rel>       → { path, content } (raw source text)
 //   PUT  /file                  → save { path, content }; new files allowed
-//   POST /mkdir                 → create a folder { path }
-//   POST /move                  → rename/move a file or folder { from, to }
-//   DELETE /file?path=<rel>     → delete a file
-//   DELETE /folder?path=<rel>   → delete a folder recursively
 //   POST /update                → write a query-result edit back to source
 //   POST /delete                → remove the source text behind a fact
 //   POST /insert                → add source text deriving a new fact
+//
+// File management has no dedicated endpoints: files and folders are EDB
+// relations (`File(path, mtime)`, `Folder(path)`), so listing them is a
+// Datalog query and *mutating* them goes through /update, /delete, /insert
+// like any fact — only the executor differs. Rename = update File/Folder.path
+// (filesystem rename), delete = delete the row (unlink / rm -r), new folder or
+// empty file = insert a Folder / File row (mkdir / touch). See
+// applySystemMutation.
 //
 // Every response carries permissive CORS headers (and OPTIONS preflights are
 // answered) so browser apps — e.g. the flow-md web app on a Vite dev port —
@@ -43,6 +45,7 @@
 // complete fact { rel, row }; the target file comes from the relation's
 // declared path attribute (WritableRel.pathAttr, validated at startup), and
 // locator columns the client can't know yet (line numbers) are passed as 0.
+// For File/Folder the row's path column is the target the effect acts on.
 
 import type { Cell } from '@flow-md/plugin-api'
 import {
@@ -98,14 +101,6 @@ export function createHttpServer(vault: Vault, root: string): Server {
       handleSave(req, res, vault, absRoot).catch(fail)
       return
     }
-    if (req.method === 'POST' && (pathname === '/mkdir' || pathname === '/move')) {
-      handleFs(pathname.slice(1), req, res, vault, absRoot).catch(fail)
-      return
-    }
-    if (req.method === 'DELETE' && (pathname === '/file' || pathname === '/folder')) {
-      handleRemove(pathname.slice(1), req, res, vault, absRoot).catch(fail)
-      return
-    }
     if (req.method !== 'GET') {
       return json(res, 405, { error: 'method not allowed' })
     }
@@ -116,20 +111,8 @@ export function createHttpServer(vault: Vault, root: string): Server {
       return json(res, 200, { ok: vault.error() === null, error: vault.error() })
     }
 
-    if (url.pathname === '/files') {
-      return json(res, 200, { error: vault.error(), files: vault.paths() })
-    }
-
     if (url.pathname === '/contents') {
       return json(res, 200, { error: vault.error(), files: vault.contents() })
-    }
-
-    if (url.pathname === '/dirs') {
-      walkDirs(absRoot, '').then(
-        (dirs) => json(res, 200, { dirs }),
-        (err) => json(res, 500, { error: String(err) }),
-      )
-      return
     }
 
     if (url.pathname === '/file') {
@@ -222,9 +205,18 @@ async function handleMutation(
         body.column,
         body.value,
       )
-      await applyWrite(vault, absRoot, relPath, res, (content) =>
-        vault.applyFactUpdate(relPath, content, oldFact, newFact),
-      )
+      if (vault.isSystemRelation(oldFact.rel)) {
+        await applySystemMutation(vault, absRoot, {
+          kind: 'update',
+          rel: oldFact.rel,
+          from: String(oldFact.row[0]),
+          to: String(newFact.row[0]),
+        })
+      } else {
+        await applyWrite(vault, absRoot, relPath, res, (content) =>
+          vault.applyFactUpdate(relPath, content, oldFact, newFact),
+        )
+      }
       return json(res, 200, { error: null, path: relPath, oldFact, newFact })
     }
 
@@ -234,9 +226,17 @@ async function handleMutation(
         ...(source !== undefined ? { source } : {}),
         row: body.row,
       })
-      await applyWrite(vault, absRoot, relPath, res, (content) =>
-        vault.applyFactDelete(relPath, content, fact),
-      )
+      if (vault.isSystemRelation(fact.rel)) {
+        await applySystemMutation(vault, absRoot, {
+          kind: 'delete',
+          rel: fact.rel,
+          path: relPath,
+        })
+      } else {
+        await applyWrite(vault, absRoot, relPath, res, (content) =>
+          vault.applyFactDelete(relPath, content, fact),
+        )
+      }
       return json(res, 200, { error: null, path: relPath, fact })
     }
 
@@ -245,9 +245,17 @@ async function handleMutation(
       return json(res, 400, { error: 'expected { rel, row }' })
     }
     const { path: relPath, fact } = vault.resolveInsert(body.rel, body.row)
-    await applyWrite(vault, absRoot, relPath, res, (content) =>
-      vault.applyFactInsert(relPath, content, fact),
-    )
+    if (vault.isSystemRelation(fact.rel)) {
+      await applySystemMutation(vault, absRoot, {
+        kind: 'insert',
+        rel: fact.rel,
+        path: relPath,
+      })
+    } else {
+      await applyWrite(vault, absRoot, relPath, res, (content) =>
+        vault.applyFactInsert(relPath, content, fact),
+      )
+    }
     return json(res, 200, { error: null, path: relPath, fact })
   } catch (err) {
     if (res.writableEnded) return
@@ -307,82 +315,80 @@ async function walkDirs(absRoot: string, rel: string): Promise<string[]> {
   return out.sort()
 }
 
-/** POST /mkdir { path } and POST /move { from, to }. Moves cover files and
- *  whole folders; the vault is updated in place from its cached contents so
- *  clients see the move on their next poll without waiting on the watcher. */
-async function handleFs(
-  kind: string,
-  req: IncomingMessage,
-  res: ServerResponse,
+type SystemOp =
+  | { kind: 'update'; rel: string; from: string; to: string }
+  | { kind: 'delete'; rel: string; path: string }
+  | { kind: 'insert'; rel: string; path: string }
+
+/** The executor for File/Folder mutations: a filesystem effect plus the vault
+ *  state sync, instead of a content rewrite. Throws on a bad path or an
+ *  unclaimed target extension (→ 409). Keeps the vault in step immediately so
+ *  the client sees the change without waiting on the watcher. */
+async function applySystemMutation(
   vault: Vault,
   absRoot: string,
+  op: SystemOp,
 ): Promise<void> {
-  let body: { path?: string; from?: string; to?: string }
-  try {
-    body = JSON.parse(await readBody(req)) as typeof body
-  } catch {
-    return json(res, 400, { error: 'invalid JSON body' })
+  const inRoot = (rel: string): string => {
+    const t = resolveInRoot(absRoot, rel)
+    if (!t) throw new Error('path escapes the vault root')
+    return t
   }
 
-  if (kind === 'mkdir') {
-    const target = resolveInRoot(absRoot, body.path ?? '')
-    if (!target) return json(res, 400, { error: 'invalid path' })
-    await mkdir(target, { recursive: true })
-    return json(res, 200, { error: null, path: body.path })
-  }
-
-  // move
-  const from = resolveInRoot(absRoot, body.from ?? '')
-  const to = resolveInRoot(absRoot, body.to ?? '')
-  if (!from || !to) return json(res, 400, { error: 'invalid path' })
-  const st = await stat(from).catch(() => null)
-  if (!st) return json(res, 404, { error: `nothing at "${body.from}"` })
-  if (!st.isDirectory() && !vault.accepts(body.to!)) {
-    return json(res, 400, { error: 'target extension not claimed by any plugin' })
-  }
-  await mkdir(path.dirname(to), { recursive: true })
-  await rename(from, to)
-
-  // Re-key the vault's entries from its cached contents.
-  const prefix = `${body.from!}/`
-  for (const f of vault.contents()) {
-    if (st.isDirectory() && f.path.startsWith(prefix)) {
-      vault.removeFile(f.path)
-      vault.setFile(`${body.to!}/${f.path.slice(prefix.length)}`, f.content, f.mtime)
-    } else if (!st.isDirectory() && f.path === body.from) {
-      vault.removeFile(f.path)
-      vault.setFile(body.to!, f.content, f.mtime)
+  if (op.kind === 'insert') {
+    const abs = inRoot(op.path)
+    if (op.rel === 'Folder') {
+      await mkdir(abs, { recursive: true })
+      vault.setFolders(await walkDirs(absRoot, ''))
+    } else {
+      if (!vault.accepts(op.path)) {
+        throw new Error('target extension not claimed by any plugin')
+      }
+      await mkdir(path.dirname(abs), { recursive: true })
+      await writeFile(abs, '', 'utf8')
+      const st = await stat(abs)
+      vault.setFile(op.path, '', st.mtimeMs)
     }
-  }
-  vault.advance()
-  json(res, 200, { error: vault.error(), from: body.from, to: body.to })
-}
-
-/** DELETE /file?path= and DELETE /folder?path= . */
-async function handleRemove(
-  kind: string,
-  req: IncomingMessage,
-  res: ServerResponse,
-  vault: Vault,
-  absRoot: string,
-): Promise<void> {
-  const url = new URL(req.url ?? '/', 'http://localhost')
-  const rel = url.searchParams.get('path') ?? ''
-  const target = resolveInRoot(absRoot, rel)
-  if (!target) return json(res, 400, { error: 'invalid path' })
-
-  if (kind === 'file') {
-    await unlink(target).catch(() => null)
-    vault.removeFile(rel)
+  } else if (op.kind === 'delete') {
+    const abs = inRoot(op.path)
+    if (op.rel === 'Folder') {
+      await rm(abs, { recursive: true, force: true })
+      const prefix = `${op.path}/`
+      for (const p of vault.paths()) if (p.startsWith(prefix)) vault.removeFile(p)
+      vault.setFolders(await walkDirs(absRoot, ''))
+    } else {
+      await unlink(abs).catch(() => null)
+      vault.removeFile(op.path)
+    }
   } else {
-    await rm(target, { recursive: true, force: true })
-    const prefix = `${rel}/`
-    for (const p of vault.paths()) {
-      if (p.startsWith(prefix)) vault.removeFile(p)
+    // update = rename / move
+    const fromAbs = inRoot(op.from)
+    const toAbs = inRoot(op.to)
+    await mkdir(path.dirname(toAbs), { recursive: true })
+    if (op.rel === 'Folder') {
+      await rename(fromAbs, toAbs)
+      const prefix = `${op.from}/`
+      for (const f of vault.contents()) {
+        if (f.path.startsWith(prefix)) {
+          vault.removeFile(f.path)
+          vault.setFile(`${op.to}/${f.path.slice(prefix.length)}`, f.content, f.mtime)
+        }
+      }
+      vault.setFolders(await walkDirs(absRoot, ''))
+    } else {
+      if (!vault.accepts(op.to)) {
+        throw new Error('target extension not claimed by any plugin')
+      }
+      const entry = vault.fileEntry(op.from)
+      await rename(fromAbs, toAbs)
+      vault.removeFile(op.from)
+      if (entry) {
+        const st = await stat(toAbs)
+        vault.setFile(op.to, entry.content, st.mtimeMs)
+      }
     }
   }
   vault.advance()
-  json(res, 200, { error: vault.error(), path: rel })
 }
 
 /** Absolute path of `rel` inside the vault root, or null if it escapes. */

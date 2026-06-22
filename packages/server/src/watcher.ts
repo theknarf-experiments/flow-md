@@ -30,6 +30,14 @@ export function watchVault(
   let isReady = false
   let timer: ReturnType<typeof setTimeout> | null = null
   let chain: Promise<void> = Promise.resolve()
+  // Folder set (empty folders included) → `Folder(path)` facts. chokidar
+  // emits addDir/unlinkDir (dotdirs/node_modules already excluded by the
+  // `ignored` predicate below); we keep the set and hand it to the vault.
+  const dirs = new Set<string>()
+  const syncFolders = () => {
+    vault.setFolders([...dirs])
+    if (isReady) scheduleAdvance()
+  }
 
   const scheduleAdvance = () => {
     if (timer) clearTimeout(timer)
@@ -76,6 +84,19 @@ export function watchVault(
   watcher.on('unlink', (p) => {
     vault.removeFile(rel(p))
     if (isReady) scheduleAdvance()
+  })
+  watcher.on('addDir', (p) => {
+    const r = rel(p)
+    if (!r) return // the root itself
+    dirs.add(r)
+    syncFolders()
+  })
+  watcher.on('unlinkDir', (p) => {
+    const r = rel(p)
+    if (!r) return
+    dirs.delete(r)
+    for (const d of [...dirs]) if (d.startsWith(`${r}/`)) dirs.delete(d)
+    syncFolders()
   })
 
   const ready = new Promise<void>((resolve) => {

@@ -20,7 +20,14 @@
 // Heads must be non-empty, so a variable-less existence query becomes
 // `Q<hash>(1) :- <body>.` with a single boolean-ish column.
 
-import type { Cell, Fact, ParseResult, Plugin, QueryBlock } from '@flow-md/plugin-api'
+import type {
+  Cell,
+  EdbDef,
+  Fact,
+  ParseResult,
+  Plugin,
+  QueryBlock,
+} from '@flow-md/plugin-api'
 import { parseProgram } from '@flow-ts/parsing'
 import { type ProgramSession, openSession } from 'flow-ts'
 import { createHash } from 'node:crypto'
@@ -77,6 +84,13 @@ export interface VaultOptions {
   noSharing?: boolean
 }
 
+/** Vault-owned relations whose facts are backed by the filesystem itself
+ *  rather than the text inside a file. They share the lineage/resolve path
+ *  with content facts, but their mutations are filesystem *effects* (rename /
+ *  unlink / mkdir), which the server applies — see applySystemMutation. */
+const FOLDER_DEF: EdbDef = { name: 'Folder', attrs: [['path', 'string']] }
+const SYSTEM_RELATIONS = new Set(['File', 'Folder'])
+
 export class Vault {
   private readonly files = new Map<string, ParsedFile>()
   private readonly options: VaultOptions
@@ -88,6 +102,9 @@ export class Vault {
    *  inserts, the value is the index of the declared path attribute. */
   private readonly deletable = new Set<string>()
   private readonly insertable = new Map<string, number>()
+  /** Folder paths (incl. empty ones) — the source of `Folder(path)` facts;
+   *  fed by the watcher and kept in sync after folder mutations. */
+  private readonly folders = new Set<string>()
   private session: ProgramSession | null = null
   private programDirty = true
   private pending: Array<{ rel: string; row: Cell[]; diff: number }> = []
@@ -98,11 +115,39 @@ export class Vault {
 
   constructor(plugins: readonly Plugin[], options: VaultOptions = {}) {
     this.registry = new PluginRegistry(plugins)
-    this.schema = buildSchema(plugins)
+    const base = buildSchema(plugins)
+    // Inject the vault-owned Folder relation so it's queryable like any EDB.
+    this.schema = base.names.has(FOLDER_DEF.name)
+      ? base
+      : {
+          defs: [...base.defs, FOLDER_DEF],
+          names: new Set([...base.names, FOLDER_DEF.name]),
+        }
     this.options = options
     for (const p of plugins) {
       for (const w of p.writable ?? []) this.registerWritable(p, w)
     }
+    // File and Folder are filesystem-backed: their mutations are effects the
+    // server applies, so they're registered writable here without a plugin's
+    // content-rewriting methods. `path` (column 0) is renamable; both can be
+    // deleted and created.
+    this.registerSystemRelation('File', 'path')
+    this.registerSystemRelation('Folder', 'path')
+  }
+
+  private registerSystemRelation(rel: string, pathAttr: string): void {
+    const def = this.schema.defs.find((d) => d.name === rel)
+    if (!def) return // no plugin contributes this relation; nothing to manage
+    const idx = def.attrs.findIndex(([n]) => n === pathAttr)
+    if (idx < 0) return
+    this.writableAttrs.set(rel, new Set([pathAttr]))
+    this.deletable.add(rel)
+    this.insertable.set(rel, idx)
+  }
+
+  /** True for relations the vault owns and mutates as filesystem effects. */
+  isSystemRelation(rel: string): boolean {
+    return SYSTEM_RELATIONS.has(rel)
   }
 
   /** Validate one `writable` declaration against the plugin's schema and
@@ -247,6 +292,31 @@ export class Vault {
       const f = this.files.get(p)!
       return { path: f.path, content: f.content, mtime: f.mtime }
     })
+  }
+
+  /** Folder paths (incl. empty), sorted. */
+  folderPaths(): string[] {
+    return [...this.folders].sort()
+  }
+
+  /** Cached content + mtime of a file, for re-keying after a rename. */
+  fileEntry(path: string): { content: string; mtime: number } | null {
+    const f = this.files.get(path)
+    return f ? { content: f.content, mtime: f.mtime } : null
+  }
+
+  /** Replace the folder set, queuing `Folder(path)` fact deltas. Fed by the
+   *  watcher (directory events) and after folder mutations. Caller advance()s. */
+  setFolders(paths: readonly string[]): void {
+    const next = new Set(paths)
+    for (const p of this.folders) {
+      if (!next.has(p)) this.pending.push({ rel: 'Folder', row: [p], diff: -1 })
+    }
+    for (const p of next) {
+      if (!this.folders.has(p)) this.pending.push({ rel: 'Folder', row: [p], diff: 1 })
+    }
+    this.folders.clear()
+    for (const p of next) this.folders.add(p)
   }
 
   // --- internals ---------------------------------------------------------
@@ -418,7 +488,7 @@ export class Vault {
       isWritable: this.isWritable,
       findFacts: this.findFacts,
     })
-    return { ...resolved, path: this.ownerOf(resolved.oldFact) }
+    return { ...resolved, path: this.locate(resolved.oldFact) }
   }
 
   /** Resolve a delete request to the owning file plus the complete fact.
@@ -455,7 +525,7 @@ export class Vault {
     if (!this.deletable.has(fact.rel)) {
       throw new Error(`facts of ${fact.rel} cannot be deleted by any plugin`)
     }
-    return { path: this.ownerOf(fact), fact }
+    return { path: this.locate(fact), fact }
   }
 
   /** Validate an insert request and locate the target file via the
@@ -478,7 +548,9 @@ export class Vault {
         `${rel}.${def.attrs[pathIdx]![0]} must name the target file`,
       )
     }
-    if (!this.files.has(path)) {
+    // Content inserts (e.g. a Task) land in an existing file; system inserts
+    // (File/Folder) *create* the path, so it need not exist yet.
+    if (!this.isSystemRelation(rel) && !this.files.has(path)) {
       throw new Error(`no file "${path}" in the vault`)
     }
     return { path, fact: { rel, row } }
@@ -538,6 +610,12 @@ export class Vault {
     partial: Array<Cell | null>,
   ): Cell[][] => {
     const out: Cell[][] = []
+    if (rel === 'Folder') {
+      for (const p of this.folders) {
+        if (partial.every((c, i) => c === null || [p][i] === c)) out.push([p])
+      }
+      return out
+    }
     for (const file of this.files.values()) {
       for (const f of file.facts) {
         if (f.rel !== rel) continue
@@ -547,6 +625,22 @@ export class Vault {
       }
     }
     return out
+  }
+
+  /** The filesystem path a fact's mutation targets. Content facts live inside
+   *  a file (located by `ownerOf`); system facts (File/Folder) name their own
+   *  target in the path column and are checked against the vault's file /
+   *  folder sets. */
+  private locate(fact: Fact): string {
+    if (this.isSystemRelation(fact.rel)) {
+      const p = String(fact.row[0] ?? '')
+      const exists = fact.rel === 'Folder' ? this.folders.has(p) : this.files.has(p)
+      if (!exists) {
+        throw new Error(`${fact.rel} "${p}" is no longer in the vault (stale?)`)
+      }
+      return p
+    }
+    return this.ownerOf(fact)
   }
 
   /** The single file whose facts contain `fact`. */
@@ -588,6 +682,7 @@ export class Vault {
     for (const file of this.files.values()) {
       for (const f of file.facts) session.update(f.rel, f.row, 1)
     }
+    for (const p of this.folders) session.update('Folder', [p], 1)
   }
 }
 
