@@ -83,10 +83,14 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **View plugins**: `.mdx` notes can embed Datalog-query-driven React
   components. `<Kanban query="Task(path, status, text, line)" groupBy="status"
   …/>` renders a board whose lane moves (drag or buttons) rewrite the source
-  checkbox, and `<Graph/>` draws the Obsidian-style connected-notes graph from
-  any edge-shaped query. See [[board.mdx|board]] and [[graph.mdx|graph]]. These
-  ship as standalone packages — `@flow-md/view-kanban`, `@flow-md/view-graph`,
-  `@flow-md/view-filetree` — built on the `@flow-md/view-api` plugin contract,
+  checkbox, `<Graph/>` draws the Obsidian-style connected-notes graph from
+  any edge-shaped query, and `<Diagram query="…">` hands query rows to a
+  function child that returns a [modular-svg](https://github.com/theknarf-experiments/modular-svg)
+  scene — custom diagrams (`stackH`, `rect`, `arrow`, …) that re-solve live
+  as the vault changes ([[diagram.mdx|diagram]]). See also [[board.mdx|board]]
+  and [[graph.mdx|graph]]. These ship as standalone packages —
+  `@flow-md/view-kanban`, `@flow-md/view-graph`, `@flow-md/view-filetree`,
+  `@flow-md/view-diagram` — built on the `@flow-md/view-api` plugin contract,
   so new view types can be added (by anyone) without touching the app.
 
 ## Data layer

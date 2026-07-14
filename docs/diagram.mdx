@@ -1,0 +1,63 @@
+---
+title: Diagrams
+tags: [example]
+order: 13
+---
+
+# Datalog-driven diagrams
+
+This page is MDX. The `<Diagram>` component runs a Datalog query and hands
+the rows (as objects keyed by the query's columns) to its child function,
+which returns a [modular-svg](https://github.com/theknarf-experiments/modular-svg)
+scene — declarative primitives (`rect`, `circle`, `text`) composed with
+layout relations (`stackH`, `stackV`, `align`, `background`, `arrow`). The
+scene is solved and rendered as SVG, and because the data is a live query,
+the diagram re-solves as the vault changes.
+
+Tasks in this vault, as a tiny bar chart — toggle a todo anywhere and watch
+the bars move:
+
+<Diagram query="Task(path, status, text, line)" margin={12}>
+  {({ rows }) => (
+    <stackH spacing={32}>
+      {['open', 'closed'].map((status) => {
+        const n = rows.filter((r) => r.status === status).length
+        return (
+          <stackV key={status} spacing={8}>
+            <rect
+              width={48}
+              height={12 + n * 16}
+              fill={status === 'open' ? '#8b7ee8' : '#5e55a8'}
+            />
+            <text>{`${status}: ${n}`}</text>
+          </stackV>
+        )
+      })}
+    </stackH>
+  )}
+</Diagram>
+
+Static scenes need no query — `<Graphic>` renders modular-svg primitives
+directly, with `arrow` connecting nodes by key:
+
+<Graphic margin={12}>
+  <stackH spacing={60}>
+    <background key="vault" padding={10}>
+      <text>vault</text>
+    </background>
+    <background key="engine" padding={10}>
+      <text>datalog engine</text>
+    </background>
+    <background key="views" padding={10}>
+      <text>live views</text>
+    </background>
+  </stackH>
+  <arrow>
+    <ref target="vault" />
+    <ref target="engine" />
+  </arrow>
+  <arrow>
+    <ref target="engine" />
+    <ref target="views" />
+  </arrow>
+</Graphic>

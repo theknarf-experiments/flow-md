@@ -20,6 +20,9 @@ const VIEW_PACKAGES = [
   '@flow-md/view-graph',
   '@flow-md/view-filetree',
   '@flow-md/view-ics',
+  '@flow-md/view-diagram',
+  // modular-svg ships raw .ts source too (vendored submodule).
+  '@modular-svg/core',
 ]
 
 export default defineConfig({

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "noEmit": true,
+    // Type-level shim for @modular-svg/core: the real package ships raw
+    // React-19-typed .ts source, which would clash with our React 18 types.
+    // Vite ignores tsconfig paths, so the bundler still uses the real code.
+    "paths": {
+      "@modular-svg/core": ["./types/modular-svg-core.d.ts"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*", "types/**/*"]
+}

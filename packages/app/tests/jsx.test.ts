@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scanJsxBlocks } from '../src/components/editor/jsx.js'
+import { findJsxSpans, scanJsxBlocks } from '../src/components/editor/jsx.js'
 
 describe('scanJsxBlocks', () => {
   it('finds single-line self-closing components', () => {
@@ -33,5 +33,56 @@ describe('scanJsxBlocks', () => {
   it('finds several blocks', () => {
     const text = '<Graph />\n\ntext\n\n<Kanban query="x" />'
     expect(scanJsxBlocks(text)).toHaveLength(2)
+  })
+})
+
+describe('findJsxSpans (MDX-grammar scan)', () => {
+  it('handles nested self-closing children (the <ref/> case)', () => {
+    const text = [
+      '# Doc',
+      '',
+      '<Graphic margin={12}>',
+      '  <rect key="a" width={4} />',
+      '  <arrow>',
+      '    <ref target="a" />',
+      '  </arrow>',
+      '</Graphic>',
+      '',
+      'after',
+    ].join('\n')
+    const spans = findJsxSpans(text)
+    expect(spans).toHaveLength(1)
+    expect(spans[0]!.source.startsWith('<Graphic')).toBe(true)
+    expect(spans[0]!.source.endsWith('</Graphic>')).toBe(true)
+  })
+
+  it('handles arrow-function expression children with =>', () => {
+    const text = [
+      '<Diagram query="Task(p, s, t, l)">',
+      '  {({ rows }) => (',
+      '    <stackH spacing={8}>',
+      '      <rect',
+      '        width={40}',
+      '      />',
+      '    </stackH>',
+      '  )}',
+      '</Diagram>',
+    ].join('\n')
+    const spans = findJsxSpans(text)
+    expect(spans).toHaveLength(1)
+    expect(spans[0]!.source.endsWith('</Diagram>')).toBe(true)
+  })
+
+  it('ignores fenced examples and lowercase html', () => {
+    const text = '```jsx\n<Kanban />\n```\n\n<div>html</div>'
+    expect(findJsxSpans(text)).toHaveLength(0)
+  })
+
+  it('falls back to the line scanner on broken MDX', () => {
+    // `{` opens an unclosed expression → remark-mdx throws.
+    const text = 'broken {expr\n\n<Graph />'
+    const spans = findJsxSpans(text)
+    expect(spans).toHaveLength(1)
+    expect(spans[0]!.source).toBe('<Graph />')
   })
 })

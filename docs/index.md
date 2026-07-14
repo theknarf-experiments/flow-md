@@ -44,6 +44,7 @@ File(path, mtime)
 - [[csv]] — every cell of a `.csv` becomes a fact you can join against.
 - [[board.mdx|board]] — an MDX page with a Datalog-driven kanban board.
 - [[graph.mdx|graph]] — the connected-notes graph, as a Datalog view.
+- [[diagram.mdx|diagram]] — custom modular-svg diagrams driven by queries.
 - [[vim-plugin]] — render results inline in Vim.
 - [[app]] — the Obsidian-style web app with live, editable dataviews.
 - [[examples]] — a cookbook of working queries.

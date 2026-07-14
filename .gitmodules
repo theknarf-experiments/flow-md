@@ -1,3 +1,6 @@
 [submodule "vendor/flow-ts"]
 	path = vendor/flow-ts
 	url = https://github.com/theknarf-experiments/flow-ts.git
+[submodule "vendor/modular-svg"]
+	path = vendor/modular-svg
+	url = https://github.com/theknarf-experiments/modular-svg.git

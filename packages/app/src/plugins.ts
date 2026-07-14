@@ -10,6 +10,7 @@ import type {
   FlowMdViewPlugin,
   ViewComponent,
 } from '@flow-md/view-api'
+import { diagramPlugin } from '@flow-md/view-diagram'
 import { fileTreePlugin } from '@flow-md/view-filetree'
 import { graphPlugin } from '@flow-md/view-graph'
 import { icsViewPlugin } from '@flow-md/view-ics'
@@ -20,6 +21,7 @@ export const viewPlugins: FlowMdViewPlugin[] = [
   graphPlugin,
   fileTreePlugin,
   icsViewPlugin,
+  diagramPlugin,
 ]
 
 /** Flattened JSX-tag → component map for the MDX component registry. */

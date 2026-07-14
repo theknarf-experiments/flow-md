@@ -16,7 +16,16 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "noEmit": true,
-    "useDefineForClassFields": true
+    "useDefineForClassFields": true,
+    // Same type-level shim as @flow-md/view-diagram's tsconfig: our program
+    // includes view-diagram's source, whose @modular-svg/core import would
+    // otherwise pull raw `.ts`-extension-importing source into our program. Vite
+    // ignores paths, so the bundler still uses the real implementation.
+    "paths": {
+      "@modular-svg/core": [
+        "../view-diagram/types/modular-svg-core.d.ts"
+      ]
+    }
   },
   "include": ["src/**/*", "tests/**/*", "vite.config.ts"]
 }

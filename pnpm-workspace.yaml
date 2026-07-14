@@ -1,3 +1,7 @@
 packages:
   - 'packages/*'
   - 'vendor/flow-ts/packages/*'
+  # modular-svg: only the library packages — its docs site and parity-test
+  # package would drag Vite 8 / Playwright / bluefish-js into our install.
+  - 'vendor/modular-svg/packages/modular-svg-core'
+  - 'vendor/modular-svg/packages/modular-svg-react'

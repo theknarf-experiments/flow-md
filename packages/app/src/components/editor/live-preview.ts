@@ -33,7 +33,7 @@ import type { FlowMdHost } from '@flow-md/view-api'
 import type { SyntaxNodeRef } from '@lezer/common'
 import { tags as t } from '@lezer/highlight'
 import { frontmatterRange, frontmatterSummary } from '../../lib/blocks.js'
-import { scanJsxBlocks } from './jsx.js'
+import { findJsxSpans } from './jsx.js'
 import {
   CheckboxWidget,
   DataViewWidget,
@@ -224,7 +224,7 @@ function buildBlocks(
   // JSX component blocks (MDX): rendered while the caret is elsewhere,
   // raw JSX text when it's inside. Fenced code is excluded from the scan
   // so a ```jsx example never evaluates.
-  for (const span of scanJsxBlocks(doc.toString(), fences)) {
+  for (const span of findJsxSpans(doc.toString(), fences)) {
     if (span.from < fmTo) continue
     if (touchesLines(span.from, span.to)) continue
     out.push(
@@ -306,7 +306,7 @@ function build(
         return undefined
       },
     })
-    for (const span of scanJsxBlocks(doc.toString(), fences)) {
+    for (const span of findJsxSpans(doc.toString(), fences)) {
       if (span.from >= fmTo && touchesLines(span.from, span.to)) {
         lines(span.from, span.to, 'cm-codeblock')
       }
