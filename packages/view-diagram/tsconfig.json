@@ -4,12 +4,11 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "noEmit": true,
-    // Type-level shim for @modular-svg/react: the real package ships raw .ts
-    // source that doesn't compile under our stricter flags. Vite ignores
-    // tsconfig paths, so the bundler still uses the real code.
-    "paths": {
-      "@modular-svg/react": ["./types/modular-svg-react.d.ts"]
-    }
+    // This program typechecks the vendored @modular-svg/* raw .ts source
+    // directly, which uses .ts-extension internal imports and doesn't compile
+    // under noUncheckedIndexedAccess.
+    "allowImportingTsExtensions": true,
+    "noUncheckedIndexedAccess": false
   },
-  "include": ["src/**/*", "tests/**/*", "types/**/*"]
+  "include": ["src/**/*", "tests/**/*"]
 }
