@@ -20,6 +20,7 @@ import { CommandPalette } from '../components/CommandPalette.js'
 import { api } from '../lib/api.js'
 import { notesCollection } from '../lib/db.js'
 import { makeHost } from '../lib/host.js'
+import { type Theme, currentTheme, themeInitScript, toggleTheme } from '../lib/theme.js'
 import { usePoll } from '../lib/usePoll.js'
 import { resolveWikiTarget } from '../lib/wiki.js'
 import styles from './__root.module.css'
@@ -35,6 +36,9 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
       { title: 'flow-md' },
     ],
+    // Sets <html data-theme> before first paint — the palette in index.css
+    // keys off it, so the shell can't flash the wrong theme.
+    scripts: [{ children: themeInitScript }],
   }),
   component: RootDocument,
 })
@@ -97,6 +101,10 @@ function Shell() {
     () => localStorage.getItem(SIDEBAR_KEY) !== 'closed',
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // The attribute on <html> (set pre-paint) is the source of truth; this
+  // state only keeps the toggle button's label in sync.
+  const [theme, setTheme] = useState<Theme>(currentTheme)
+  const flipTheme = () => setTheme(toggleTheme())
 
   const toggleSidebar = () => {
     setSidebarOpen((open) => {
@@ -149,6 +157,15 @@ function Shell() {
                 <button
                   type="button"
                   className={styles.ghost}
+                  title={`switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+                  onClick={flipTheme}
+                  data-testid="theme-toggle"
+                >
+                  {theme === 'dark' ? '☀' : '☾'}
+                </button>{' '}
+                <button
+                  type="button"
+                  className={styles.ghost}
                   title="hide sidebar (⌘B)"
                   onClick={toggleSidebar}
                   data-testid="sidebar-hide"
@@ -189,6 +206,7 @@ function Shell() {
           onClose={() => setPaletteOpen(false)}
           commands={[
             { label: 'Toggle sidebar', run: toggleSidebar },
+            { label: 'Toggle dark/light theme', run: flipTheme },
             { label: 'New note', run: addNote },
             { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
           ]}

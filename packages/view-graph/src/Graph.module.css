@@ -18,7 +18,7 @@
   stroke-width: 1.5;
   transition: fill 120ms;
 }
-.node:hover circle { fill: #fff; }
+.node:hover circle { fill: var(--fg); }
 .node text {
   fill: var(--fg-dim);
   font-size: 10px;

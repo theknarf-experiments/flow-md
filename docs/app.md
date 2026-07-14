@@ -68,6 +68,10 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **⌘K command palette** (Tanstack Hotkeys): fuzzy file search, free-text
   search across every note's content, and app commands. **⌘B** toggles the
   sidebar (there are buttons too).
+- **Dark/light theme**: follows the OS until you pick — the sidebar's ☀/☾
+  button (or the palette's "Toggle dark/light theme") flips and remembers.
+  Everything, including code-block syntax colors, runs off CSS variables
+  keyed by `<html data-theme>`, set before first paint so nothing flashes.
 - **The sidebar is a view plugin too**: it's `<FileTree>`, driven by
   `File(path, mtime)` and `Folder(path)` queries. File-type icons, rename,
   delete, and create folders/files all run through the host's row mutations —

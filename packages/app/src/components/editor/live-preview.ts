@@ -140,19 +140,21 @@ export function livePreview(config: LivePreviewConfig) {
 
 /** Token colors for fenced code (the nested language parsers' tags). The
  *  markdown constructs themselves stay with the reveal decorations — only
- *  code-shaped tags are listed here, so the two systems never fight. */
+ *  code-shaped tags are listed here, so the two systems never fight.
+ *  Values are the --code-* theme variables from index.css, so highlighting
+ *  follows the dark/light switch without a reconfigure. */
 const codeHighlight = HighlightStyle.define([
-  { tag: [t.keyword, t.modifier, t.operatorKeyword], color: '#b294f0' },
-  { tag: [t.string, t.special(t.string), t.regexp], color: '#9ece6a' },
-  { tag: [t.comment, t.blockComment, t.lineComment], color: '#6a6a78', fontStyle: 'italic' },
-  { tag: [t.number, t.bool, t.atom, t.null], color: '#e0af68' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#7aa2f7' },
-  { tag: [t.typeName, t.className, t.namespace], color: '#73daca' },
-  { tag: [t.propertyName, t.attributeName], color: '#7dcfff' },
-  { tag: [t.definition(t.variableName), t.macroName], color: '#dcdce4' },
-  { tag: [t.operator, t.punctuation, t.bracket], color: '#8e8e9a' },
-  { tag: [t.tagName, t.angleBracket], color: '#f7768e' },
-  { tag: t.invalid, color: '#e87e7e' },
+  { tag: [t.keyword, t.modifier, t.operatorKeyword], color: 'var(--code-keyword)' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--code-string)' },
+  { tag: [t.comment, t.blockComment, t.lineComment], color: 'var(--code-comment)', fontStyle: 'italic' },
+  { tag: [t.number, t.bool, t.atom, t.null], color: 'var(--code-literal)' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: 'var(--code-func)' },
+  { tag: [t.typeName, t.className, t.namespace], color: 'var(--code-type)' },
+  { tag: [t.propertyName, t.attributeName], color: 'var(--code-prop)' },
+  { tag: [t.definition(t.variableName), t.macroName], color: 'var(--code-def)' },
+  { tag: [t.operator, t.punctuation, t.bracket], color: 'var(--code-punct)' },
+  { tag: [t.tagName, t.angleBracket], color: 'var(--code-tag)' },
+  { tag: t.invalid, color: 'var(--code-invalid)' },
 ])
 
 /** Block widgets over the whole document: dataview fences, tables and the

@@ -52,7 +52,7 @@
   text-align: left;
 }
 
-.results button.selected { background: var(--accent-dim); color: #fff; }
+.results button.selected { background: var(--accent-dim); color: var(--accent-fg); }
 
 .kind { flex-shrink: 0; }
 
@@ -70,6 +70,6 @@
   white-space: nowrap;
 }
 
-.results button.selected .detail { color: #ddd; }
+.results button.selected .detail { color: var(--accent-fg); opacity: 0.85; }
 
 .none { color: var(--fg-dim); padding: 0.5rem 0.75rem; }

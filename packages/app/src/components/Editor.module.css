@@ -23,7 +23,7 @@
   background: var(--accent-dim);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  color: var(--accent-fg);
   cursor: pointer;
   padding: 0.3rem 1rem;
 }

@@ -1,8 +1,14 @@
 /* Global base only: theme variables, element defaults, and the handful of
    utility classes shared across components. Everything component-shaped
-   lives in a *.module.css next to its component. */
+   lives in a *.module.css next to its component.
+
+   Theming: two palettes keyed off <html data-theme>, which lib/theme.ts sets
+   before first paint (system preference unless the user toggled). Dark is
+   also the no-attribute fallback. The --code-* variables feed the CodeMirror
+   HighlightStyle in editor/live-preview.ts. */
 
 :root {
+  color-scheme: dark;
   --bg: #1e1e23;
   --bg-side: #17171c;
   --bg-raise: #26262e;
@@ -10,9 +16,48 @@
   --fg-dim: #8e8e9a;
   --accent: #8b7ee8;
   --accent-dim: #5e55a8;
+  --accent-fg: #fff;
   --danger: #e87e7e;
   --border: #32323c;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --code-keyword: #b294f0;
+  --code-string: #9ece6a;
+  --code-comment: #6a6a78;
+  --code-literal: #e0af68;
+  --code-func: #7aa2f7;
+  --code-type: #73daca;
+  --code-prop: #7dcfff;
+  --code-def: #dcdce4;
+  --code-punct: #8e8e9a;
+  --code-tag: #f7768e;
+  --code-invalid: #e87e7e;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #fafafc;
+  --bg-side: #f0f0f5;
+  --bg-raise: #ffffff;
+  --fg: #2a2a33;
+  --fg-dim: #6d6d7c;
+  --accent: #6a5ccf;
+  --accent-dim: #7568c9;
+  --accent-fg: #fff;
+  --danger: #c04848;
+  --border: #dcdce4;
+
+  --code-keyword: #8940b5;
+  --code-string: #587539;
+  --code-comment: #9294a0;
+  --code-literal: #8f5e15;
+  --code-func: #34548a;
+  --code-type: #0f766e;
+  --code-prop: #0369a1;
+  --code-def: #2a2a33;
+  --code-punct: #6d6d7c;
+  --code-tag: #c14a5f;
+  --code-invalid: #c04848;
 }
 
 * { box-sizing: border-box; }
