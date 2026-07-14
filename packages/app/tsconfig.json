@@ -18,12 +18,13 @@
     "noEmit": true,
     "useDefineForClassFields": true,
     // Same type-level shim as @flow-md/view-diagram's tsconfig: our program
-    // includes view-diagram's source, whose @modular-svg/core import would
-    // otherwise pull raw `.ts`-extension-importing source into our program. Vite
-    // ignores paths, so the bundler still uses the real implementation.
+    // includes view-diagram's source, whose @modular-svg/react import would
+    // otherwise pull raw vendored source (which doesn't compile under our
+    // stricter flags) into our program. Vite ignores paths, so the bundler
+    // still uses the real reconciler-based implementation.
     "paths": {
-      "@modular-svg/core": [
-        "../view-diagram/types/modular-svg-core.d.ts"
+      "@modular-svg/react": [
+        "../view-diagram/types/modular-svg-react.d.ts"
       ]
     }
   },

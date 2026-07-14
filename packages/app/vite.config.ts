@@ -23,6 +23,7 @@ const VIEW_PACKAGES = [
   '@flow-md/view-diagram',
   // modular-svg ships raw .ts source too (vendored submodule).
   '@modular-svg/core',
+  '@modular-svg/react',
 ]
 
 export default defineConfig({
@@ -33,6 +34,11 @@ export default defineConfig({
     react(),
   ],
   resolve: { dedupe: ['react', 'react-dom'] },
-  optimizeDeps: { exclude: VIEW_PACKAGES },
+  optimizeDeps: {
+    exclude: VIEW_PACKAGES,
+    // Excluding @modular-svg/react from the prebundle means its CJS deps
+    // must be prebundled explicitly for browser ESM interop.
+    include: ['react-reconciler', 'scheduler', 'its-fine'],
+  },
   ssr: { noExternal: VIEW_PACKAGES },
 })

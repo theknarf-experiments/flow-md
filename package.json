@@ -11,7 +11,7 @@
     "dev": "mprocs",
     "build": "turbo run build",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck --filter=!@modular-svg/react",
+    "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules/.cache .turbo"
   },
   "devDependencies": {

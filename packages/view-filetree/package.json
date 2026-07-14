@@ -4,7 +4,7 @@
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "TheKnarf",
-  "description": "Datalog-driven file/folder tree for flow-md — the sidebar and an embeddable note index",
+  "description": "Datalog-driven file/folder tree for flow-md \u2014 the sidebar and an embeddable note index",
   "exports": {
     ".": "./src/index.tsx"
   },
@@ -21,8 +21,8 @@
     "react": "^18 || ^19"
   },
   "devDependencies": {
-    "@types/react": "^18.3.12",
-    "react": "^18.3.1",
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
     "typescript": "^5.7.0",
     "vitest": "^2.1.0"
   }

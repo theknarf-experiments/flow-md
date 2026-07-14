@@ -1,7 +1,6 @@
 // Datalog-driven modular-svg diagrams — a flow-md view plugin. In an MDX
 // note, <Diagram> runs a query and hands the rows (as objects keyed by the
-// query's columns) to its function child, which returns a modular-svg scene;
-// the scene is solved and rendered as SVG:
+// query's columns) to its function child, which returns a modular-svg scene:
 //
 //   <Diagram query="Task(path, status, text, line)">
 //     {({ rows }) => (
@@ -17,20 +16,20 @@
 //   </Diagram>
 //
 // The lowercase tags (stackH, stackV, align, distribute, background, arrow,
-// ref, rect, circle, text, …) are modular-svg scene primitives — converted
-// to the core JSON format by a static element traversal (see scene.ts),
-// solved by @modular-svg/core's fixed-point layout solver, and emitted as
-// SVG. <Graphic> renders a static scene without a query. Because Diagram's
-// data is a live query, the diagram re-solves as the vault changes.
+// ref, rect, circle, text, …) are modular-svg scene primitives, rendered by
+// @modular-svg/react's custom reconciler — scene code is ordinary React, so
+// fragments, maps and (in principle) hooks all work. The reconciled scene is
+// solved by @modular-svg/core's fixed-point layout solver and painted as
+// inline SVG. <Graphic> renders a static scene without a query. Because
+// Diagram's data is a live query, the diagram re-solves as the vault changes.
 //
 // A render boundary contains mistakes in the note's diagram code (it's
 // arbitrary JS) to the diagram box instead of taking down the whole editor.
 
 import { type FlowMdViewPlugin, useFlowMd } from '@flow-md/view-api'
-import { buildSceneFromJson, layoutToSvg, solveLayout } from '@modular-svg/core'
-import { Component, type ReactNode, useMemo } from 'react'
+import { Graphic as SceneGraphic } from '@modular-svg/react'
+import { Component, type ReactNode } from 'react'
 import { type Row, rowsAsObjects } from './rows.js'
-import { childrenToScene } from './scene.js'
 
 export interface DiagramData {
   columns: string[]
@@ -43,37 +42,14 @@ export function Graphic(props: {
   margin?: number | string
   title?: string
 }) {
-  const { children, margin, title } = props
-  const result = useMemo(() => {
-    try {
-      const json = childrenToScene(children)
-      if (!json) return { svg: null, error: null }
-      const scene = buildSceneFromJson(json)
-      const layout = solveLayout(scene)
-      return {
-        svg: layoutToSvg(layout, scene.nodes, Number(margin ?? 10)),
-        error: null,
-      }
-    } catch (err) {
-      return {
-        svg: null,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  }, [children, margin])
-  if (result.error) return <p className="offline">diagram: {result.error}</p>
-  const svg = result.svg
-  if (!svg) return null
   return (
-    <figure
+    <SceneGraphic
       data-testid="diagram"
-      {...(title !== undefined ? { 'aria-label': title } : {})}
-      // The SVG string comes from modular-svg's own serializer over numeric
-      // layout results — same trust model as evaluating the note's MDX.
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: see above
-      dangerouslySetInnerHTML={{ __html: svg }}
-      style={{ margin: 0 }}
-    />
+      margin={Number(props.margin ?? 10)}
+      {...(props.title !== undefined ? { title: props.title } : {})}
+    >
+      {props.children}
+    </SceneGraphic>
   )
 }
 
@@ -135,5 +111,3 @@ export const diagramPlugin: FlowMdViewPlugin = {
 export default diagramPlugin
 export { rowsAsObjects } from './rows.js'
 export type { Row } from './rows.js'
-export { childrenToScene } from './scene.js'
-export type { SceneJson } from './scene.js'
