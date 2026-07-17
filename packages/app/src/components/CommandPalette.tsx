@@ -3,6 +3,7 @@
 // collection, so this is just a scan), and a few app commands. Keyboard
 // driven: arrows + Enter, Escape closes.
 
+import { fileIcon } from '@flow-md/view-filetree'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -18,6 +19,9 @@ export interface PaletteCommand {
 interface Item {
   kind: 'command' | 'file' | 'text'
   key: string
+  /** Leading glyph: the sidebar's file-type icon for file-backed rows,
+   *  ⌘ for commands — one icon language across the app. */
+  icon: string
   label: string
   detail?: string
   run: () => void
@@ -54,6 +58,7 @@ export function CommandPalette(props: {
     const fileItems: Item[] = fuzzyFilter(all, query, (n) => n.path).map((n) => ({
       kind: 'file',
       key: `file:${n.path}`,
+      icon: fileIcon(n.path),
       label: n.path,
       run: goto(n.path),
     }))
@@ -62,6 +67,7 @@ export function CommandPalette(props: {
       (c) => ({
         kind: 'command',
         key: `cmd:${c.label}`,
+        icon: '⌘',
         label: c.label,
         run: () => {
           onClose()
@@ -86,6 +92,7 @@ export function CommandPalette(props: {
         textItems.push({
           kind: 'text',
           key: `text:${n.path}`,
+          icon: fileIcon(n.path),
           label: n.path,
           detail: line.slice(0, 80),
           run: goto(n.path),
@@ -154,7 +161,7 @@ export function CommandPalette(props: {
                 onMouseEnter={() => setSelected(i)}
                 onClick={item.run}
               >
-                <span className={styles.kind}>{KIND_LABEL[item.kind]}</span>
+                <span className={styles.kind}>{item.icon}</span>
                 <span className={styles.label}>{item.label}</span>
                 {item.detail && (
                   <span className={styles.detail}>{item.detail}</span>
@@ -169,8 +176,3 @@ export function CommandPalette(props: {
   )
 }
 
-const KIND_LABEL: Record<Item['kind'], string> = {
-  command: '⌘',
-  file: '📄',
-  text: '🔍',
-}

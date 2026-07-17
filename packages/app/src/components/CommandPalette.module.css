@@ -54,7 +54,14 @@
 
 .results button.selected { background: var(--accent-dim); color: var(--accent-fg); }
 
-.kind { flex-shrink: 0; }
+/* Fixed slot so emoji and the ⌘ glyph align into one column. */
+.kind {
+  flex-shrink: 0;
+  width: 1.5em;
+  text-align: center;
+  font-size: 0.9em;
+  line-height: 1;
+}
 
 .label {
   font-family: var(--mono);
