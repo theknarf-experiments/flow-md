@@ -34,17 +34,20 @@
   --border: #2e2e2e;
   --mono: 'iA Writer Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --code-keyword: #7fb2e8;
-  --code-string: #9db08f;
-  --code-comment: #6b6b6b;
-  --code-literal: #c9c9c9;
-  --code-func: #dedede;
-  --code-type: #dedede;
-  --code-prop: #adadad;
-  --code-def: #dedede;
-  --code-punct: #8a8a8a;
-  --code-tag: #7fb2e8;
-  --code-invalid: #d97c7c;
+  /* One Dark — distinct hue per token class (keyword purple, string green,
+     function blue, type gold, number amber, property cyan, definition/tag
+     coral) so highlighting actually reads. */
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-comment: #6b7079;
+  --code-literal: #d19a66;
+  --code-func: #61afef;
+  --code-type: #e5c07b;
+  --code-prop: #56b6c2;
+  --code-def: #e06c75;
+  --code-punct: #9aa0ab;
+  --code-tag: #e06c75;
+  --code-invalid: #e06c75;
 }
 
 :root[data-theme='light'] {
@@ -60,17 +63,18 @@
   --danger: #b54a4a;
   --border: #e5e5e3;
 
-  --code-keyword: #1467c8;
-  --code-string: #5d7a4c;
-  --code-comment: #a3a3a3;
-  --code-literal: #444444;
-  --code-func: #1a1a1a;
-  --code-type: #1a1a1a;
-  --code-prop: #5c5c5c;
-  --code-def: #1a1a1a;
-  --code-punct: #8f8f8f;
-  --code-tag: #1467c8;
-  --code-invalid: #b54a4a;
+  /* One Light — the light-theme counterpart, same hue assignments. */
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-comment: #a0a1a7;
+  --code-literal: #b76b01;
+  --code-func: #4078f2;
+  --code-type: #b3860b;
+  --code-prop: #0184bc;
+  --code-def: #e45649;
+  --code-punct: #6b6b6b;
+  --code-tag: #e45649;
+  --code-invalid: #ca1243;
 }
 
 * { box-sizing: border-box; }
