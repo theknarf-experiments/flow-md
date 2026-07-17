@@ -39,7 +39,10 @@
   white-space: nowrap;
 }
 .leaf:hover { background: var(--bg-raise); }
-.leaf.active { background: var(--accent-dim); color: #fff; }
+.leaf.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--fg);
+}
 
 .icon { margin-right: 0.35rem; }
 

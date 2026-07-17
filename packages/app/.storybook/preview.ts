@@ -8,8 +8,8 @@ const preview: Preview = {
   parameters: {
     backgrounds: {
       options: {
-        dark: { name: 'dark', value: '#1e1e23' },
-        light: { name: 'light', value: '#fafafc' },
+        dark: { name: 'dark', value: '#1a1a1a' },
+        light: { name: 'light', value: '#fcfcfc' },
       },
     },
   },

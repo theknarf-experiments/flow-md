@@ -508,27 +508,31 @@ function clickHandler(config: LivePreviewConfig) {
   })
 }
 
+// iA-Writer-ish: Quattro at a writing size, a narrow centered measure, the
+// blue caret, and a quiet heading scale (bold, barely larger — iA leans on
+// weight, not size).
 const theme = EditorView.theme({
-  '&': { fontSize: '15px' },
+  '&': { fontSize: '17px' },
   '.cm-content': {
-    fontFamily:
-      "-apple-system, 'Segoe UI', Roboto, sans-serif",
-    lineHeight: '1.6',
+    fontFamily: "'iA Writer Quattro', -apple-system, 'Segoe UI', Roboto, sans-serif",
+    lineHeight: '1.7',
     caretColor: 'var(--accent)',
-    padding: '0 0 4rem',
+    maxWidth: '680px',
+    margin: '0 auto',
+    padding: '1.5rem 0 4rem',
   },
   '.cm-line': { padding: '0' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-cursor': { borderLeftColor: 'var(--accent)' },
+  '.cm-cursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    background: 'color-mix(in srgb, var(--accent-dim) 40%, transparent)',
+    background: 'color-mix(in srgb, var(--accent) 25%, transparent)',
   },
 
-  '.cm-h': { fontWeight: '700', lineHeight: '1.3' },
-  '.cm-h1': { fontSize: '1.7em' },
-  '.cm-h2': { fontSize: '1.45em' },
-  '.cm-h3': { fontSize: '1.2em' },
-  '.cm-h4, .cm-h5, .cm-h6': { fontSize: '1.05em' },
+  '.cm-h': { fontWeight: '700', lineHeight: '1.35' },
+  '.cm-h1': { fontSize: '1.35em' },
+  '.cm-h2': { fontSize: '1.2em' },
+  '.cm-h3': { fontSize: '1.1em' },
+  '.cm-h4, .cm-h5, .cm-h6': { fontSize: '1em' },
 
   '.cm-em': { fontStyle: 'italic' },
   '.cm-strong': { fontWeight: '700' },
@@ -561,12 +565,12 @@ const theme = EditorView.theme({
   },
 
   '.cm-blockquote': {
-    borderLeft: '3px solid var(--accent-dim)',
+    borderLeft: '2px solid var(--border)',
     paddingLeft: '1rem',
     color: 'var(--fg-dim)',
   },
 
-  '.cm-bullet': { color: 'var(--accent)' },
+  '.cm-bullet': { color: 'var(--fg-dim)' },
   '.cm-list-mark': { color: 'var(--fg-dim)' },
 
   '.cm-hr': {

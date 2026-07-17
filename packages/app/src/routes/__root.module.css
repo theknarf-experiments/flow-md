@@ -13,9 +13,10 @@
   z-index: 40;
   background: var(--bg-side);
   border-right: 1px solid var(--border);
-  box-shadow: 10px 0 28px rgba(0, 0, 0, 0.3);
+  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.12);
   overflow-y: auto;
   padding: 0.75rem;
+  font-size: 0.9rem;
   animation: sidebar-in 140ms ease-out;
 }
 
@@ -32,7 +33,9 @@
 
 .brand {
   font-weight: 700;
-  color: var(--accent);
+  font-size: 0.9rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
 }
 
 .ghost {
@@ -41,7 +44,8 @@
   border-radius: 6px;
   color: var(--fg-dim);
   cursor: pointer;
-  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.4rem;
 }
 .ghost:hover { color: var(--fg); border-color: var(--accent-dim); }
 

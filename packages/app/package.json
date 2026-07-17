@@ -29,6 +29,8 @@
     "@flow-md/view-ics": "workspace:*",
     "@flow-md/view-kanban": "workspace:*",
     "@flow-md/view-schemaboi": "workspace:*",
+    "@fontsource/ia-writer-mono": "^5.2.5",
+    "@fontsource/ia-writer-quattro": "^5.2.5",
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@mdx-js/mdx": "^3.1.1",
