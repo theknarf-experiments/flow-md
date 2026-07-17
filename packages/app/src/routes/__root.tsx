@@ -128,9 +128,12 @@ function Shell() {
     if (name) void host.insertRow({ rel: 'Folder', row: [name] })
   }
 
+  // `/` renders the vault's index.md, so mirror that in the tree highlight.
   const activePath = location.pathname.startsWith('/note/')
     ? decodeURIComponent(location.pathname.slice('/note/'.length))
-    : undefined
+    : location.pathname === '/'
+      ? 'index.md'
+      : undefined
 
   return (
     <FlowMdHostProvider host={host}>
@@ -166,7 +169,7 @@ function Shell() {
             { label: 'Toggle dark/light theme', run: toggleTheme },
             { label: 'Toggle sidebar', run: toggleSidebar },
             { label: 'Toggle raw source view', run: toggleRawView },
-            { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
+            { label: 'Go to index', run: () => void navigate({ to: '/' }) },
           ]}
         />
       </div>
