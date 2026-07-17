@@ -20,6 +20,7 @@ import { CommandPalette } from '../components/CommandPalette.js'
 import { api } from '../lib/api.js'
 import { notesCollection } from '../lib/db.js'
 import { makeHost } from '../lib/host.js'
+import { toggleRawView } from '../lib/rawView.js'
 import { themeInitScript, toggleTheme } from '../lib/theme.js'
 import { usePoll } from '../lib/usePoll.js'
 import { resolveWikiTarget } from '../lib/wiki.js'
@@ -134,22 +135,11 @@ function Shell() {
   return (
     <FlowMdHostProvider host={host}>
       <div className={styles.shell}>
-        {sidebarOpen ? (
+        {/* The sidebar is just the library — no chrome of its own. Every
+            command (new note/folder, theme, raw view, the sidebar itself)
+            lives in the ⌘K palette or on a hotkey (⌘B). */}
+        {sidebarOpen && (
           <aside className={styles.sidebar} data-testid="sidebar">
-            {/* The sidebar is just the library — commands (new note/folder,
-                theme, …) live in the ⌘K palette. */}
-            <div className={styles.sidebarHead}>
-              <span className={styles.brand}>flow-md</span>
-              <button
-                type="button"
-                className={styles.ghost}
-                title="hide sidebar (⌘B)"
-                onClick={toggleSidebar}
-                data-testid="sidebar-hide"
-              >
-                «
-              </button>
-            </div>
             {health.error && (
               <p className="offline">
                 server unreachable at <code>{api.base}</code> — showing cached
@@ -163,16 +153,6 @@ function Shell() {
               {...(activePath !== undefined ? { activePath } : {})}
             />
           </aside>
-        ) : (
-          <button
-            type="button"
-            className={styles.reveal}
-            title="show sidebar (⌘B)"
-            onClick={toggleSidebar}
-            data-testid="sidebar-show"
-          >
-            »
-          </button>
         )}
         <main className={styles.content}>
           <Outlet />
@@ -185,6 +165,7 @@ function Shell() {
             { label: 'New folder', run: addFolder },
             { label: 'Toggle dark/light theme', run: toggleTheme },
             { label: 'Toggle sidebar', run: toggleSidebar },
+            { label: 'Toggle raw source view', run: toggleRawView },
             { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
           ]}
         />

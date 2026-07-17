@@ -55,9 +55,9 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   draggable board *inside the editor*) while the caret is elsewhere, raw
   JSX text when it's inside (hover-✎ jumps in). A small scanner finds
   component spans, since multi-line JSX isn't valid CommonMark; compiled
-  snippets are cached by source. A `</>` toggle in the header still opens
-  any file as raw text — the escape hatch for half-typed JSX, `.ics`
-  files, or wholesale rewrites.
+  snippets are cached by source. The palette's "Toggle raw source view"
+  still opens any file as raw text — the escape hatch for half-typed JSX,
+  `.ics` files, or wholesale rewrites.
 - **Optimistic everything**: mutations render instantly from TanStack DB's
   optimistic overlay and roll back automatically (with the server's reason
   shown) if the write is rejected — e.g. a stale row hitting the concurrency
@@ -66,8 +66,9 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
   still renders with the server unreachable. Writes need the server — flow-md
   is the source of truth, not a CRDT.
 - **⌘K command palette** (Tanstack Hotkeys): fuzzy file search, free-text
-  search across every note's content, and app commands. **⌘B** toggles the
-  sidebar (there are buttons too).
+  search across every note's content, and app commands — new note/folder,
+  theme, raw view, sidebar. **⌘B** also toggles the sidebar; there is no
+  button chrome at all.
 - **Dark/light theme**: follows the OS until you pick — the palette's
   "Toggle dark/light theme" flips and remembers.
   Everything, including code-block syntax colors, runs off CSS variables

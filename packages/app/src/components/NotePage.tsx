@@ -4,14 +4,14 @@
 // and this component just renders whatever the live queries currently hold.
 //
 // There is no separate edit mode: the rendered view *is* the editor (blocks
-// edit in place, dataview cells and checkboxes write through). The single
-// `</>` toggle opens raw source as an escape hatch — for fixing broken MDX,
-// editing .ics files, or wholesale rewrites.
+// edit in place, dataview cells and checkboxes write through). Raw source is
+// the escape hatch — toggled from the ⌘K palette, not per-note chrome — for
+// fixing broken MDX, editing .ics files, or wholesale rewrites.
 
 import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
-import { useState } from 'react'
 import { notesCollection } from '../lib/db.js'
+import { useRawView } from '../lib/rawView.js'
 import { fileHandlers } from '../plugins.js'
 import { CsvView } from './CsvView.js'
 import { Editor } from './Editor.js'
@@ -19,7 +19,7 @@ import { LiveEditor } from './editor/LiveEditor.js'
 import styles from './NotePage.module.css'
 
 export function NotePage({ path }: { path: string }) {
-  const [showSource, setShowSource] = useState(false)
+  const showSource = useRawView()
 
   const { data: notes } = useLiveQuery(
     (q) =>
@@ -42,16 +42,10 @@ export function NotePage({ path }: { path: string }) {
   return (
     <div className={styles.note}>
       <header className={styles.head}>
-        <h2 className={styles.path}>{path}</h2>
-        <button
-          type="button"
-          className={`${styles.sourceToggle} ${showSource ? styles.active : ''}`}
-          title={showSource ? 'back to the note' : 'edit raw source'}
-          data-testid="source-toggle"
-          onClick={() => setShowSource(!showSource)}
-        >
-          {'</>'}
-        </button>
+        <h2 className={styles.path}>
+          {path}
+          {showSource && <span className={styles.rawBadge}> · raw</span>}
+        </h2>
       </header>
       {showSource ? (
         <Editor key={path} path={path} initial={note.content} />

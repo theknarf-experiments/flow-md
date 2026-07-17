@@ -28,18 +28,10 @@
   margin: 0;
 }
 
-.sourceToggle {
-  background: var(--bg-raise);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.rawBadge {
   color: var(--fg-dim);
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  padding: 0.2rem 0.6rem;
+  font-weight: 400;
 }
-.sourceToggle:hover { color: var(--fg); border-color: var(--accent-dim); }
-.sourceToggle.active { color: var(--accent-fg); background: var(--accent-dim); }
 
 .raw {
   font-family: var(--mono);

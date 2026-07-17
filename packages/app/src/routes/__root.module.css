@@ -13,7 +13,6 @@
   z-index: 40;
   background: var(--bg-side);
   border-right: 1px solid var(--border);
-  box-shadow: 6px 0 18px rgba(0, 0, 0, 0.12);
   overflow-y: auto;
   padding: 0.75rem;
   font-size: 0.9rem;
@@ -24,47 +23,8 @@
   from { transform: translateX(-100%); }
 }
 
-.sidebarHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.brand {
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--fg-dim);
-  white-space: nowrap;
-}
-
-.ghost {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0.1rem 0.4rem;
-}
-.ghost:hover { color: var(--fg); border-color: var(--accent-dim); }
-
 .content {
   height: 100vh;
   overflow-y: auto;
 }
 
-/* Slim affordance to reopen a hidden sidebar. */
-.reveal {
-  position: fixed;
-  top: 0.6rem;
-  left: 0.6rem;
-  z-index: 50;
-  background: var(--bg-raise);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--fg-dim);
-  cursor: pointer;
-  padding: 0.15rem 0.5rem;
-}
-.reveal:hover { color: var(--fg); border-color: var(--accent-dim); }
