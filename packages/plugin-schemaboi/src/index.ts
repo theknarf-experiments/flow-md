@@ -2,12 +2,14 @@
 // binary serialization format (https://github.com/josephg/schemaboi) — and
 // exposes BOTH halves of a file to Datalog: the embedded schema (SbType/
 // SbVariant/SbField) and the decoded data (SbItem/SbData/SbNum/SbLink).
-// Like ICS and CSV it's a pure fact source; being binary, the vault hands
-// us latin1-encoded bytes and there is no write-back.
+// The vault hands us latin1-encoded bytes (binary: true). Write-back edits
+// SbData.value / SbNum.num: decode, splice the value in schema-directed
+// form, re-encode (see update.ts).
 
 import type { Plugin } from '@flow-md/plugin-api'
 import { parseSchemaboi } from './parse.js'
 import { SB_SCHEMA } from './schema.js'
+import { SB_WRITABLE, updateSbFact } from './update.js'
 
 export const schemaboiPlugin: Plugin = {
   name: 'schemaboi',
@@ -15,7 +17,9 @@ export const schemaboiPlugin: Plugin = {
   binary: true,
   schema: SB_SCHEMA,
   parse: parseSchemaboi,
+  writable: SB_WRITABLE,
+  updateFact: updateSbFact,
 }
 
-export { parseSchemaboi, SB_SCHEMA }
+export { parseSchemaboi, SB_SCHEMA, SB_WRITABLE, updateSbFact }
 export default schemaboiPlugin

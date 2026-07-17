@@ -72,5 +72,13 @@ Over30(name, age) :-
 Over30(name, age)
 ```
 
+## Editing
+
+`SbData.value` and `SbNum.num` are **writable**: edit a cell here (or in the
+inspector's data tables) and the plugin decodes the binary, splices the new
+value in — coerced to the field's wire type, so a `u32` rejects `"old"` and
+an enum rejects variants it doesn't have — and re-encodes the file with its
+own embedded schema. Same lineage-checked path as ticking a markdown task.
+
 A corrupt or unreadable `.sb` file doesn't break the vault — it shows up in
 `SbError(path, error)` instead.

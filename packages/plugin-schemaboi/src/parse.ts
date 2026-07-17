@@ -35,7 +35,7 @@ function kindOf(e: EnumSchema): 'struct' | 'enum' {
   return e.numericOnly || e.variants.size !== 1 ? 'enum' : 'struct'
 }
 
-function scalarText(v: unknown): string {
+export function scalarText(v: unknown): string {
   if (typeof v === 'boolean') return v ? 'true' : 'false'
   if (v instanceof Uint8Array) {
     return v.length <= 32
@@ -45,7 +45,7 @@ function scalarText(v: unknown): string {
   return String(v)
 }
 
-function scalarNum(v: unknown): number | null {
+export function scalarNum(v: unknown): number | null {
   if (typeof v === 'number' && Number.isFinite(v)) return v
   if (typeof v === 'bigint' && v <= BigInt(Number.MAX_SAFE_INTEGER) && v >= -BigInt(Number.MAX_SAFE_INTEGER)) {
     return Number(v)

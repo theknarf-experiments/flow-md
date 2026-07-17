@@ -39,47 +39,62 @@ export function groupSchema(
   return [...out.values()]
 }
 
+/** One rendered cell: link-count cells summarize SbLink edges and aren't
+ *  writable; value cells trace back to a live SbData fact, so they are. */
+export interface CellInfo {
+  value: string
+  editable: boolean
+}
+
 export interface ItemTable {
   type: string
   columns: string[]
-  rows: Array<{ item: string; cells: Record<string, string> }>
+  rows: Array<{ path: string; item: string; cells: Record<string, CellInfo> }>
 }
 
 /** SbItem + SbData + SbLink rows (already path-filtered) → one table per
  *  type: columns are the union of that type's fields (links included —
- *  rendered as child counts), rows sorted by item id so list order holds. */
+ *  rendered as child counts), rows sorted by item id so list order holds.
+ *  Items are keyed by (path, item): several .sb files all have a '$'. */
 export function groupItems(items: Row[], data: Row[], links: Row[]): ItemTable[] {
-  const byItem = new Map<string, Record<string, string>>()
-  const typeOf = new Map<string, string>()
-  for (const [, item, type] of items) {
-    byItem.set(String(item), {})
-    typeOf.set(String(item), String(type))
+  const key = (path: unknown, item: unknown) => `${path}\n${item}`
+  const byItem = new Map<string, Record<string, CellInfo>>()
+  const meta = new Map<string, { path: string; item: string; type: string }>()
+  for (const [path, item, type] of items) {
+    byItem.set(key(path, item), {})
+    meta.set(key(path, item), {
+      path: String(path),
+      item: String(item),
+      type: String(type),
+    })
   }
-  for (const [, item, field, value] of data) {
-    const cells = byItem.get(String(item))
-    if (cells) cells[String(field)] = String(value)
+  for (const [path, item, field, value] of data) {
+    const cells = byItem.get(key(path, item))
+    if (cells) cells[String(field)] = { value: String(value), editable: true }
   }
   const linkCount = new Map<string, Map<string, number>>()
-  for (const [, item, field] of links) {
-    const m = linkCount.get(String(item)) ?? new Map<string, number>()
+  for (const [path, item, field] of links) {
+    const m = linkCount.get(key(path, item)) ?? new Map<string, number>()
     m.set(String(field), (m.get(String(field)) ?? 0) + 1)
-    linkCount.set(String(item), m)
+    linkCount.set(key(path, item), m)
   }
-  for (const [item, m] of linkCount) {
-    const cells = byItem.get(item)
+  for (const [k, m] of linkCount) {
+    const cells = byItem.get(k)
     if (!cells) continue
-    for (const [field, n] of m) cells[field] ??= `${n} item${n === 1 ? '' : 's'}`
+    for (const [field, n] of m) {
+      cells[field] ??= { value: `${n} item${n === 1 ? '' : 's'}`, editable: false }
+    }
   }
 
   const tables = new Map<string, ItemTable>()
-  for (const item of [...byItem.keys()].sort()) {
-    const type = typeOf.get(item) ?? '?'
+  for (const k of [...byItem.keys()].sort()) {
+    const { path, item, type } = meta.get(k) ?? { path: '', item: '?', type: '?' }
     const table = tables.get(type) ?? { type, columns: [], rows: [] }
-    const cells = byItem.get(item) ?? {}
+    const cells = byItem.get(k) ?? {}
     for (const col of Object.keys(cells)) {
       if (!table.columns.includes(col)) table.columns.push(col)
     }
-    table.rows.push({ item, cells })
+    table.rows.push({ path, item, cells })
     tables.set(type, table)
   }
   return [...tables.values()]

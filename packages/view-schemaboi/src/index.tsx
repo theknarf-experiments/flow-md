@@ -16,11 +16,13 @@
 // query them directly (datalog-query fences over SbData etc.) without this
 // component at all.
 
-import { type FlowMdViewPlugin, useFlowMd } from '@flow-md/view-api'
+import { type FlowMdHost, type FlowMdViewPlugin, useFlowMd } from '@flow-md/view-api'
+import { useState } from 'react'
 import styles from './Schemaboi.module.css'
-import { groupItems, groupSchema, scope } from './group.js'
+import { type ItemTable, groupItems, groupSchema, scope } from './group.js'
 
 const INTERVAL = 5000
+const SBDATA_QUERY = 'SbData(path, item, field, value)'
 
 export function Schemaboi(props: { path?: string }) {
   const host = useFlowMd()
@@ -115,31 +117,112 @@ export function Schemaboi(props: { path?: string }) {
 
       <h3 className={styles.section}>Data</h3>
       {tables.map((table) => (
-        <section key={table.type} className={styles.type}>
-          <h4 className={styles.typeName}>{table.type}</h4>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>item</th>
-                {table.columns.map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {table.rows.map((row) => (
-                <tr key={row.item}>
-                  <td className={styles.dim}>{row.item}</td>
-                  {table.columns.map((c) => (
-                    <td key={c}>{row.cells[c] ?? ''}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+        <DataTable
+          key={table.type}
+          table={table}
+          host={host}
+          canEdit={data.writable.includes('value')}
+          refresh={data.refresh}
+        />
       ))}
     </div>
+  )
+}
+
+/** One per-type table. Cells backed by an SbData fact edit in place (click,
+ *  Enter commits, Esc cancels) — the write goes through the host's lineage-
+ *  checked update path into the binary file, exactly like a CSV cell. */
+function DataTable(props: {
+  table: ItemTable
+  host: FlowMdHost
+  canEdit: boolean
+  refresh: () => void
+}) {
+  const { table, host, canEdit, refresh } = props
+  const [editing, setEditing] = useState<{ item: string; col: string } | null>(null)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const commit = (path: string, item: string, col: string, oldValue: string) => {
+    setEditing(null)
+    if (draft === oldValue) return
+    host
+      .updateCell({
+        query: SBDATA_QUERY,
+        row: [path, item, col, oldValue],
+        column: 'value',
+        value: draft,
+      })
+      .then(
+        () => {
+          setError(null)
+          refresh()
+        },
+        (err: unknown) =>
+          setError(err instanceof Error ? err.message : String(err)),
+      )
+  }
+
+  return (
+    <section className={styles.type}>
+      <h4 className={styles.typeName}>{table.type}</h4>
+      {error && <p className="offline">{error}</p>}
+      <table className={styles.table}>
+        <thead>
+          <tr>
+            <th>item</th>
+            {table.columns.map((c) => (
+              <th key={c}>{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr key={`${row.path}\n${row.item}`}>
+              <td className={styles.dim}>{row.item}</td>
+              {table.columns.map((c) => {
+                const cell = row.cells[c]
+                const editable = canEdit && cell?.editable === true
+                if (editing && editing.item === row.item && editing.col === c && cell) {
+                  return (
+                    <td key={c} className={styles.editing}>
+                      <input
+                        className={styles.editInput}
+                        value={draft}
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                        onBlur={() => commit(row.path, row.item, c, cell.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commit(row.path, row.item, c, cell.value)
+                          if (e.key === 'Escape') setEditing(null)
+                        }}
+                      />
+                    </td>
+                  )
+                }
+                return (
+                  <td
+                    key={c}
+                    {...(editable
+                      ? {
+                          className: styles.editable,
+                          title: 'click to edit',
+                          onClick: () => {
+                            setDraft(cell?.value ?? '')
+                            setEditing({ item: row.item, col: c })
+                          },
+                        }
+                      : {})}
+                  >
+                    {cell?.value ?? ''}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 

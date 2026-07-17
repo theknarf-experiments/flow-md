@@ -416,10 +416,13 @@ async function applyWrite(
     json(res, 400, { error: 'path escapes the vault root' })
     throw new Error('path escapes the vault root')
   }
-  const content = await readFile(target, 'utf8')
+  // Binary formats round-trip through latin1 (see the plugin-api contract);
+  // the same string convention flows into vault.setFile below.
+  const enc = vault.isBinaryPath(relPath) ? 'latin1' : 'utf8'
+  const content = await readFile(target, enc)
   const updated = mutate(content)
   const tmp = `${target}.flow-md-tmp`
-  await writeFile(tmp, updated, 'utf8')
+  await writeFile(tmp, updated, enc)
   await rename(tmp, target)
   const st = await stat(target)
   vault.setFile(relPath, updated, st.mtimeMs)

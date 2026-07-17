@@ -49,8 +49,28 @@ describe('groupItems', () => {
     const contact = tables.find((t) => t.type === 'Contact')
     expect(contact?.columns).toEqual(['name', 'age'])
     expect(contact?.rows.map((r) => r.item)).toEqual(['$.contacts[0]', '$.contacts[1]'])
+    expect(contact?.rows[0]?.path).toBe('a.sb')
     const book = tables.find((t) => t.type === 'AddressBook')
-    expect(book?.rows[0]?.cells).toEqual({ owner: 'knarf', contacts: '2 items' })
+    expect(book?.rows[0]?.cells).toEqual({
+      owner: { value: 'knarf', editable: true },
+      contacts: { value: '2 items', editable: false },
+    })
+  })
+
+  it('keeps items from different files apart despite shared ids', () => {
+    const tables = groupItems(
+      [
+        ['a.sb', '$', 'Doc', 'Default'],
+        ['b.sb', '$', 'Doc', 'Default'],
+      ],
+      [
+        ['a.sb', '$', 'title', 'one'],
+        ['b.sb', '$', 'title', 'two'],
+      ],
+      [],
+    )
+    expect(tables[0]?.rows).toHaveLength(2)
+    expect(tables[0]?.rows.map((r) => r.cells.title?.value).sort()).toEqual(['one', 'two'])
   })
 })
 
