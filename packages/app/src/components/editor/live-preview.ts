@@ -517,7 +517,7 @@ const theme = EditorView.theme({
     fontFamily: "'iA Writer Quattro', -apple-system, 'Segoe UI', Roboto, sans-serif",
     lineHeight: '1.7',
     caretColor: 'var(--accent)',
-    maxWidth: '680px',
+    maxWidth: '820px',
     margin: '0 auto',
     padding: '1.5rem 0 4rem',
   },
