@@ -37,6 +37,7 @@ export function CommandPalette(props: {
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLUListElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { data: notes } = useLiveQuery((q) => q.from({ note: notesCollection }))
 
@@ -56,7 +57,9 @@ export function CommandPalette(props: {
       void navigate({ to: '/note/$', params: { _splat: path } })
     }
 
-    const fileItems: Item[] = fuzzyFilter(all, query, (n) => n.path).map((n) => ({
+    // Show plenty of files — ⌘K is the primary navigation surface, and the
+    // results list scrolls.
+    const fileItems: Item[] = fuzzyFilter(all, query, (n) => n.path, 50).map((n) => ({
       kind: 'file',
       key: `file:${n.path}`,
       icon: fileIcon(n.path),
@@ -121,16 +124,25 @@ export function CommandPalette(props: {
     list?.children[selected]?.scrollIntoView({ block: 'nearest' })
   }, [selected])
 
-  if (!open) return null
-
   // The scrollable region is the (narrow, centered) results list, but the
-  // pointer usually rests over the input or the dimmed backdrop. Route wheel
-  // from anywhere over the palette to the list — unless it's already over the
-  // list, where the browser scrolls it natively.
-  const onWheel = (e: React.WheelEvent) => {
-    const list = resultsRef.current
-    if (list && !list.contains(e.target as Node)) list.scrollTop += e.deltaY
-  }
+  // pointer usually rests over the input or the dimmed backdrop — where a
+  // wheel would otherwise scroll the page *behind* the palette. Attach a
+  // non-passive wheel listener on the overlay (React's onWheel is passive,
+  // so preventDefault there is a no-op), route the delta to the list, and
+  // cancel the default so nothing behind moves.
+  useEffect(() => {
+    const overlay = overlayRef.current
+    if (!open || !overlay) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const list = resultsRef.current
+      if (list) list.scrollTop += e.deltaY
+    }
+    overlay.addEventListener('wheel', onWheel, { passive: false })
+    return () => overlay.removeEventListener('wheel', onWheel)
+  }, [open])
+
+  if (!open) return null
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -150,9 +162,9 @@ export function CommandPalette(props: {
 
   return (
     <div
+      ref={overlayRef}
       className={styles.overlay}
       onClick={onClose}
-      onWheel={onWheel}
       data-testid="command-palette"
     >
       <div
