@@ -1,0 +1,68 @@
+.inspector {
+  font-size: 0.92rem;
+}
+
+.header {
+  margin: 0 0 0.5rem;
+}
+
+.section {
+  margin: 1.2rem 0 0.4rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+.type {
+  margin: 0 0 0.9rem;
+}
+
+.typeName {
+  margin: 0 0 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+
+.kind {
+  color: var(--fg-dim);
+  font-size: 0.75rem;
+  font-weight: normal;
+}
+
+.variant {
+  display: inline-block;
+  margin: 0 0.4rem 0.3rem 0;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.table {
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.6rem;
+  text-align: left;
+}
+
+.table th {
+  color: var(--fg-dim);
+  font-weight: 500;
+  font-size: 0.8rem;
+  background: var(--bg-raise);
+}
+
+.ftype {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+.dim {
+  color: var(--fg-dim);
+}

@@ -50,8 +50,11 @@ export function watchVault(
   const queueSet = (p: string, mtimeMs: number) => {
     chain = chain
       .then(async () => {
-        const content = await readFile(p, 'utf8')
-        vault.setFile(rel(p), content, mtimeMs)
+        // Binary formats (per the claiming plugin) read latin1: a lossless
+        // byte↔char mapping, so plugins can recover the exact bytes.
+        const r = rel(p)
+        const content = await readFile(p, vault.isBinaryPath(r) ? 'latin1' : 'utf8')
+        vault.setFile(r, content, mtimeMs)
       })
       .catch(() => {
         // File vanished between event and read, or unreadable — ignore.

@@ -16,6 +16,7 @@ import { Vault, createHttpServer, watchVault } from '@flow-md/server'
 import { csvPlugin } from '@flow-md/plugin-csv'
 import { icsPlugin } from '@flow-md/plugin-ics'
 import { markdownPlugin, mdxPlugin } from '@flow-md/plugin-markdown'
+import { schemaboiPlugin } from '@flow-md/plugin-schemaboi'
 import {
   type Args,
   type QueryArgs,
@@ -29,7 +30,7 @@ import {
 async function runServe(args: Args): Promise<void> {
   const root = path.resolve(args.dir)
   const vault = new Vault(
-    [markdownPlugin, mdxPlugin, icsPlugin, csvPlugin],
+    [markdownPlugin, mdxPlugin, icsPlugin, csvPlugin, schemaboiPlugin],
     args.options,
   )
   const watcher = watchVault(root, vault)

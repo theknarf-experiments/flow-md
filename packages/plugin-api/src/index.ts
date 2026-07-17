@@ -71,6 +71,12 @@ export interface Plugin {
   name: string
   /** File extensions claimed by this plugin, with leading dot ("`.md`"). */
   extensions: string[]
+  /** Claimed files are binary, not text. The vault reads them with latin1
+   *  (a lossless byte↔char mapping) instead of utf8, so `parse` receives one
+   *  char per byte — recover the bytes with `Buffer.from(content, 'latin1')`.
+   *  Binary plugins are pure fact sources: no rule/query blocks, and the
+   *  write-back methods don't apply. */
+  binary?: boolean
   /** EDB relations this plugin contributes to the vault's schema. */
   schema: EdbDef[]
   /** Optional metadata about which fenced code-block langs feed the engine. */

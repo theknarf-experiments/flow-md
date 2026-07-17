@@ -213,6 +213,12 @@ export class Vault {
     return this.registry.extensions()
   }
 
+  /** True if the claiming plugin declares its files binary — the watcher
+   *  then reads them latin1 (byte-per-char) instead of utf8. */
+  isBinaryPath(path: string): boolean {
+    return this.registry.pluginFor(path)?.binary === true
+  }
+
   /** Add or replace a file. Computes the fact delta and flags a program
    *  rebuild if the file's rule/query blocks changed. Files whose extension
    *  isn't claimed by any plugin are silently ignored. */

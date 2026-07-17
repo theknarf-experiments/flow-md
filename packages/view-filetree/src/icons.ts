@@ -5,6 +5,7 @@ const BY_EXT: Record<string, string> = {
   mdx: '🧩',
   ics: '🗓️',
   csv: '📊',
+  sb: '📦',
 }
 
 export function fileIcon(path: string): string {

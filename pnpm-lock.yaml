@@ -65,6 +65,9 @@ importers:
       '@flow-md/view-kanban':
         specifier: workspace:*
         version: link:../view-kanban
+      '@flow-md/view-schemaboi':
+        specifier: workspace:*
+        version: link:../view-schemaboi
       '@lezer/common':
         specifier: ^1.5.2
         version: 1.5.2
@@ -180,6 +183,9 @@ importers:
       '@flow-md/plugin-markdown':
         specifier: workspace:*
         version: link:../plugin-markdown
+      '@flow-md/plugin-schemaboi':
+        specifier: workspace:*
+        version: link:../plugin-schemaboi
       '@flow-md/server':
         specifier: workspace:*
         version: link:../server
@@ -265,6 +271,25 @@ importers:
       '@types/mdast':
         specifier: ^4.0.4
         version: 4.0.4
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.19)(jsdom@29.1.1)(lightningcss@1.32.0)
+
+  packages/plugin-schemaboi:
+    dependencies:
+      '@flow-md/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+      schemaboi:
+        specifier: ^0.3.0
+        version: 0.3.0
+    devDependencies:
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.19
@@ -409,6 +434,25 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/view-schemaboi:
+    dependencies:
+      '@flow-md/view-api':
+        specifier: workspace:*
+        version: link:../view-api
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@26.1.1)(jsdom@29.1.1)(lightningcss@1.32.0)
 
   packages/vim: {}
 
@@ -2252,6 +2296,9 @@ packages:
   bidi-js@1.0.3:
     resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
+  bijective-varint@1.2.0:
+    resolution: {integrity: sha512-GLSNuXsE2LlcfCX/ShctxnJk//sDzSbLULU2zCLkm93v2+Fcq6VZ3V5uhyKI6xrv3igG3J/Ny6dmuKfiyRZ6Zg==}
+
   boolbase@1.0.0:
     resolution: {integrity: sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==}
 
@@ -3323,6 +3370,10 @@ packages:
 
   scheduler@0.27.0:
     resolution: {integrity: sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==}
+
+  schemaboi@0.3.0:
+    resolution: {integrity: sha512-jzawNchrUEePUnGzJqzH54kAd/KjRmZT0C+zZOYSdhqiWtsN8OyZeuCfDxakumZv1KjXMvYU2IyK3lqtoqpkVA==}
+    hasBin: true
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
@@ -5654,6 +5705,8 @@ snapshots:
     dependencies:
       require-from-string: 2.0.2
 
+  bijective-varint@1.2.0: {}
+
   boolbase@1.0.0: {}
 
   brace-expansion@5.0.6:
@@ -7161,6 +7214,10 @@ snapshots:
       loose-envify: 1.4.0
 
   scheduler@0.27.0: {}
+
+  schemaboi@0.3.0:
+    dependencies:
+      bijective-varint: 1.2.0
 
   semver@6.3.1: {}
 

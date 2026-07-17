@@ -15,6 +15,7 @@ import { fileTreePlugin } from '@flow-md/view-filetree'
 import { graphPlugin } from '@flow-md/view-graph'
 import { icsViewPlugin } from '@flow-md/view-ics'
 import { kanbanPlugin } from '@flow-md/view-kanban'
+import { schemaboiViewPlugin } from '@flow-md/view-schemaboi'
 
 export const viewPlugins: FlowMdViewPlugin[] = [
   kanbanPlugin,
@@ -22,6 +23,7 @@ export const viewPlugins: FlowMdViewPlugin[] = [
   fileTreePlugin,
   icsViewPlugin,
   diagramPlugin,
+  schemaboiViewPlugin,
 ]
 
 /** Flattened JSX-tag → component map for the MDX component registry. */

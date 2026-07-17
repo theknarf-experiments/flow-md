@@ -81,7 +81,9 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **More file types**: `.ics` renders as a date-grouped agenda (a view plugin
   registered as the default `.ics` viewer, reading the ICS plugin's `Event*`
   facts — no client-side parsing), `.csv` as an editable grid (Tanstack
-  Table), and `.mdx` is markdown plus components. The same calendar is an MDX
+  Table), `.sb` ([schemaboi](https://github.com/josephg/schemaboi) binary
+  files) as a schema-plus-data inspector driven entirely by `Sb*` Datalog
+  facts ([[schemaboi.md|schemaboi]]), and `.mdx` is markdown plus components. The same calendar is an MDX
   component too: `<Calendar/>` shows every event in the vault,
   `<Calendar path="cal/work.ics"/>` scopes to one file.
 - **View plugins**: `.mdx` notes can embed Datalog-query-driven React
@@ -132,7 +134,8 @@ packages/view-api       the plugin contract (host interface, FlowMdViewPlugin,
 packages/view-kanban    the <Kanban> plugin       ┐
 packages/view-graph     the <Graph> plugin        │ depend only on view-api;
 packages/view-filetree  the <FileTree> plugin     │ no app imports
-packages/view-ics       the <Calendar> plugin     ┘ (also the .ics handler)
+packages/view-ics       the <Calendar> plugin     │ (also the .ics handler)
+packages/view-schemaboi the <Schemaboi> plugin    ┘ (also the .sb handler)
 ```
 
 A plugin contributes MDX `components` and/or `fileHandlers` (default viewers

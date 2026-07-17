@@ -1,0 +1,29 @@
+{
+  "name": "@flow-md/view-schemaboi",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "TheKnarf",
+  "description": "Datalog-driven schemaboi inspector for flow-md — renders Sb* facts as schema + data tables; the default .sb file viewer",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "types": "./src/index.tsx",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@flow-md/view-api": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "react": "^19.2.7",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

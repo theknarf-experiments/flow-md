@@ -21,6 +21,7 @@ const VIEW_PACKAGES = [
   '@flow-md/view-filetree',
   '@flow-md/view-ics',
   '@flow-md/view-diagram',
+  '@flow-md/view-schemaboi',
   // modular-svg ships raw .ts source too (vendored submodule).
   '@modular-svg/core',
   '@modular-svg/react',
