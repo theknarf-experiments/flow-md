@@ -20,7 +20,7 @@ import { CommandPalette } from '../components/CommandPalette.js'
 import { api } from '../lib/api.js'
 import { notesCollection } from '../lib/db.js'
 import { makeHost } from '../lib/host.js'
-import { type Theme, currentTheme, themeInitScript, toggleTheme } from '../lib/theme.js'
+import { themeInitScript, toggleTheme } from '../lib/theme.js'
 import { usePoll } from '../lib/usePoll.js'
 import { resolveWikiTarget } from '../lib/wiki.js'
 import styles from './__root.module.css'
@@ -101,10 +101,6 @@ function Shell() {
     () => localStorage.getItem(SIDEBAR_KEY) !== 'closed',
   )
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // The attribute on <html> (set pre-paint) is the source of truth; this
-  // state only keeps the toggle button's label in sync.
-  const [theme, setTheme] = useState<Theme>(currentTheme)
-  const flipTheme = () => setTheme(toggleTheme())
 
   const toggleSidebar = () => {
     setSidebarOpen((open) => {
@@ -140,39 +136,19 @@ function Shell() {
       <div className={styles.shell}>
         {sidebarOpen ? (
           <aside className={styles.sidebar} data-testid="sidebar">
+            {/* The sidebar is just the library — commands (new note/folder,
+                theme, …) live in the ⌘K palette. */}
             <div className={styles.sidebarHead}>
               <span className={styles.brand}>flow-md</span>
-              <span>
-                <button type="button" className={styles.ghost} onClick={addNote}>
-                  + note
-                </button>{' '}
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  title="new folder"
-                  onClick={addFolder}
-                >
-                  + 📁
-                </button>{' '}
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  title={`switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-                  onClick={flipTheme}
-                  data-testid="theme-toggle"
-                >
-                  {theme === 'dark' ? '☀' : '☾'}
-                </button>{' '}
-                <button
-                  type="button"
-                  className={styles.ghost}
-                  title="hide sidebar (⌘B)"
-                  onClick={toggleSidebar}
-                  data-testid="sidebar-hide"
-                >
-                  «
-                </button>
-              </span>
+              <button
+                type="button"
+                className={styles.ghost}
+                title="hide sidebar (⌘B)"
+                onClick={toggleSidebar}
+                data-testid="sidebar-hide"
+              >
+                «
+              </button>
             </div>
             {health.error && (
               <p className="offline">
@@ -205,9 +181,10 @@ function Shell() {
           open={paletteOpen}
           onClose={() => setPaletteOpen(false)}
           commands={[
-            { label: 'Toggle sidebar', run: toggleSidebar },
-            { label: 'Toggle dark/light theme', run: flipTheme },
             { label: 'New note', run: addNote },
+            { label: 'New folder', run: addFolder },
+            { label: 'Toggle dark/light theme', run: toggleTheme },
+            { label: 'Toggle sidebar', run: toggleSidebar },
             { label: 'Go to vault overview', run: () => void navigate({ to: '/' }) },
           ]}
         />

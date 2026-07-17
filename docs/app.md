@@ -27,8 +27,8 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 
 ## What works
 
-- **File tree** of everything the vault indexes (`.md` and `.ics`), with
-  “+ note” creating files through `PUT /file`.
+- **File tree** of everything the vault indexes; new notes and folders are
+  created from the ⌘K palette (the sidebar is just the library).
 - **Rendered markdown** with GFM, frontmatter hidden, and `[[wiki links]]`
   resolved Obsidian-style (exact path first, then unique basename).
 - **Live dataviews**: every `datalog-query` block renders as a table
@@ -68,8 +68,8 @@ Point the app at a different server with `VITE_FLOWMD_SERVER=http://host:port`.
 - **⌘K command palette** (Tanstack Hotkeys): fuzzy file search, free-text
   search across every note's content, and app commands. **⌘B** toggles the
   sidebar (there are buttons too).
-- **Dark/light theme**: follows the OS until you pick — the sidebar's ☀/☾
-  button (or the palette's "Toggle dark/light theme") flips and remembers.
+- **Dark/light theme**: follows the OS until you pick — the palette's
+  "Toggle dark/light theme" flips and remembers.
   Everything, including code-block syntax colors, runs off CSS variables
   keyed by `<html data-theme>`, set before first paint so nothing flashes.
 - **The sidebar is a view plugin too**: it's `<FileTree>`, driven by
