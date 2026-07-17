@@ -36,6 +36,7 @@ export function CommandPalette(props: {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLUListElement>(null)
   const navigate = useNavigate()
   const { data: notes } = useLiveQuery((q) => q.from({ note: notesCollection }))
 
@@ -114,7 +115,22 @@ export function CommandPalette(props: {
     setSelected(0)
   }, [items.length])
 
+  // Keep the keyboard-selected row visible as it moves past the fold.
+  useEffect(() => {
+    const list = resultsRef.current
+    list?.children[selected]?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+
   if (!open) return null
+
+  // The scrollable region is the (narrow, centered) results list, but the
+  // pointer usually rests over the input or the dimmed backdrop. Route wheel
+  // from anywhere over the palette to the list — unless it's already over the
+  // list, where the browser scrolls it natively.
+  const onWheel = (e: React.WheelEvent) => {
+    const list = resultsRef.current
+    if (list && !list.contains(e.target as Node)) list.scrollTop += e.deltaY
+  }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -136,6 +152,7 @@ export function CommandPalette(props: {
     <div
       className={styles.overlay}
       onClick={onClose}
+      onWheel={onWheel}
       data-testid="command-palette"
     >
       <div
@@ -152,7 +169,7 @@ export function CommandPalette(props: {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
         />
-        <ul className={styles.results}>
+        <ul className={styles.results} ref={resultsRef}>
           {items.map((item, i) => (
             <li key={item.key}>
               <button
