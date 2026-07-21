@@ -66,6 +66,7 @@ import {
 } from 'node:http'
 import path from 'node:path'
 import type { Vault } from './vault.js'
+import type { Mount } from './watcher.js'
 
 /** The relay. Deliberately tiny and dependency-free: it holds no state beyond
  *  who asked, and every request names the path and body it wants. */
@@ -101,10 +102,27 @@ const BRIDGE_HTML = `<!doctype html>
 </script>
 `
 
-export function createHttpServer(vault: Vault, root: string): Server {
+export function createHttpServer(vault: Vault, root: string, mounts: Mount[] = []): Server {
   const absRoot = path.resolve(root)
   const toRel = (abspath: string): string =>
     path.relative(absRoot, path.resolve(abspath)).split(path.sep).join('/')
+
+  // Every mounted root, primary first. A write to a key like "cfg/keys.vim"
+  // has to land in the config directory, not `<vault>/cfg/keys.vim`, so the
+  // key is resolved against these prefixes rather than always the vault root.
+  const allMounts: Array<{ prefix: string; abs: string }> = [
+    { prefix: '', abs: absRoot },
+    ...mounts.map((m) => ({ prefix: m.prefix, abs: path.resolve(m.path) })),
+  ]
+  // The root a key belongs to (longest matching prefix wins) and its path
+  // within that root — what the file operations actually need.
+  const rootFor = (key: string): { abs: string; rel: string } => {
+    const m = allMounts
+      .filter((x) => x.prefix && (key === x.prefix || key.startsWith(`${x.prefix}/`)))
+      .sort((a, b) => b.prefix.length - a.prefix.length)[0]
+    if (!m) return { abs: absRoot, rel: key }
+    return { abs: m.abs, rel: key.slice(m.prefix.length + 1) }
+  }
 
   return createServer((req, res) => {
     res.setHeader('content-type', 'application/json')
@@ -128,7 +146,7 @@ export function createHttpServer(vault: Vault, root: string): Server {
       req.method === 'POST' &&
       (pathname === '/update' || pathname === '/delete' || pathname === '/insert')
     ) {
-      handleMutation(pathname.slice(1), req, res, vault, absRoot).catch(fail)
+      handleMutation(pathname.slice(1), req, res, vault, absRoot, rootFor).catch(fail)
       return
     }
     if (req.method === 'PUT' && pathname === '/file') {
@@ -217,6 +235,7 @@ async function handleMutation(
   res: ServerResponse,
   vault: Vault,
   absRoot: string,
+  rootFor: (key: string) => { abs: string; rel: string },
 ): Promise<void> {
   let body: MutationBody
   try {
@@ -258,7 +277,8 @@ async function handleMutation(
           to: String(newFact.row[0]),
         })
       } else {
-        await applyWrite(vault, absRoot, relPath, res, (content) =>
+        const m = rootFor(relPath)
+        await applyWrite(vault, m.abs, m.rel, relPath, res, (content) =>
           vault.applyFactUpdate(relPath, content, oldFact, newFact),
         )
       }
@@ -278,7 +298,8 @@ async function handleMutation(
           path: relPath,
         })
       } else {
-        await applyWrite(vault, absRoot, relPath, res, (content) =>
+        const m = rootFor(relPath)
+        await applyWrite(vault, m.abs, m.rel, relPath, res, (content) =>
           vault.applyFactDelete(relPath, content, fact),
         )
       }
@@ -297,7 +318,8 @@ async function handleMutation(
         path: relPath,
       })
     } else {
-      await applyWrite(vault, absRoot, relPath, res, (content) =>
+      const m = rootFor(relPath)
+      await applyWrite(vault, m.abs, m.rel, relPath, res, (content) =>
         vault.applyFactInsert(relPath, content, fact),
       )
     }
@@ -451,26 +473,28 @@ function resolveInRoot(absRoot: string, rel: string): string | null {
  *  watcher's debounce. */
 async function applyWrite(
   vault: Vault,
-  absRoot: string,
-  relPath: string,
+  fileRoot: string,
+  fileRel: string,
+  vaultKey: string,
   res: ServerResponse,
   mutate: (content: string) => string,
 ): Promise<void> {
-  const target = path.join(absRoot, relPath)
-  if (path.relative(absRoot, target).startsWith('..')) {
+  const target = path.join(fileRoot, fileRel)
+  if (path.relative(fileRoot, target).startsWith('..')) {
     json(res, 400, { error: 'path escapes the vault root' })
     throw new Error('path escapes the vault root')
   }
   // Binary formats round-trip through latin1 (see the plugin-api contract);
-  // the same string convention flows into vault.setFile below.
-  const enc = vault.isBinaryPath(relPath) ? 'latin1' : 'utf8'
+  // the same string convention flows into vault.setFile below. The vault is
+  // keyed by the full mount key, but the file lives at the mount-local path.
+  const enc = vault.isBinaryPath(vaultKey) ? 'latin1' : 'utf8'
   const content = await readFile(target, enc)
   const updated = mutate(content)
   const tmp = `${target}.flow-md-tmp`
   await writeFile(tmp, updated, enc)
   await rename(tmp, target)
   const st = await stat(target)
-  vault.setFile(relPath, updated, st.mtimeMs)
+  vault.setFile(vaultKey, updated, st.mtimeMs)
   vault.advance()
 }
 

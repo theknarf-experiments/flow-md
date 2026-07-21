@@ -7,6 +7,10 @@ export interface Args {
   dir: string
   port: number
   options: VaultOptions
+  /** Where flow-md's own config (the keymap file) lives, mounted beside the
+   *  vault under the `config` prefix. Defaults to $XDG_CONFIG_HOME/flow-md
+   *  (or ~/.config/flow-md); --config overrides it, --no-config skips it. */
+  configDir?: string
 }
 
 /** Parse `serve [dir] [options]`. Returns null on an unrecognized invocation
@@ -23,6 +27,10 @@ export function parseArgs(argv: string[]): Args | null {
       args.options.optLevel = Number(argv[++i])
     } else if (a === '--no-sharing') {
       args.options.noSharing = true
+    } else if (a === '--config') {
+      args.configDir = argv[++i]
+    } else if (a === '--no-config') {
+      args.configDir = ''
     } else if (!a.startsWith('-') && !sawDir) {
       args.dir = a
       sawDir = true

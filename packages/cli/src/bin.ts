@@ -11,8 +11,11 @@
 // `update` edits one cell of a query result; the server traces the edit back
 // to its source fact and rewrites the file (see the server's /update docs).
 
+import os from 'node:os'
 import path from 'node:path'
-import { Vault, createHttpServer, watchVault } from '@flow-md/server'
+import { mkdir } from 'node:fs/promises'
+import { type Mount, Vault, createHttpServer, watchVault } from '@flow-md/server'
+import { configPlugin } from '@flow-md/plugin-config'
 import { csvPlugin } from '@flow-md/plugin-csv'
 import { icsPlugin } from '@flow-md/plugin-ics'
 import { markdownPlugin, mdxPlugin } from '@flow-md/plugin-markdown'
@@ -27,19 +30,40 @@ import {
   usage,
 } from './args.js'
 
+/** Where flow-md keeps its own config. $XDG_CONFIG_HOME wins, else ~/.config,
+ *  both under a flow-md/ dir — the standard spot, and a symlinked keys.vim
+ *  there works because the directory is what's watched, not the inode. */
+function defaultConfigDir(): string {
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config')
+  return path.join(base, 'flow-md')
+}
+
 async function runServe(args: Args): Promise<void> {
   const root = path.resolve(args.dir)
   const vault = new Vault(
-    [markdownPlugin, mdxPlugin, icsPlugin, csvPlugin, schemaboiPlugin],
+    [markdownPlugin, mdxPlugin, icsPlugin, csvPlugin, configPlugin, schemaboiPlugin],
     args.options,
   )
-  const watcher = watchVault(root, vault)
-  const server = createHttpServer(vault, root)
+
+  // The config directory is mounted beside the vault under the `config`
+  // prefix, so the keymap file reads as `config/keys.vim` in the engine. Made
+  // if absent, because a watcher can't watch a directory that isn't there —
+  // and an empty config is a valid one (no overrides). '' means --no-config.
+  const mounts: Mount[] = []
+  const configDir = args.configDir === '' ? null : path.resolve(args.configDir ?? defaultConfigDir())
+  if (configDir) {
+    await mkdir(configDir, { recursive: true }).catch(() => undefined)
+    mounts.push({ path: configDir, prefix: 'config' })
+  }
+
+  const watcher = watchVault([root, ...mounts], vault)
+  const server = createHttpServer(vault, root, mounts)
 
   await watcher.ready
   const queryCount = vault.queries().length
   server.listen(args.port, () => {
     console.log(`flow-md watching ${root}`)
+    if (configDir) console.log(`  config    ${configDir}`)
     console.log(`  serving http://localhost:${args.port}  (${queryCount} queries)`)
     if (vault.error()) console.error(`  program error: ${vault.error()}`)
   })
