@@ -2,7 +2,6 @@
   app-region: no-drag;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 0.35rem;
   padding-top: 0.5rem;
   border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
@@ -44,3 +43,12 @@
   background: currentColor;
 }
 .space.active .dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
+
+/* Pushed to the far end, the way Arc separates "add" from the spaces
+   themselves. The leading auto margin also centres the dots when there's no
+   add button, since the rail is otherwise flex-start. */
+.add {
+  margin-left: auto;
+  font-size: 1rem;
+}
+.rail > :first-child { margin-left: auto; }

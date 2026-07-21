@@ -31,6 +31,7 @@ import {
   Tab as TabRow,
   Toolbar,
   fuzzyFilter,
+  useHorizontalSwipe,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
@@ -60,7 +61,7 @@ interface Space {
   partition: string
 }
 
-const SPACES: Space[] = [
+const INITIAL_SPACES: Space[] = [
   { id: 'vault', name: 'Vault', emoji: '📓', hue: 250, partition: 'persist:vault' },
   { id: 'web', name: 'Web', emoji: '🌐', hue: 190, partition: 'persist:web' },
   { id: 'scratch', name: 'Scratch', emoji: '🧪', hue: 320, partition: 'persist:scratch' },
@@ -76,9 +77,13 @@ interface Tab {
   icon: string | null
 }
 
+/** Emoji offered to new spaces, in order. */
+const SPACE_EMOJI = ['🎨', '📚', '🎧', '🛠️', '🌱', '🔭']
+
 export function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
-  const [spaceId, setSpaceId] = useState(SPACES[0]!.id)
+  const [spaces, setSpaces] = useState<Space[]>(INITIAL_SPACES)
+  const [spaceId, setSpaceId] = useState(INITIAL_SPACES[0]!.id)
   /** Active tab per space, so switching spaces restores where you were. */
   const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
   const [nav, setNav] = useState({ back: false, forward: false })
@@ -98,6 +103,7 @@ export function App() {
   const [unframed, setUnframed] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
   const seq = useRef(0)
   /** Creating guests is an imperative side effect, and StrictMode invokes
@@ -106,7 +112,7 @@ export function App() {
   /** Tabs whose favicon we've already given a second chance. */
   const iconRetried = useRef(new Set<number>())
 
-  const space = SPACES.find((s) => s.id === spaceId) ?? SPACES[0]!
+  const space = spaces.find((s) => s.id === spaceId) ?? spaces[0]!
   const activeId = activeBySpace[spaceId] ?? null
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeFrame = activeId !== null ? frames.current.get(activeId) : undefined
@@ -145,7 +151,7 @@ export function App() {
       const container = cardRef.current
       if (!container) return
       const target = opts.space ?? spaceId
-      const partition = (SPACES.find((s) => s.id === target) ?? SPACES[0]!).partition
+      const partition = (spaces.find((s) => s.id === target) ?? spaces[0]!).partition
       const id = ++seq.current
       const frame = createFrame(url, partition, container, styles.frameActive!, () => {
         void sync(id)
@@ -158,7 +164,7 @@ export function App() {
       if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
       log(`tab ${id} → ${url}`)
     },
-    [spaceId, log, sync],
+    [spaceId, spaces, log, sync],
   )
 
   const closeTab = useCallback(
@@ -290,7 +296,7 @@ export function App() {
     if (q && navigable) items.push(navigate(q))
 
     const tabItems: PaletteItem[] = tabs.map((t) => {
-      const space = SPACES.find((sp) => sp.id === t.spaceId)
+      const space = spaces.find((sp) => sp.id === t.spaceId)
       return {
         key: `tab:${t.id}`,
         icon: '▤',
@@ -314,7 +320,7 @@ export function App() {
       },
       { key: 'cmd:log', icon: '⌘', label: 'Toggle log', run: () => setShowLog((v) => !v) },
       { key: 'cmd:capture', icon: '⌘', label: 'Capture page', run: () => void capture() },
-      ...SPACES.map((sp) => ({
+      ...spaces.map((sp) => ({
         key: `cmd:space:${sp.id}`,
         icon: '◧',
         label: `Go to ${sp.name}`,
@@ -337,7 +343,38 @@ export function App() {
     ]
     // `capture` is recreated per render but only reads refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [command.value, command.newTab, tabs, go, openTab])
+  }, [command.value, command.newTab, tabs, spaces, go, openTab])
+
+  const addSpace = useCallback(() => {
+    const id = `space-${spaces.length + 1}-${Math.random().toString(36).slice(2, 7)}`
+    const next: Space = {
+      id,
+      name: `Space ${spaces.length + 1}`,
+      emoji: SPACE_EMOJI[spaces.length % SPACE_EMOJI.length] ?? '•',
+      // Spread the hues so a new space is visibly its own place.
+      hue: (spaces.length * 67 + 250) % 360,
+      partition: `persist:${id}`,
+    }
+    setSpaces((s) => [...s, next])
+    setSpaceId(id)
+    // A brand-new space with no tabs would render a blank card.
+    openTab(HOME, { space: id })
+    log(`space ${next.name} (${next.partition})`)
+  }, [spaces, openTab, log])
+
+  /** Swipe left/right anywhere over the sidebar to move between spaces. */
+  const step = useCallback(
+    (delta: number) => {
+      const i = spaces.findIndex((s) => s.id === spaceId)
+      const next = spaces[(i + delta + spaces.length) % spaces.length]
+      if (next) setSpaceId(next.id)
+    },
+    [spaces, spaceId],
+  )
+  useHorizontalSwipe(sidebarRef, {
+    onNext: () => step(1),
+    onPrev: () => step(-1),
+  })
 
   const capture = async () => {
     if (!activeFrame) return
@@ -370,7 +407,7 @@ export function App() {
         </Banner>
       )}
 
-      <Sidebar open={sidebar} className={styles.sidebar}>
+      <Sidebar open={sidebar} className={styles.sidebar} ref={sidebarRef}>
         <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
           <IconButton tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
             ▏
@@ -418,7 +455,7 @@ export function App() {
         <Spacer />
 
         <SpaceRail
-          spaces={SPACES.map((s) => ({
+          spaces={spaces.map((s) => ({
             id: s.id,
             name: s.name,
             emoji: s.emoji,
@@ -426,6 +463,7 @@ export function App() {
           }))}
           activeId={spaceId}
           onSelect={setSpaceId}
+          onAddSpace={addSpace}
         />
       </Sidebar>
 

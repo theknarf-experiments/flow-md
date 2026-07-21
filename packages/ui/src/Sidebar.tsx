@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from 'react'
 import styles from './Sidebar.module.css'
 
 export interface SidebarProps {
@@ -8,15 +8,18 @@ export interface SidebarProps {
   open?: boolean
   width?: number
   className?: string
+  /** For attaching gestures — see useHorizontalSwipe. */
+  ref?: Ref<HTMLElement>
 }
 
 /** Fixed-width column for chrome, with two app-window affordances that are
  *  simply no-ops in a normal browser tab: the whole surface is a window drag
  *  region, and the top padding grows by `env(titlebar-area-height)` when a
  *  window-controls overlay is active. */
-export function Sidebar({ children, open = true, width = 244, className }: SidebarProps) {
+export function Sidebar({ children, open = true, width = 244, className, ref }: SidebarProps) {
   return (
     <aside
+      ref={ref}
       className={[styles.sidebar, open ? '' : styles.collapsed, className]
         .filter(Boolean)
         .join(' ')}

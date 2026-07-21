@@ -30,6 +30,20 @@ export const Default: Story = {
   },
 }
 
+/** With the trailing + Arc uses to create a space. */
+export const WithAddButton: Story = {
+  args: {
+    spaces: [
+      { id: 'vault', name: 'Vault', emoji: '📓' },
+      { id: 'web', name: 'Web', emoji: '🌐' },
+      { id: 'scratch', name: 'Scratch' },
+    ],
+    activeId: 'vault',
+    onSelect: () => {},
+    onAddSpace: () => {},
+  },
+}
+
 export const Interactive: Story = {
   render: () => {
     const [id, setId] = useState('web')

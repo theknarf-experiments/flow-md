@@ -14,13 +14,15 @@ export interface SpaceRailProps {
   spaces: SpaceRailItem[]
   activeId: string
   onSelect: (id: string) => void
+  /** Adds a trailing + at the right end. Omit it and the rail is read-only. */
+  onAddSpace?: () => void
 }
 
 /** The space switcher along the bottom of a sidebar: a centered row of dots,
  *  each showing its emoji if it has one. Deliberately not labelled — the
  *  current space is named in the header above, so repeating every name here
  *  would just crowd the rail as spaces are added. */
-export function SpaceRail({ spaces, activeId, onSelect }: SpaceRailProps) {
+export function SpaceRail({ spaces, activeId, onSelect, onAddSpace }: SpaceRailProps) {
   return (
     <div className={styles.rail}>
       {spaces.map((space) => {
@@ -47,6 +49,18 @@ export function SpaceRail({ spaces, activeId, onSelect }: SpaceRailProps) {
           </Tooltip>
         )
       })}
+      {onAddSpace && (
+        <Tooltip label="New space" placement="top">
+          <button
+            type="button"
+            className={`${styles.space} ${styles.add}`}
+            onClick={onAddSpace}
+            aria-label="New space"
+          >
+            +
+          </button>
+        </Tooltip>
+      )}
     </div>
   )
 }
