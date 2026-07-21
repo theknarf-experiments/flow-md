@@ -109,6 +109,10 @@ export function renderScalar(value: Cell): string {
   return stringifyYaml(text).trimEnd()
 }
 
+/** `^an-id` at the end of a line, after a space. Line-level rather than
+ *  inline: a block id names the block it closes, not the words beside it. */
+const BLOCK_ID = /\s\^([A-Za-z0-9][\w-]*)\s*$/
+
 const WIKILINK = /\[\[([^\]]+)\]\]/g
 // A tag starts at a word boundary, begins with a letter, and may nest (a/b).
 const TAG = /(?:^|\s)#([A-Za-z][\w/-]*)/g
@@ -197,10 +201,35 @@ function parseWith(
     }
   })
 
+  emitBlockIds(path, content, emit)
+
   return {
     result: { facts: dedup(facts), rules, queries },
     annotated: { facts, prov },
   }
+}
+
+/** Block ids, read straight from the text. Not part of the tree: mdast has
+ *  no node for them, and they belong to a line rather than to a phrase. */
+function emitBlockIds(
+  path: string,
+  content: string,
+  emit: (rel: string, row: Cell[], p: Provenance) => void,
+): void {
+  let at = 0
+  content.split('\n').forEach((text, i) => {
+    const m = text.match(BLOCK_ID)
+    if (m?.index !== undefined) {
+      const start = at + m.index
+      emit('MdBlockId', [path, m[1]!, i + 1], {
+        // The id itself is rewritable; deleting takes the space before it so
+        // the line doesn't end in one.
+        cols: [null, plain([start + m[0].indexOf('^') + 1, start + m[0].trimEnd().length]), null],
+        del: [start, start + m[0].trimEnd().length],
+      })
+    }
+    at += text.length + 1
+  })
 }
 
 interface UNode {

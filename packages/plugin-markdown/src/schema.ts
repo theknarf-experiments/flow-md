@@ -73,6 +73,13 @@ export const MARKDOWN_SCHEMA: EdbDef[] = [
     attrs: [['path', 'string'], ['key', 'string'], ['num', 'float']],
   },
   {
+    // `^an-id` at the end of a line: the convention for naming a block so
+    // something outside the file can refer to it. Positions move whenever
+    // the file is edited; a name doesn't.
+    name: 'MdBlockId',
+    attrs: [['path', 'string'], ['id', 'string'], ['line', 'number']],
+  },
+  {
     // #tags are scraped from prose with a regex, which is not something a
     // rule can do. (`[[wiki]]` links are scraped too, but they become nodes
     // of the tree — they're syntax mdast happens not to know.)

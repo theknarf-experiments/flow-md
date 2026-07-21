@@ -78,6 +78,14 @@ const SYNTAX: Record<string, RelSyntax> = {
     deletable: true,
     pathAttr: 'path',
   },
+  MdBlockId: {
+    cols: ['id'],
+    // Appended to a line rather than written on one of its own — that's what
+    // makes it *that block's* id.
+    insert: (content, [, id, line]) => appendBlockId(content, String(id), Number(line)),
+    deletable: true,
+    pathAttr: 'path',
+  },
   MdInlineTag: {
     cols: ['tag'],
     render: ([, tag]) => `#${tag}`,
@@ -377,6 +385,23 @@ function insertFrontmatter(content: string, key: string, value: string): string 
 /** A line holding nothing but its own bullet — what's left when the only
  *  content of a list item is removed. */
 const EMPTY_ITEM = /^\s*(?:[-*+]|\d+[.)])\s*$/
+
+/** Put `^id` at the end of a line. */
+function appendBlockId(content: string, id: string, line: number): string {
+  const lines = content.split('\n')
+  const idx = line - 1
+  const target = lines[idx]
+  if (!Number.isInteger(line) || target === undefined) {
+    throw new Error(`line ${line} is out of range`)
+  }
+  if (BLOCK_ID_LINE.test(target)) {
+    throw new Error(`line ${line} already has a block id`)
+  }
+  lines[idx] = `${target.trimEnd()} ^${id}`
+  return lines.join('\n')
+}
+
+const BLOCK_ID_LINE = /\s\^[A-Za-z0-9][\w-]*\s*$/
 
 /** Drop the line containing `at` if the deletion emptied it. */
 function dropBlankLineAt(content: string, at: number): string {

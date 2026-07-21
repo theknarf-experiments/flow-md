@@ -358,3 +358,56 @@ describe('the general guards', () => {
     ).toThrow(/is not in the file/)
   })
 })
+
+describe('block ids', () => {
+  const DOC = md(
+    '- [Example](https://example.com/) ^01HQ8P2K3M4N5P6Q7R8S9T0V1W',
+    '- [Other](https://other.example/)',
+  )
+
+  it('reads the id and the line it closes', () => {
+    expect(facts(DOC, 'MdBlockId')).toEqual([
+      ['n.md', '01HQ8P2K3M4N5P6Q7R8S9T0V1W', 1],
+    ])
+  })
+
+  it('leaves the link it follows alone', () => {
+    // The id sits after the link, so it isn't part of the label — a tab named
+    // from this link is called "Example", not "Example ^01HQ…". The paragraph
+    // around it does contain the id, because that's where it's written.
+    const link = facts(DOC, 'MdNode').find((r) => r[3] === 'link')!
+    const text = facts(DOC, 'MdNodeText').find((r) => r[1] === link[1])!
+    expect(text[2]).toBe('Example')
+  })
+
+  it('appends one to a line that has none', () => {
+    const out = insertMarkdownFact(DOC, {
+      rel: 'MdBlockId',
+      row: ['n.md', '01HQ8P2K3M4N5P6Q7R8S9T0V1X', 2],
+    })
+    expect(out.split('\n')[1]).toBe(
+      '- [Other](https://other.example/) ^01HQ8P2K3M4N5P6Q7R8S9T0V1X',
+    )
+  })
+
+  it('refuses to give a line a second one', () => {
+    expect(() =>
+      insertMarkdownFact(DOC, { rel: 'MdBlockId', row: ['n.md', 'again', 1] }),
+    ).toThrow(/already has a block id/)
+  })
+
+  it('rewrites and removes one', () => {
+    const renamed = updateMarkdownFact(
+      DOC,
+      { rel: 'MdBlockId', row: ['n.md', '01HQ8P2K3M4N5P6Q7R8S9T0V1W', 1] },
+      { rel: 'MdBlockId', row: ['n.md', 'renamed', 1] },
+    )
+    expect(renamed.split('\n')[0]).toBe('- [Example](https://example.com/) ^renamed')
+
+    const removed = deleteMarkdownFact(DOC, {
+      rel: 'MdBlockId',
+      row: ['n.md', '01HQ8P2K3M4N5P6Q7R8S9T0V1W', 1],
+    })
+    expect(removed.split('\n')[0]).toBe('- [Example](https://example.com/)')
+  })
+})

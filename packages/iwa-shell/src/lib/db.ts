@@ -18,6 +18,7 @@
 import { QueryClient } from '@tanstack/query-core'
 import { queryCollectionOptions } from '@tanstack/query-db-collection'
 import { createCollection } from '@tanstack/react-db'
+import { ulid } from './ulid.js'
 import { type Cell, vault } from './vault.js'
 
 export interface Space {
@@ -38,12 +39,16 @@ export interface Space {
 }
 
 export interface Tab {
-  /** `<space>\n<start>` — where the link is written, in bytes.
+  /** `<space>\n<block id>`, or the link's start when it hasn't got one.
    *
-   *  Datalog is set semantics: two identical links would be one row if the
-   *  row didn't say where each of them is. The span does, by construction, so
-   *  the same page opened twice is two tabs, the way it is in any browser. */
+   *  Datalog is set semantics, so a row has to carry something that tells two
+   *  identical links apart. A span does, but it moves whenever the file is
+   *  edited above it — every row below an edit changes identity and its tab
+   *  reloads. A block id doesn't move, so the browser writes one after each
+   *  link it opens: `- [Example](https://example.com/) ^01HQ8P…`. */
   id: string
+  /** The `^id` written after the link, when there is one. */
+  block: string | null
   space: string
   url: string
   title: string
@@ -77,6 +82,11 @@ const TAB_QUERY = [
   'MdProp(path, node, "url", dst)',
   'MdNodeText(path, node, text)',
 ].join(', ')
+
+/** The block ids in those same files. A separate query because Datalog has no
+ *  outer join: asking for links *and* their id in one would hide every link
+ *  that hasn't got one yet. */
+const BLOCK_QUERY = 'Frontmatter(path, "type", "space"), MdBlockId(path, block, line)'
 
 const frontmatterOf = (space: string) =>
   `Frontmatter(${JSON.stringify(space)}, key, value)`
@@ -126,13 +136,39 @@ async function loadSpaces(): Promise<Space[]> {
 }
 
 async function loadTabs(): Promise<Tab[]> {
-  const [rows, spaces] = await Promise.all([vault.run(TAB_QUERY), loadSpaces()])
+  const [rows, blocks, spaces] = await Promise.all([
+    vault.run(TAB_QUERY),
+    vault.run(BLOCK_QUERY),
+    loadSpaces(),
+  ])
   if (rows.error) throw new Error(rows.error)
+  if (blocks.error) throw new Error(blocks.error)
   const pinned = new Map(spaces.map((s) => [s.id, s.pinned]))
+  // A block id belongs to the line it closes.
+  const blockOf = new Map(
+    (blocks.rows as [string, string, number][]).map(([path, block, line]) => [
+      `${path}\n${line}`,
+      block,
+    ]),
+  )
   type Row = [string, number, number, string, number, number, number, string, string, string]
-  return (rows.rows as Row[])
+  const all = rows.rows as Row[]
+
+  // Anything the browser hasn't named yet — a link somebody wrote by hand,
+  // or one written a moment ago. Naming it is a write, so it happens out of
+  // band and the row turns up on the next read.
+  //
+  // Until then the link isn't a tab. A row whose key changes is a row the
+  // collection keeps twice: the old key is never removed, so the tab would
+  // appear once under its span and again under its id.
+  const unnamed = all.filter(([space, , , , line]) => !blockOf.has(`${space}\n${line}`))
+  if (unnamed.length > 0) void nameLinks(unnamed.map(([space, , , , line]) => [space, line]))
+
+  return all
+    .filter(([space, , , , line]) => blockOf.has(`${space}\n${line}`))
     .map(([space, node, parent, type, line, start, end, kind, url, title]) => ({
-      id: `${space}\n${start}`,
+      block: blockOf.get(`${space}\n${line}`)!,
+      id: `${space}\n${blockOf.get(`${space}\n${line}`)!}`,
       space,
       url,
       title,
@@ -214,10 +250,30 @@ export const spacesCollection = createCollection(
  *  provisional key — which would build a guest, then throw it away when the
  *  real row arrived — this writes and reads back. One round trip, and the
  *  tab that appears is the real one. */
+/** Give links a name of their own: `- [Example](https://…) ^01HQ8P…`.
+ *
+ *  Appending to a line doesn't renumber any, so a batch can be written from
+ *  one read. Failures are ignored on purpose — a line that already has an id
+ *  is not a problem worth a dialog. */
+async function nameLinks(lines: Array<[space: string, line: number]>): Promise<void> {
+  for (const [space, line] of lines) {
+    await vault.insert('MdBlockId', [space, ulid(), line]).catch(() => undefined)
+  }
+  await tabsCollection.utils.refetch()
+}
+
 export async function addLink(space: string, url: string, title: string): Promise<void> {
   // Line 0 means append; the reparse decides where it really goes.
   await vault.insert('LinkLabel', [space, url, title, 0])
-  await tabsCollection.utils.refetch()
+  // Then name it, without waiting for the read that would find it anyway:
+  // a tab that takes a poll to appear is a tab that looks broken.
+  const written = await vault.run(TAB_QUERY)
+  const line = (written.rows as [string, ...unknown[]][])
+    .filter((r) => r[0] === space && r[8] === url)
+    .map((r) => Number(r[4]))
+    .sort((a, b) => b - a)[0]
+  if (line !== undefined) await nameLinks([[space, line]])
+  else await tabsCollection.utils.refetch()
 }
 
 export const tabsCollection = createCollection(
