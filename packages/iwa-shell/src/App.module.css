@@ -38,8 +38,21 @@
   top: 0;
   height: 32px;
   border-radius: 0 0 12px 12px;
-  background: rgba(0, 0, 0, 0.2);
   pointer-events: none;
+  /* Carved out of the space's own colour rather than a grey plate: it's the
+     same hue as the window, a few stops darker, so it recolours along with
+     everything else when you swipe between spaces. */
+  background: linear-gradient(
+    180deg,
+    hsl(calc(var(--hue) + 20) 30% 12% / 0.55),
+    hsl(calc(var(--hue) + 20) 30% 14% / 0.28)
+  );
+  /* What sells the recess: a dark line where the wall meets the top edge, and
+     a lit lip along the bottom where the surface turns back towards you. */
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.13),
+    0 2px 5px rgba(0, 0, 0, 0.16);
 }
 
 /* ---------------------------------------------------------------- sidebar */
