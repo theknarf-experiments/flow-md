@@ -505,3 +505,110 @@ describe('the other relations write too', () => {
     expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1)
   })
 })
+
+describe('the AST, as relations', () => {
+  const DOC = md('# Title', '', '- [ ] buy **oat** milk', '', 'See [the docs](https://example.com).')
+
+  /** Node ids are assigned in document order, so this finds one by shape
+   *  rather than hard-coding a number the next edit would invalidate. */
+  const nodeId = (type: string, text?: string): number => {
+    const facts = parseMarkdown('n.md', DOC, 0).facts
+    const texts = new Map(
+      facts.filter((f) => f.rel === 'MdNodeText').map((f) => [f.row[1], f.row[2]]),
+    )
+    const hit = facts.find(
+      (f) => f.rel === 'MdNode' && f.row[3] === type && (text === undefined || texts.get(f.row[1]) === text),
+    )
+    if (!hit) throw new Error(`no ${type} node`)
+    return Number(hit.row[1])
+  }
+
+  it('records every node, its parent and its extent', () => {
+    const facts = parseMarkdown('n.md', DOC, 0).facts
+    const nodes = facts.filter((f) => f.rel === 'MdNode')
+    expect(nodes[0]!.row).toEqual(['n.md', 0, -1, 'root', 1, 0, DOC.length])
+    expect(nodes.map((f) => f.row[3])).toContain('strong')
+    // A child names its parent, so descendants are a recursive rule away.
+    const strong = nodes.find((f) => f.row[3] === 'strong')!
+    const parent = nodes.find((f) => f.row[1] === strong.row[2])!
+    expect(parent.row[3]).toBe('paragraph')
+  })
+
+  it('flattens whatever the parser hung on a node, without a list of names', () => {
+    const facts = parseMarkdown('n.md', DOC, 0).facts
+    expect(facts).toContainEqual({
+      rel: 'MdProp',
+      row: ['n.md', nodeId('link'), 'url', 'https://example.com'],
+    })
+    expect(facts).toContainEqual({
+      rel: 'MdPropNum',
+      row: ['n.md', nodeId('heading'), 'depth', 1],
+    })
+    expect(facts).toContainEqual({
+      rel: 'MdProp',
+      row: ['n.md', nodeId('listItem'), 'checked', 'false'],
+    })
+  })
+
+  it('edits a text node without disturbing the markup around it', () => {
+    const id = nodeId('text', 'oat')
+    const out = updateMarkdownFact(
+      DOC,
+      { rel: 'MdNodeText', row: ['n.md', id, 'oat'] },
+      { rel: 'MdNodeText', row: ['n.md', id, 'almond'] },
+    )
+    expect(out).toContain('- [ ] buy **almond** milk')
+  })
+
+  it('refuses to write a text that the source does not say literally', () => {
+    // The paragraph renders as "buy oat milk" but is written with emphasis,
+    // so there's no span to put a new value in — the structure-preserving
+    // edit is the one above.
+    const id = nodeId('paragraph', 'buy oat milk')
+    expect(() =>
+      updateMarkdownFact(
+        DOC,
+        { rel: 'MdNodeText', row: ['n.md', id, 'buy oat milk'] },
+        { rel: 'MdNodeText', row: ['n.md', id, 'buy soy milk'] },
+      ),
+    ).toThrow(/derived rather than written literally/)
+  })
+
+  it('writes properties through the syntax that holds them', () => {
+    const link = nodeId('link')
+    expect(
+      updateMarkdownFact(
+        DOC,
+        { rel: 'MdProp', row: ['n.md', link, 'url', 'https://example.com'] },
+        { rel: 'MdProp', row: ['n.md', link, 'url', 'https://example.org'] },
+      ),
+    ).toContain('[the docs](https://example.org)')
+
+    const item = nodeId('listItem')
+    expect(
+      updateMarkdownFact(
+        DOC,
+        { rel: 'MdProp', row: ['n.md', item, 'checked', 'false'] },
+        { rel: 'MdProp', row: ['n.md', item, 'checked', 'true'] },
+      ),
+    ).toContain('- [x] buy')
+
+    const heading = nodeId('heading')
+    expect(
+      updateMarkdownFact(
+        DOC,
+        { rel: 'MdPropNum', row: ['n.md', heading, 'depth', 1] },
+        { rel: 'MdPropNum', row: ['n.md', heading, 'depth', 3] },
+      ),
+    ).toContain('### Title')
+  })
+
+  it('removes a node, and its subtree with it', () => {
+    const facts = parseMarkdown('n.md', DOC, 0).facts
+    const strong = facts.find((f) => f.rel === 'MdNode' && f.row[3] === 'strong')!
+    const out = deleteMarkdownFact(DOC, { rel: 'MdNode', row: strong.row })
+    expect(out).not.toContain('**')
+    expect(out).not.toContain('oat')
+    expect(out).toContain('# Title')
+  })
+})

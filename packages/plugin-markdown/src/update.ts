@@ -20,19 +20,13 @@
 // refused rather than guessed at.
 
 import type { Cell, EdbDef, Fact, WritableRel } from '@flow-md/plugin-api'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { parseAnnotated, type Provenance, type Span } from './parse.js'
+import { parseAnnotated, renderScalar, type Provenance, type Span } from './parse.js'
 import { MARKDOWN_SCHEMA } from './schema.js'
-
-/** How a value is written into a span. Omitted means "the value verbatim". */
-type Encode = (value: Cell) => string
 
 interface RelSyntax {
   /** Columns that may be rewritten, by name. A column still needs a span at
    *  write time — `# heading` has one, a heading inside a table cell may not. */
   cols: string[]
-  /** Non-verbatim encodings, by column name. */
-  encode?: Record<string, Encode>
   /** Renders a new fact as a line of markdown; presence enables insert. */
   render?: (row: Cell[]) => string
   /** Custom placement, for facts that don't live in the document body. */
@@ -53,9 +47,6 @@ function checkbox(status: Cell | undefined): string {
 const SYNTAX: Record<string, RelSyntax> = {
   Task: {
     cols: ['status', 'text'],
-    encode: {
-      status: checkbox,
-    },
     render: ([, status, text]) => `- [${checkbox(status)}] ${literal(text, 'Task text')}`,
     deletable: true,
     pathAttr: 'path',
@@ -63,7 +54,6 @@ const SYNTAX: Record<string, RelSyntax> = {
   Heading: {
     // Level is as writable as text: the span is the run of #s.
     cols: ['level', 'text'],
-    encode: { level: (v) => '#'.repeat(clampLevel(v)) },
     render: ([, level, text]) => `${'#'.repeat(clampLevel(level))} ${literal(text, 'Heading text')}`,
     deletable: true,
     pathAttr: 'path',
@@ -92,16 +82,38 @@ const SYNTAX: Record<string, RelSyntax> = {
     deletable: true,
     pathAttr: 'path',
   },
+  // --- the syntax tree ------------------------------------------------------
+  //
+  // Writing through these is the structure-preserving path: MdNodeText of a
+  // text node is exactly the characters it occupies, so rewriting it leaves
+  // everything around it — emphasis, links, the rest of the sentence — alone.
+  MdNodeText: {
+    cols: ['text'],
+    pathAttr: 'path',
+  },
+  MdProp: {
+    cols: ['value'],
+    pathAttr: 'path',
+  },
+  MdPropNum: {
+    cols: ['num'],
+    pathAttr: 'path',
+  },
+  MdNode: {
+    // Nothing about a node is rewritable in place — its type and position are
+    // what the syntax *is*. It can be removed, which takes its subtree.
+    cols: [],
+    deletable: true,
+    pathAttr: 'path',
+  },
   Frontmatter: {
     cols: ['value'],
-    encode: { value: (v) => renderScalar(String(v)) },
     insert: (content, [, key, value]) => insertFrontmatter(content, String(key), String(value)),
     deletable: true,
     pathAttr: 'path',
   },
   FrontmatterNumber: {
     cols: ['num'],
-    encode: { num: (v) => renderScalar(String(v)) },
     insert: (content, [, key, num]) => insertFrontmatter(content, String(key), String(num)),
     deletable: true,
     pathAttr: 'path',
@@ -151,8 +163,11 @@ export function updateMarkdownFact(
           'occurrence is derived rather than written literally',
       )
     }
-    const encode = syntax.encode?.[name]
-    edits.push({ span, text: encode ? encode(newFact.row[i]!) : literal(newFact.row[i], name) })
+    // How the value is written belongs to the span that holds it.
+    edits.push({
+      span: span.span,
+      text: span.encode ? span.encode(newFact.row[i]!) : literal(newFact.row[i], name),
+    })
   }
   if (edits.length === 0) return content
 
@@ -297,20 +312,6 @@ function clampLevel(value: Cell | undefined): number {
     throw new Error('Heading level must be 1–6')
   }
   return n
-}
-
-/** Render a new scalar value: plain when it YAML-round-trips to the same
- *  string (so `42` stays a number, `done` stays a word), quoted otherwise. */
-function renderScalar(value: string): string {
-  try {
-    const round = parseYaml(value)
-    if (round !== null && typeof round !== 'object' && String(round) === value) {
-      return value
-    }
-  } catch {
-    // fall through to quoting
-  }
-  return stringifyYaml(value).trimEnd()
 }
 
 /** Add `key: value` to the frontmatter block, appending to the list when the

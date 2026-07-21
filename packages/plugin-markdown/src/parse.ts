@@ -22,7 +22,15 @@ import remarkGfm from 'remark-gfm'
 import remarkMdx from 'remark-mdx'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { isMap, isScalar, isSeq, parseDocument, type Node as YamlNode } from 'yaml'
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  parse as parseYaml,
+  parseDocument,
+  stringify as stringifyYaml,
+  type Node as YamlNode,
+} from 'yaml'
 
 export const RULE_LANG = 'datalog'
 export const QUERY_LANG = 'datalog-query'
@@ -30,11 +38,23 @@ export const QUERY_LANG = 'datalog-query'
 /** A half-open byte range into the file. */
 export type Span = readonly [start: number, end: number]
 
+/** Where a cell was read from, and how a new value is written back there.
+ *
+ *  The encoder lives here rather than in the writer because knowing that a
+ *  checkbox is one character, or that a heading's level is a run of #s, is
+ *  knowledge about the syntax — which is the parser's job. The writer only
+ *  splices. */
+export interface CellProv {
+  span: Span
+  /** Omitted means the value goes in verbatim. */
+  encode?: (value: Cell) => string
+}
+
 export interface Provenance {
   /** Where each cell was read from, or null when the cell isn't a literal
    *  slice of the source (a path, an mtime, a line number). A cell with a
    *  span is a cell that can be rewritten. */
-  cols: (Span | null)[]
+  cols: (CellProv | null)[]
   /** What to remove when the fact is deleted — usually more than any single
    *  cell: the whole list item, heading line or frontmatter entry. Null when
    *  the fact has no removable source of its own. */
@@ -61,6 +81,33 @@ const mdxProcessor = unified()
   .use(remarkFrontmatter, ['yaml'])
   .use(remarkGfm)
   .use(remarkMdx)
+
+/** `- [x]` / `- [ ]`, from either spelling of the fact. */
+const checkboxMark = (value: Cell): string =>
+  value === 'closed' || value === 'true' ? 'x' : ' '
+
+const hashes = (value: Cell): string => {
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 1 || n > 6) {
+    throw new Error('Heading level must be 1–6')
+  }
+  return '#'.repeat(n)
+}
+
+/** Render a new YAML scalar: plain when it round-trips to the same string (so
+ *  `42` stays a number, `done` stays a word), quoted otherwise. */
+export function renderScalar(value: Cell): string {
+  const text = String(value)
+  try {
+    const round = parseYaml(text)
+    if (round !== null && typeof round !== 'object' && String(round) === text) {
+      return text
+    }
+  } catch {
+    // fall through to quoting
+  }
+  return stringifyYaml(text).trimEnd()
+}
 
 const WIKILINK = /\[\[([^\]]+)\]\]/g
 // A tag starts at a word boundary, begins with a letter, and may nest (a/b).
@@ -117,6 +164,7 @@ function parseWith(
   const none = (n: number): Provenance => ({ cols: Array(n).fill(null), del: null })
 
   emit('File', [path, mtime], none(2))
+  emitAst(path, tree as UNode, content, emit)
 
   walk(tree, (node) => {
     switch (node.type) {
@@ -133,7 +181,12 @@ function parseWith(
             // The run of #s is the level, and the children are the text —
             // both rewritable, which makes "promote this heading" an edit
             // rather than a special case.
-            cols: [null, whole && [whole[0], whole[0] + h.depth], childSpan(h), null],
+            cols: [
+              null,
+              whole ? { span: [whole[0], whole[0] + h.depth], encode: hashes } : null,
+              plain(childSpan(h)),
+              null,
+            ],
             del: whole,
           },
         )
@@ -142,9 +195,12 @@ function parseWith(
       case 'link': {
         const l = node as Link
         const whole = spanOf(node)
-        emit('Link', [path, l.url, 'md'], { cols: [null, urlSpan(node, content), null], del: whole })
+        emit('Link', [path, l.url, 'md'], {
+          cols: [null, plain(urlSpan(node, content)), null],
+          del: whole,
+        })
         emit('LinkLabel', [path, l.url, mdToString(l), lineOf(node)], {
-          cols: [null, urlSpan(node, content), childSpan(l), null],
+          cols: [null, plain(urlSpan(node, content)), plain(childSpan(l)), null],
           del: whole,
         })
         break
@@ -160,7 +216,12 @@ function parseWith(
           const text = (para ? mdToString(para) : mdToString(li)).trim()
           const status = li.checked ? 'closed' : 'open'
           emit('Task', [path, status, text, lineOf(node)], {
-            cols: [null, checkboxSpan(node, content), childSpan(para as UNode), null],
+            cols: [
+              null,
+              encoded(checkboxSpan(node, content), checkboxMark),
+              plain(childSpan(para as UNode)),
+              null,
+            ],
             // A list item's span already covers its nested children, so
             // deleting it can't strand them at the wrong depth.
             del: spanOf(node),
@@ -177,7 +238,7 @@ function parseWith(
           queries.push({ line: lineOf(node), source: c.value })
         } else {
           emit('CodeBlock', [path, c.lang ?? '', lineOf(node)], {
-            cols: [null, infoSpan(node, content), null],
+            cols: [null, plain(infoSpan(node, content)), null],
             del: spanOf(node),
           })
         }
@@ -196,12 +257,10 @@ function parseWith(
           const at = base + m.index
           const whole: Span = [at, at + m[0].length]
           const targetAt = at + 2 + inner.indexOf(target)
-          emit('Link', [path, target, 'wiki'], {
-            cols: [null, [targetAt, targetAt + target.length], null],
-            del: whole,
-          })
+          const targetSpan = plain([targetAt, targetAt + target.length])
+          emit('Link', [path, target, 'wiki'], { cols: [null, targetSpan, null], del: whole })
           emit('LinkLabel', [path, target, alias, lineAt(content, at)], {
-            cols: [null, [targetAt, targetAt + target.length], null, null],
+            cols: [null, targetSpan, null, null],
             del: whole,
           })
         }
@@ -210,7 +269,7 @@ function parseWith(
           // after the "#".
           const at = base + m.index + m[0].indexOf('#')
           emit('Tag', [path, m[1]!], {
-            cols: [null, [at + 1, at + m[1]!.length + 1]],
+            cols: [null, plain([at + 1, at + m[1]!.length + 1])],
             del: [at, at + m[1]!.length + 1],
           })
         }
@@ -234,6 +293,77 @@ interface UNode {
   children?: UNode[]
 }
 
+/** Where a node property was written, for the handful of properties that are
+ *  a literal slice of the source. Keyed `type.property`.
+ *
+ *  This is provenance, not syntax: a property without an entry is still a
+ *  fact you can query, it just can't be rewritten in place — which is the
+ *  truth, since nothing in the file says it. */
+const PROP_SPAN: Record<string, (node: UNode, content: string) => CellProv | null> = {
+  'link.url': (n, c) => plain(urlSpan(n, c)),
+  'image.url': (n, c) => plain(urlSpan(n, c)),
+  'definition.url': (n, c) => plain(urlSpan(n, c)),
+  'code.lang': (n, c) => plain(infoSpan(n, c)),
+  'heading.depth': (node) => {
+    const depth = (node as { depth?: number }).depth ?? 1
+    const whole = spanOf(node)
+    return whole ? { span: [whole[0], whole[0] + depth], encode: hashes } : null
+  },
+  'listItem.checked': (n, c) => encoded(checkboxSpan(n, c), checkboxMark),
+}
+
+/** The AST itself, as relations. Every node becomes a row, every scalar
+ *  property becomes a fact, and every node's rendered text is recorded with
+ *  the range it came from — so a rule over this can say what a heading or a
+ *  task is, instead of the parser deciding in advance.
+ *
+ *  Nothing here is markdown-specific beyond the node types: the property walk
+ *  takes whatever mdast (or mdx) put on the node. */
+function emitAst(
+  path: string,
+  root: UNode,
+  content: string,
+  emit: (rel: string, row: Cell[], p: Provenance) => void,
+): void {
+  let id = 0
+  const visit = (node: UNode, parent: number): void => {
+    const self = id++
+    const whole = spanOf(node)
+    emit(
+      'MdNode',
+      [path, self, parent, node.type, lineOf(node), whole?.[0] ?? -1, whole?.[1] ?? -1],
+      { cols: [null, null, null, null, null, null, null], del: whole },
+    )
+
+    // A node's text is only rewritable when the source says it literally.
+    // `**bold** task` renders as "bold task", which is not what's written, so
+    // it gets no span and an edit to it is refused rather than flattening the
+    // markup away — write the text node inside instead.
+    const text = mdToString(node)
+    const inner = node.children?.length ? childSpan(node) : whole
+    const literal = inner && content.slice(inner[0], inner[1]) === text ? inner : null
+    emit('MdNodeText', [path, self, text], { cols: [null, null, plain(literal)], del: whole })
+
+    for (const [key, value] of Object.entries(node as unknown as Record<string, unknown>)) {
+      if (key === 'type' || key === 'children' || key === 'position' || key === 'value') continue
+      const span = PROP_SPAN[`${node.type}.${key}`]?.(node, content) ?? null
+      if (typeof value === 'number') {
+        emit('MdPropNum', [path, self, key, value], { cols: [null, null, null, span], del: null })
+      } else if (typeof value === 'string' || typeof value === 'boolean') {
+        emit('MdProp', [path, self, key, String(value)], {
+          cols: [null, null, null, span],
+          del: null,
+        })
+      }
+      // Objects and arrays (MDX attributes, table alignment) are structure of
+      // their own; they'd need nodes, not properties.
+    }
+
+    if (node.children) for (const child of node.children) visit(child, self)
+  }
+  visit(root, -1)
+}
+
 function walk(node: UNode, visit: (n: UNode) => void): void {
   visit(node)
   if (node.children) for (const child of node.children) walk(child, visit)
@@ -251,6 +381,12 @@ function lineAt(content: string, offset: number): number {
   }
   return line
 }
+
+/** A cell written back exactly as it reads. */
+const plain = (span: Span | null): CellProv | null => (span ? { span } : null)
+
+const encoded = (span: Span | null, encode: (v: Cell) => string): CellProv | null =>
+  span ? { span, encode } : null
 
 function spanOf(node: UNode | undefined): Span | null {
   const start = node?.position?.start?.offset
@@ -352,14 +488,20 @@ function emitFrontmatter(
       // A list item is deleted by the line; a lone `key: value` takes the
       // key with it, so its removable range starts at the key.
       const del = isSeq(value) ? entryLine(item.range) : entryLine(pair.key.range)
-      emit('Frontmatter', [path, key, s], { cols: [null, null, span], del })
+      emit('Frontmatter', [path, key, s], {
+        cols: [null, null, encoded(span, renderScalar)],
+        del,
+      })
       // Numeric values also get a typed fact so rules can compare/aggregate
       // them numerically (the string form sorts lexicographically).
       if (typeof raw === 'number' && Number.isFinite(raw)) {
-        emit('FrontmatterNumber', [path, key, raw], { cols: [null, null, span], del })
+        emit('FrontmatterNumber', [path, key, raw], {
+          cols: [null, null, encoded(span, renderScalar)],
+          del,
+        })
       }
       if (key === 'tags' || key === 'tag') {
-        emit('Tag', [path, s], { cols: [null, span], del })
+        emit('Tag', [path, s], { cols: [null, encoded(span, renderScalar)], del })
       }
     }
   }
