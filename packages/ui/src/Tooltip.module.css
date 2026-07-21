@@ -20,8 +20,11 @@
   transition: opacity 110ms ease 350ms;
 }
 
+/* :focus-visible, not :focus-within — a button keeps focus after it's
+   clicked, which left the tooltip pinned open with the pointer long gone.
+   Keyboard focus still shows it, which is the case that needs it. */
 .wrap:hover .tip,
-.wrap:focus-within .tip {
+.wrap:has(:focus-visible) .tip {
   opacity: 1;
 }
 

@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, CSSProperties, ReactNode, Ref } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
+import { useEffect, useRef } from 'react'
 import styles from './Sidebar.module.css'
 
 export interface SidebarProps {
@@ -35,11 +36,59 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className={styles.sectionLabel}>{children}</div>
 }
 
+export interface SpaceHeaderProps {
+  emoji?: string
+  children: string
+  /** Right-clicking the header is how Arc exposes rename/recolour/delete.
+   *  Passing a handler also gives the header its hover affordance — without
+   *  one it's just a caption and shouldn't pretend otherwise. */
+  onContextMenu?: (e: MouseEvent<HTMLElement>) => void
+  /** Swaps the name for an input. Commit with Enter or by clicking away,
+   *  abandon with Escape. */
+  editing?: boolean
+  onRename?: (name: string) => void
+  onCancelRename?: () => void
+}
+
 /** A space's name, with its emoji — the friendlier heading Arc uses in place
  *  of a tiny uppercase caption. */
-export function SpaceHeader({ emoji, children }: { emoji?: string; children: ReactNode }) {
+export function SpaceHeader(props: SpaceHeaderProps) {
+  const { emoji, children, onContextMenu, editing, onRename, onCancelRename } = props
+  const input = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    // Selected, not just focused: renaming almost always means replacing.
+    input.current?.select()
+  }, [editing])
+
+  if (editing) {
+    return (
+      <div className={styles.spaceHeader}>
+        {emoji && <span aria-hidden="true">{emoji}</span>}
+        <input
+          ref={input}
+          className={styles.rename}
+          defaultValue={children}
+          aria-label="Space name"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onRename?.(e.currentTarget.value.trim() || children)
+            if (e.key === 'Escape') {
+              e.stopPropagation()
+              onCancelRename?.()
+            }
+          }}
+          onBlur={(e) => onRename?.(e.currentTarget.value.trim() || children)}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div className={styles.spaceHeader}>
+    <div
+      className={`${styles.spaceHeader} ${onContextMenu ? styles.interactive : ''}`}
+      onContextMenu={onContextMenu}
+    >
       {emoji && <span aria-hidden="true">{emoji}</span>}
       <span>{children}</span>
     </div>

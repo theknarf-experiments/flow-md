@@ -30,6 +30,16 @@ export {
   SidebarIcon,
   type IconProps,
 } from './icons.js'
+export {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  type ContextMenuProps,
+} from './ContextMenu.js'
+export { useContextMenu } from './useContextMenu.js'
+export { HueSwatches, type HueSwatchesProps } from './HueSwatches.js'
+export { EmojiPicker, type EmojiPickerProps } from './EmojiPicker.js'
 export { SwipeDeck } from './SwipeDeck.js'
 export type { SwipeDeckProps } from './SwipeDeck.js'
 export type { TooltipPlacement, TooltipProps } from './Tooltip.js'

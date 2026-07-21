@@ -1,0 +1,19 @@
+.row {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem 0.4rem;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  cursor: default;
+  /* The ring is drawn outside the circle so picking a colour doesn't resize
+     the row. */
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.active { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9); }

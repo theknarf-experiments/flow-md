@@ -16,7 +16,9 @@ export interface TooltipProps {
  *  contexts.
  *
  *  CSS-only: it opens on hover of the wrapper and on keyboard focus within,
- *  so there's no timer state to leak and nothing to clean up. It is not a
+ *  so there's no timer state to leak and nothing to clean up. Deliberately
+ *  keyboard focus rather than focus of any kind — a button stays focused
+ *  after a click, which used to leave its tooltip stuck open. It is not a
  *  substitute for an accessible name — controls that are icon-only still need
  *  `aria-label`, since a tooltip is not announced. */
 export function Tooltip({ label, children, placement = 'bottom' }: TooltipProps) {

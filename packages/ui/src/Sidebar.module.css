@@ -41,9 +41,29 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.7rem 0.5rem 0.25rem;
+  /* Symmetrical, so the hover background reads as a row rather than as a
+     block that's slipped upwards. */
+  padding: 0.45rem 0.5rem;
+  margin-top: 0.25rem;
+  border-radius: 9px;
   font-size: 0.92rem;
   font-weight: 600;
+  app-region: no-drag;
+}
+
+/* Only when there's something to click — see SpaceHeader. */
+.interactive:hover { background: color-mix(in srgb, currentColor 11%, transparent); }
+
+.rename {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 0.15rem;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  color: inherit;
+  font: inherit;
+  outline: none;
 }
 
 .toolbar {

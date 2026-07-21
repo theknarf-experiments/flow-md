@@ -21,6 +21,12 @@ import {
   type PaletteItem,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  EmojiPicker,
+  HueSwatches,
   IconButton,
   LogPanel,
   PinnedGrid,
@@ -35,6 +41,7 @@ import {
   Toolbar,
   SwipeDeck,
   fuzzyFilter,
+  useContextMenu,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
@@ -80,12 +87,18 @@ interface Tab {
   icon: string | null
 }
 
-/** Emoji offered to new spaces, in order. */
-const SPACE_EMOJI = ['🎨', '📚', '🎧', '🛠️', '🌱', '🔭']
+/** Emoji offered to new spaces, in order, and in the space menu. */
+const SPACE_EMOJI = ['📓', '🌐', '🧪', '🎨', '📚', '🎧', '🛠️', '🌱', '🔭', '💼', '🎮', '📮']
+
+/** The colours a space can be recoloured to — spread right round the wheel so
+ *  no two are easy to confuse at a glance. */
+const HUES = [250, 285, 320, 355, 25, 90, 155, 190]
 
 export function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [spaces, setSpaces] = useState<Space[]>(INITIAL_SPACES)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const spaceMenu = useContextMenu<string>()
   const [spaceId, setSpaceId] = useState(INITIAL_SPACES[0]!.id)
   /** Active tab per space, so switching spaces restores where you were. */
   const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
@@ -350,7 +363,7 @@ export function App() {
     const next: Space = {
       id,
       name: `Space ${spaces.length + 1}`,
-      emoji: SPACE_EMOJI[spaces.length % SPACE_EMOJI.length] ?? '•',
+      emoji: SPACE_EMOJI[(spaces.length + 3) % SPACE_EMOJI.length] ?? '•',
       // Spread the hues so a new space is visibly its own place.
       hue: (spaces.length * 67 + 250) % 360,
       partition: `persist:${id}`,
@@ -361,6 +374,39 @@ export function App() {
     openTab(HOME, { space: id })
     log(`space ${next.name} (${next.partition})`)
   }, [spaces, openTab, log])
+
+  const renameSpace = useCallback((id: string, name: string) => {
+    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, name } : s)))
+    setRenaming(null)
+  }, [])
+
+  const recolourSpace = useCallback((id: string, hue: number) => {
+    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, hue } : s)))
+  }, [])
+
+  const reiconSpace = useCallback((id: string, emoji: string) => {
+    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, emoji } : s)))
+  }, [])
+
+  /** Deleting a space takes its tabs with it — they live nowhere else, and
+   *  their guests would otherwise stay loaded and invisible. */
+  const deleteSpace = useCallback(
+    (id: string) => {
+      setSpaces((ss) => {
+        if (ss.length < 2) return ss
+        const remaining = ss.filter((s) => s.id !== id)
+        setSpaceId((current) => {
+          if (current !== id) return current
+          const i = ss.findIndex((s) => s.id === id)
+          return (remaining[i] ?? remaining[remaining.length - 1] ?? ss[0]!).id
+        })
+        return remaining
+      })
+      for (const tab of tabs.filter((t) => t.spaceId === id)) closeTab(tab.id)
+      log(`space ${id} deleted`)
+    },
+    [tabs, closeTab, log],
+  )
 
   /** Swipe over the sidebar to slide between spaces; <SwipeDeck> does the
    *  gesture. It stops at either end rather than wrapping — there is no space
@@ -422,7 +468,7 @@ export function App() {
   )
 
   return (
-    <div className={styles.shell} ref={shellRef}>
+    <div className={`${styles.shell} ${sidebar ? '' : styles.sidebarHidden}`} ref={shellRef}>
       {!controlledFrame.available && (
         <Banner tone="error" floating>
           {`<controlledframe> unavailable — ${controlledFrame.detail} · run: mise run iwa`}
@@ -496,7 +542,15 @@ export function App() {
                   />
                 )}
 
-                <SpaceHeader emoji={sp.emoji}>{sp.name}</SpaceHeader>
+                <SpaceHeader
+                  emoji={sp.emoji}
+                  onContextMenu={(e) => spaceMenu.open(e, sp.id)}
+                  editing={renaming === sp.id}
+                  onRename={(name) => renameSpace(sp.id, name)}
+                  onCancelRename={() => setRenaming(null)}
+                >
+                  {sp.name}
+                </SpaceHeader>
                 <div className={styles.tabList}>
                   {spaceTabs.filter((t) => !t.pinned).map((t) => renderTab(t, spaceActive))}
                   <SidebarButton
@@ -525,6 +579,46 @@ export function App() {
           onAddSpace={addSpace}
         />
       </Sidebar>
+
+      {spaceMenu.anchor && (
+        <ContextMenu x={spaceMenu.anchor.x} y={spaceMenu.anchor.y} onClose={spaceMenu.close}>
+          <ContextMenuItem
+            onSelect={() => {
+              setRenaming(spaceMenu.anchor?.target ?? null)
+              spaceMenu.close()
+            }}
+          >
+            Rename space
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuLabel>Icon</ContextMenuLabel>
+          <EmojiPicker
+            choices={SPACE_EMOJI}
+            value={spaces.find((s) => s.id === spaceMenu.anchor?.target)?.emoji}
+            onSelect={(emoji) => reiconSpace(spaceMenu.anchor?.target ?? '', emoji)}
+          />
+          <ContextMenuSeparator />
+          <ContextMenuLabel>Colour</ContextMenuLabel>
+          <HueSwatches
+            hues={HUES}
+            value={spaces.find((s) => s.id === spaceMenu.anchor?.target)?.hue ?? HUES[0]!}
+            // Left open on purpose: picking colours is a comparison, and
+            // reopening the menu for each one makes that impossible.
+            onSelect={(hue) => recolourSpace(spaceMenu.anchor?.target ?? '', hue)}
+          />
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            danger
+            disabled={spaces.length < 2}
+            onSelect={() => {
+              deleteSpace(spaceMenu.anchor?.target ?? '')
+              spaceMenu.close()
+            }}
+          >
+            Delete space
+          </ContextMenuItem>
+        </ContextMenu>
+      )}
 
       <main className={styles.stage}>
         <div className={styles.card} ref={cardRef} />

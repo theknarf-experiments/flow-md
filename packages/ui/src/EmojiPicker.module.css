@@ -1,0 +1,40 @@
+.picker {
+  padding: 0.15rem 0.5rem 0.4rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.15rem;
+}
+
+.choice {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0;
+  cursor: default;
+}
+.choice:hover { background: rgba(255, 255, 255, 0.12); }
+.active { background: rgba(255, 255, 255, 0.22); }
+
+.custom {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.25rem 0.4rem;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  outline: none;
+}
+.custom:focus { background: rgba(255, 255, 255, 0.16); }

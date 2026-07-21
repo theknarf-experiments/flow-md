@@ -12,6 +12,8 @@
 }
 
 .shell {
+  /* The breathing room around the card, and the same on every edge. */
+  --window-margin: 0.8rem;
   display: flex;
   height: 100%;
   background:
@@ -67,11 +69,15 @@
 .stage {
   flex: 1;
   min-width: 0;
-  padding: 0.5rem 0.5rem 0.5rem 0;
-  padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
+  padding: var(--window-margin) var(--window-margin) var(--window-margin) 0;
+  padding-top: calc(env(titlebar-area-height, 0px) + var(--window-margin));
   transition: padding 220ms ease;
 }
-.shell:has(.sidebar.collapsed) .stage { padding-left: 0.5rem; }
+/* With the sidebar away the card should keep the same margin it has on every
+   other edge. Set from a class on the shell rather than :has(.collapsed) —
+   `collapsed` is Sidebar's own CSS-module class, so it hashes to a name this
+   stylesheet can't name. */
+.sidebarHidden .stage { padding-left: var(--window-margin); }
 
 .card {
   position: relative;
