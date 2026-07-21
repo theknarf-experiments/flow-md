@@ -186,8 +186,11 @@ export const vault = {
     return mutate('/update', { q: query, row, column, value })
   },
 
-  /** Remove what a query row was derived from. */
-  delete(query: string, row: Cell[]): Promise<{ error: string | null }> {
-    return mutate('/delete', { q: query, row })
+  /** Remove what a query row was derived from. `rel` says which relation to
+   *  remove when a query reaches more than one that could be — a join over
+   *  the tree touches both the node and the file's frontmatter, and only one
+   *  of those is the tab. */
+  delete(query: string, row: Cell[], rel?: string): Promise<{ error: string | null }> {
+    return mutate('/delete', { q: query, row, ...(rel ? { rel } : {}) })
   },
 }

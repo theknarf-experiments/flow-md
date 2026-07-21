@@ -38,29 +38,62 @@ export interface Space {
 }
 
 export interface Tab {
-  /** `<space>\n<url>`. Keyed by target rather than by line so that editing
-   *  the file above a link doesn't change its identity — a row whose key
-   *  moved would take its guest down and load the page again. Two links to
-   *  the same url in one space are therefore one tab, which is also what a
-   *  person would expect. */
+  /** `<space>\n<start>` — where the link is written, in bytes.
+   *
+   *  Datalog is set semantics: two identical links would be one row if the
+   *  row didn't say where each of them is. The span does, by construction, so
+   *  the same page opened twice is two tabs, the way it is in any browser. */
   id: string
   space: string
   url: string
   title: string
   line: number
+  /** Byte range of the link in its file — the whole row the vault needs to
+   *  trace an edit back to it. */
+  node: number
+  parent: number
+  type: string
+  start: number
+  end: number
+  kind: string
   pinned: boolean
 }
 
 /** Files that declare themselves spaces, with everything else about them. */
 const SPACE_QUERY = 'Frontmatter(path, "type", "space"), Frontmatter(path, key, value)'
 
-/** Every link in every space, in one query rather than one per space. */
-const TAB_QUERY =
-  'Frontmatter(path, "type", "space"), LinkLabel(path, dst, text, line)'
+/** Every link in every space, as nodes of the tree rather than through the
+ *  LinkLabel view.
+ *
+ *  The view is the friendlier shape, but it says which line a link is on and
+ *  not where on that line — so two links to the same page would be
+ *  indistinguishable to a set. Asking the tree directly costs one join and
+ *  returns the node and its span, which makes every row unique and gives the
+ *  vault everything it needs to trace an edit back. */
+const TAB_QUERY = [
+  'Frontmatter(path, "type", "space")',
+  'MdNode(path, node, parent, type, line, start, end)',
+  'MdProp(path, node, "link", kind)',
+  'MdProp(path, node, "url", dst)',
+  'MdNodeText(path, node, text)',
+].join(', ')
 
-const tabsOf = (space: string) => `LinkLabel(${JSON.stringify(space)}, dst, text, line)`
 const frontmatterOf = (space: string) =>
   `Frontmatter(${JSON.stringify(space)}, key, value)`
+
+/** The row as the query returned it, which is what an edit is traced from. */
+const rowOf = (t: Tab): Cell[] => [
+  t.space,
+  t.node,
+  t.parent,
+  t.type,
+  t.line,
+  t.start,
+  t.end,
+  t.kind,
+  t.url,
+  t.title,
+]
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false } },
@@ -96,17 +129,24 @@ async function loadTabs(): Promise<Tab[]> {
   const [rows, spaces] = await Promise.all([vault.run(TAB_QUERY), loadSpaces()])
   if (rows.error) throw new Error(rows.error)
   const pinned = new Map(spaces.map((s) => [s.id, s.pinned]))
-  return (rows.rows as [string, string, string, number][])
-    .map(([space, url, title, line]) => ({
-      id: `${space}\n${url}`,
+  type Row = [string, number, number, string, number, number, number, string, string, string]
+  return (rows.rows as Row[])
+    .map(([space, node, parent, type, line, start, end, kind, url, title]) => ({
+      id: `${space}\n${start}`,
       space,
       url,
       title,
       line,
+      node,
+      parent,
+      type,
+      start,
+      end,
+      kind,
       pinned: (pinned.get(space) ?? []).includes(url),
     }))
     // The order links are written in is the order tabs appear.
-    .sort((a, b) => a.space.localeCompare(b.space) || a.line - b.line)
+    .sort((a, b) => a.space.localeCompare(b.space) || a.start - b.start)
 }
 
 export const spacesCollection = createCollection(
@@ -167,6 +207,19 @@ export const spacesCollection = createCollection(
   }),
 )
 
+/** Add a link to a space's file.
+ *
+ *  Not a collection insert: a row is identified by where it's written, and
+ *  nothing knows that until the vault has written it. Rather than invent a
+ *  provisional key — which would build a guest, then throw it away when the
+ *  real row arrived — this writes and reads back. One round trip, and the
+ *  tab that appears is the real one. */
+export async function addLink(space: string, url: string, title: string): Promise<void> {
+  // Line 0 means append; the reparse decides where it really goes.
+  await vault.insert('LinkLabel', [space, url, title, 0])
+  await tabsCollection.utils.refetch()
+}
+
 export const tabsCollection = createCollection(
   queryCollectionOptions<Tab>({
     id: 'tabs',
@@ -175,36 +228,23 @@ export const tabsCollection = createCollection(
     getKey: (t) => t.id,
     queryClient,
     refetchInterval: 1500,
-    onInsert: async ({ transaction }) => {
-      for (const m of transaction.mutations) {
-        const tab = m.modified as Tab
-        // Line 0 means "append"; the real line comes back from the reparse.
-        await vault.insert('LinkLabel', [tab.space, tab.url, tab.title, 0])
-      }
-      // Don't wait for the next tick: a tab that takes a second and a half to
-      // become real is a tab that looks broken.
-      void tabsCollection.utils.refetch()
-    },
     onUpdate: async ({ transaction }) => {
       for (const m of transaction.mutations) {
         const before = m.original as Tab
         const after = m.modified as Tab
-        const query = tabsOf(before.space)
-        const row = [before.url, before.title, before.line]
-        if (before.url !== after.url) await vault.update(query, row, 'dst', after.url)
+        // The row names the node, so the vault knows which link this is even
+        // when the file holds several to the same page.
         if (before.title !== after.title) {
-          // The row moved if the url just changed, so re-read it from what
-          // the file now says rather than from the row we started with.
-          const moved = before.url !== after.url ? [after.url, before.title, before.line] : row
-          await vault.update(query, moved, 'text', after.title)
+          await vault.update(TAB_QUERY, rowOf(before), 'text', after.title)
         }
       }
       void tabsCollection.utils.refetch()
     },
     onDelete: async ({ transaction }) => {
       for (const m of transaction.mutations) {
-        const tab = m.original as Tab
-        await vault.delete(tabsOf(tab.space), [tab.url, tab.title, tab.line])
+        // Removing a tab removes the link node; the frontmatter the query
+        // also reaches is what marks the file as a space.
+        await vault.delete(TAB_QUERY, rowOf(m.original as Tab), 'MdNode')
       }
       void tabsCollection.utils.refetch()
     },

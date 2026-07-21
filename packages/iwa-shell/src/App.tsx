@@ -66,6 +66,7 @@ import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
 import {
   type Space,
   type Tab as Row,
+  addLink,
   spacesCollection,
   tabsCollection,
 } from './lib/db.js'
@@ -231,20 +232,22 @@ export function App() {
     }
   }, [tabs, spaces, sync])
 
-  /** Opening a tab is writing a link. The row appears optimistically, the
-   *  effect above gives it a guest, and the vault gets the edit. */
+  /** Opening a tab is writing a link. The row comes back from the vault a
+   *  round trip later and the effect above gives it a guest — including when
+   *  the same page is already open, because a second link is a second row. */
   const openTab = useCallback(
     (url: string, opts: { space?: string; activate?: boolean } = {}) => {
       const target = opts.space ?? spaceId
-      if (!target) return undefined
-      const id = `${target}\n${url}`
-      if (!tabsCollection.has(id)) {
-        // Line 0 means append; the reparse gives it its real one.
-        tabsCollection.insert({ id, space: target, url, title: url, line: 0, pinned: false })
-      }
-      if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
+      if (!target) return
+      void addLink(target, url, url).then(() => {
+        if (opts.activate === false) return
+        const opened = tabsCollection.toArray
+          .filter((t) => t.space === target && t.url === url)
+          .sort((a, b) => a.start - b.start)
+          .pop()
+        if (opened) setActiveBySpace((m) => ({ ...m, [target]: opened.id }))
+      })
       log(`tab → ${url}`)
-      return id
     },
     [spaceId, log],
   )
@@ -624,14 +627,7 @@ export function App() {
       if (!tab || tab.space === target) return
       // Two edits to two files: the link leaves one and joins the other.
       tabsCollection.delete(id)
-      tabsCollection.insert({
-        id: `${target}\n${tab.url}`,
-        space: target,
-        url: tab.url,
-        title: tab.title,
-        line: 0,
-        pinned: false,
-      })
+      void addLink(target, tab.url, tab.title)
       log(`tab → ${target}`)
     },
     [log],
