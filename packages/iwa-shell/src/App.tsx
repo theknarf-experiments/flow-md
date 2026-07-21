@@ -49,6 +49,7 @@ import {
   useContextMenu,
   useReorder,
 } from '@flow-md/ui'
+import type { Hotkey } from '@tanstack/hotkeys'
 import {
   formatForDisplay,
   getHotkeyManager,
@@ -84,6 +85,7 @@ import {
   lastClosed,
   record,
 } from './lib/db.js'
+import { type Keymap, useKeymap } from './lib/keymap.js'
 import { type Status, vault } from './lib/vault.js'
 
 const HOME = 'http://localhost:4748/'
@@ -91,6 +93,53 @@ const HOME = 'http://localhost:4748/'
  *  lights, which a frameless window draws over the top-left of our content.
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
+type BindOpts = { enabled?: boolean; meta?: { name?: string; category?: string; hidden?: boolean } }
+
+/** Register a chord, resolved through the keymap: the file's rebind if there
+ *  is one, otherwise the default written at the call site; disabled if the
+ *  default was unmapped. The action id rides along in meta so the sheet and
+ *  the guest claim-list can find it.
+ *
+ *  A cross-kind remap — a chord rebound to a sequence like `gg`, or the other
+ *  way — can't move between the two hooks, so it's honoured only within its
+ *  kind. That's the one gap; chord→chord and seq→seq cover the rest. */
+function bindKey(
+  keymap: Keymap,
+  action: string,
+  defaultChord: string,
+  handler: () => void,
+  opts: BindOpts = {},
+): void {
+  const override = keymap.overrides[action]
+  // A sequence override (has a space) can't be honoured by useHotkey; ignore
+  // it here so bindSeq can pick it up instead, and keep the default meanwhile.
+  const chord = override && !override.includes(' ') ? override : defaultChord
+  const disabled = keymap.unmapped.has(defaultChord)
+  useHotkey(chord as Hotkey, handler, {
+    ...opts,
+    enabled: (opts.enabled ?? true) && !disabled,
+    meta: { ...opts.meta, action },
+  })
+}
+
+/** The sequence twin of bindKey. */
+function bindSeq(
+  keymap: Keymap,
+  action: string,
+  defaultSteps: string[],
+  handler: () => void,
+  opts: BindOpts = {},
+): void {
+  const override = keymap.overrides[action]
+  const steps = override && override.includes(' ') ? override.split(' ') : defaultSteps
+  const disabled = keymap.unmapped.has(defaultSteps.join(' '))
+  useHotkeySequence(steps as Hotkey[], handler, {
+    ...opts,
+    enabled: (opts.enabled ?? true) && !disabled,
+    meta: { ...opts.meta, action },
+  })
+}
+
 declare module '@tanstack/hotkeys' {
   interface HotkeyMeta {
     /** Groups the binding in the shortcut sheet. */
@@ -98,6 +147,8 @@ declare module '@tanstack/hotkeys' {
     /** Bound and claimed like any other, but not listed on its own — for the
      *  members of a range the sheet describes in one line. */
     hidden?: boolean
+    /** The keys.vim action id this binding answers to. */
+    action?: string
   }
 }
 
@@ -585,62 +636,71 @@ export function App() {
   )
 
   /** Chords the shell owns. Every named one works inside a page too: guests
-   *  are handed this table at adopt time and post the claimed keys back. */
+   *  are handed this table at adopt time and post the claimed keys back.
+   *
+   *  Each binding carries an action id — the same id keys.vim uses on the
+   *  right of a `map`. bindKey/bindSeq resolve the id against the loaded
+   *  keymap: a rebound action takes the file's key, an unmapped default is
+   *  turned off, and an untouched one keeps the chord written here. */
+  const keymap = useKeymap()
   const vim = (name: string) => ({ enabled: !command.open, meta: { name, category: 'Page' } })
   const tabs_ = (name: string) => ({ meta: { name, category: 'Tabs & spaces' } })
   const win = (name: string) => ({ meta: { name, category: 'Window' } })
-  // Named so guests claim it, hidden so the sheet says "⌘1–9" only once.
   const nth = (n: number) => ({
     meta: { name: `Jump to tab ${n}`, category: 'Tabs & spaces', hidden: true },
   })
 
-  useHotkey('Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
-  useHotkey(
+  bindKey(keymap, 'new-tab', 'Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
+  bindKey(
+    keymap,
+    'edit-address',
     'Mod+L',
     () => setCommand({ open: true, value: active?.url ?? '', newTab: false }),
     win('Edit address'),
   )
-  useHotkey('Mod+S', () => setSidebar((v) => !v), win('Show or hide the sidebar'))
-  useHotkey(
+  bindKey(keymap, 'toggle-sidebar', 'Mod+S', () => setSidebar((v) => !v), win('Show or hide the sidebar'))
+  bindKey(
+    keymap,
+    'close-tab',
     'Mod+W',
     () => {
       if (activeId !== null) closeTab(activeId)
     },
     tabs_('Close tab'),
   )
-  useHotkey('Mod+,', () => setSettings(true), win('Settings'))
+  bindKey(keymap, 'settings', 'Mod+,', () => setSettings(true), win('Settings'))
   useHotkey('Escape', () => setCommand((c) => ({ ...c, open: false })))
 
   // ⌘R belongs to the page, not the window — reloading the shell would throw
   // away every guest to refresh one of them. preventDefault (on by default)
   // is what stops the window from reloading underneath us.
-  useHotkey('Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
-  useHotkey('Control+J', () => stepTab(1), tabs_('Next tab'))
-  useHotkey('Control+K', () => stepTab(-1), tabs_('Previous tab'))
-  useHotkey('Control+H', () => stepSpace(-1), tabs_('Space to the left'))
-  useHotkey('Control+L', () => stepSpace(1), tabs_('Space to the right'))
+  bindKey(keymap, 'reload-tab', 'Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
+  bindKey(keymap, 'next-tab', 'Control+J', () => stepTab(1), tabs_('Next tab'))
+  bindKey(keymap, 'prev-tab', 'Control+K', () => stepTab(-1), tabs_('Previous tab'))
+  bindKey(keymap, 'space-left', 'Control+H', () => stepSpace(-1), tabs_('Space to the left'))
+  bindKey(keymap, 'space-right', 'Control+L', () => stepSpace(1), tabs_('Space to the right'))
 
-  useHotkey('J', () => activeFrame?.scrollBy(120), vim('Scroll down'))
-  useHotkey('K', () => activeFrame?.scrollBy(-120), vim('Scroll up'))
-  useHotkey('Shift+G', () => activeFrame?.scrollToEdge('end'), vim('Jump to the end'))
-  useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim('Jump to the top'))
-  useHotkey('Shift+H', () => activeFrame?.back(), vim('Back'))
-  useHotkey('Shift+L', () => activeFrame?.forward(), vim('Forward'))
-  useHotkey('Mod+Shift+T', () => void reopenLast(), tabs_('Reopen the last closed tab'))
+  bindKey(keymap, 'scroll-down', 'J', () => activeFrame?.scrollBy(120), vim('Scroll down'))
+  bindKey(keymap, 'scroll-up', 'K', () => activeFrame?.scrollBy(-120), vim('Scroll up'))
+  bindKey(keymap, 'scroll-bottom', 'Shift+G', () => activeFrame?.scrollToEdge('end'), vim('Jump to the end'))
+  bindSeq(keymap, 'scroll-top', ['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim('Jump to the top'))
+  bindKey(keymap, 'history-back', 'Shift+H', () => activeFrame?.back(), vim('Back'))
+  bindKey(keymap, 'history-forward', 'Shift+L', () => activeFrame?.forward(), vim('Forward'))
+  bindKey(keymap, 'reopen-tab', 'Mod+Shift+T', () => void reopenLast(), tabs_('Reopen the last closed tab'))
   // Nine registrations rather than a loop: hooks can't be called in one, and
   // the manager wants a literal chord per binding anyway. Only ⌘1 carries a
   // name, so the shortcuts sheet lists the range once instead of nine times.
-  useHotkey('Mod+1', () => jumpToTab(1), tabs_('Jump to tab 1–9 (9 is the last)'))
-  useHotkey('Mod+2', () => jumpToTab(2), nth(2))
-  useHotkey('Mod+3', () => jumpToTab(3), nth(3))
-  useHotkey('Mod+4', () => jumpToTab(4), nth(4))
-  useHotkey('Mod+5', () => jumpToTab(5), nth(5))
-  useHotkey('Mod+6', () => jumpToTab(6), nth(6))
-  useHotkey('Mod+7', () => jumpToTab(7), nth(7))
-  useHotkey('Mod+8', () => jumpToTab(8), nth(8))
-  useHotkey('Mod+9', () => jumpToTab(9), nth(9))
-  useHotkey('F', () => void activeFrame?.hint(false), vim('Hint a link'))
-  useHotkey('Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
+  bindKey(keymap, 'jump-tab-1', 'Mod+1', () => jumpToTab(1), tabs_('Jump to tab 1–9 (9 is the last)'))
+  bindKey(keymap, 'jump-tab-2', 'Mod+2', () => jumpToTab(2), nth(2))
+  bindKey(keymap, 'jump-tab-3', 'Mod+3', () => jumpToTab(3), nth(3))
+  bindKey(keymap, 'jump-tab-4', 'Mod+4', () => jumpToTab(4), nth(4))
+  bindKey(keymap, 'jump-tab-5', 'Mod+5', () => jumpToTab(5), nth(5))
+  bindKey(keymap, 'jump-tab-6', 'Mod+6', () => jumpToTab(6), nth(6))
+  bindKey(keymap, 'jump-tab-7', 'Mod+7', () => jumpToTab(7), nth(7))
+  bindKey(keymap, 'jump-tab-8', 'Mod+8', () => jumpToTab(8), nth(8))
+  bindKey(keymap, 'jump-tab-9', 'Mod+9', () => jumpToTab(9), nth(9))
+  bindKey(keymap, 'hint', 'F', () => void activeFrame?.hint(false), vim('Hint a link'))
+  bindKey(keymap, 'hint-new-tab', 'Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
 
   /** The cheatsheet reads the hotkey manager rather than a table written
    *  alongside it: a binding that changes, or one someone forgets to
