@@ -59,6 +59,27 @@ WikiLink(src, dst) :- Link(src, dst, "wiki").
 WikiLink(src, dst)
 ```
 
+## Links with their names
+
+`Link` is the bare edge — source, target, kind — which is what you want when
+you're treating the vault as a graph. What a link *says* lives in `LinkLabel`,
+alongside the line it sits on, so join the two when you want names:
+
+```datalog
+NamedLink(src, dst, text) :-
+  Link(src, dst, "md"), LinkLabel(src, dst, text, _).
+```
+
+```datalog-query
+NamedLink(src, dst, text)
+```
+
+Keeping them apart means `Link(src, dst, kind)` still reads as a graph, and a
+page linked twice under different names is two `LinkLabel` rows rather than a
+duplicated edge. `LinkLabel` is also the writable one: its line number pins an
+edit to one occurrence, which a bare `Link` can't do when the same URL appears
+more than once.
+
 ## Co-tagged pages
 
 Pairs of distinct pages that share a tag — a join of `Tag` with itself, using a

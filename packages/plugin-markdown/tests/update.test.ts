@@ -78,14 +78,17 @@ describe('updateMarkdownFact: Task', () => {
     expect(updated.split('\n')[9]).toBe('- [ ] buy oat milk')
   })
 
-  it('rejects a text edit on a formatted task', () => {
-    expect(() =>
-      updateMarkdownFact(
-        NOTE,
-        { rel: 'Task', row: ['n.md', 'open', 'bold task', 12] },
-        { rel: 'Task', row: ['n.md', 'open', 'other', 12] },
-      ),
-    ).toThrow(/does not round-trip/)
+  it('rewrites formatted task text, flattening the markup it replaces', () => {
+    // The fact's text is the *rendered* text, so writing a new one replaces
+    // the whole label — the `**bold**` goes with it. Editing rendered text
+    // can't preserve markup it doesn't describe.
+    const out = updateMarkdownFact(
+      NOTE,
+      { rel: 'Task', row: ['n.md', 'open', 'bold task', 12] },
+      { rel: 'Task', row: ['n.md', 'open', 'other', 12] },
+    )
+    expect(out).toContain('- [ ] other')
+    expect(out).not.toContain('**bold**')
   })
 
   it('rejects a stale status', () => {
@@ -95,7 +98,7 @@ describe('updateMarkdownFact: Task', () => {
         { rel: 'Task', row: ['n.md', 'closed', 'buy milk', 10] },
         { rel: 'Task', row: ['n.md', 'open', 'buy milk', 10] },
       ),
-    ).toThrow(/is "open", not "closed"/)
+    ).toThrow(/is not in the file/)
   })
 
   it('rejects a line that is not a task', () => {
@@ -105,7 +108,7 @@ describe('updateMarkdownFact: Task', () => {
         { rel: 'Task', row: ['n.md', 'open', 'buy milk', 8] },
         { rel: 'Task', row: ['n.md', 'closed', 'buy milk', 8] },
       ),
-    ).toThrow(/not a task-list item/)
+    ).toThrow(/is not in the file/)
   })
 
   it('rejects edits to non-writable columns', () => {
@@ -136,17 +139,28 @@ describe('updateMarkdownFact: Heading', () => {
         { rel: 'Heading', row: ['n.md', 2, 'Top heading', 6] },
         { rel: 'Heading', row: ['n.md', 2, 'New', 6] },
       ),
-    ).toThrow(/not a level-2 ATX heading/)
+    ).toThrow(/is not in the file/)
   })
 
-  it('rejects heading text that would change structure', () => {
+  it('rejects a value the file would read back differently', () => {
+    // No rule about what headings may contain — the check is that the file
+    // says the requested thing afterwards, and `[x](y)` reads back as "x".
     expect(() =>
       updateMarkdownFact(
         NOTE,
         { rel: 'Heading', row: ['n.md', 1, 'Top heading', 6] },
-        { rel: 'Heading', row: ['n.md', 1, '# nope', 6] },
+        { rel: 'Heading', row: ['n.md', 1, '[x](y)', 6] },
       ),
-    ).toThrow(/not start with "#"/)
+    ).toThrow(/doesn't round-trip/)
+  })
+
+  it('rewrites the level, which is just another span', () => {
+    const out = updateMarkdownFact(
+      NOTE,
+      { rel: 'Heading', row: ['n.md', 1, 'Top heading', 6] },
+      { rel: 'Heading', row: ['n.md', 3, 'Top heading', 6] },
+    )
+    expect(out).toContain('### Top heading')
   })
 })
 
@@ -183,14 +197,13 @@ describe('updateMarkdownFact: Frontmatter', () => {
     expect(updated.split('\n')[1]).toBe('title: "null"')
   })
 
-  it('rejects list values', () => {
-    expect(() =>
-      updateMarkdownFact(
-        NOTE,
-        { rel: 'Frontmatter', row: ['n.md', 'tags', 'a'] },
-        { rel: 'Frontmatter', row: ['n.md', 'tags', 'c'] },
-      ),
-    ).toThrow(/not a single-line scalar/)
+  it('rewrites one item of a list, leaving its siblings alone', () => {
+    const out = updateMarkdownFact(
+      NOTE,
+      { rel: 'Frontmatter', row: ['n.md', 'tags', 'a'] },
+      { rel: 'Frontmatter', row: ['n.md', 'tags', 'c'] },
+    )
+    expect(out).toContain('tags: [c, b]')
   })
 
   it('rejects a stale value', () => {
@@ -200,7 +213,7 @@ describe('updateMarkdownFact: Frontmatter', () => {
         { rel: 'Frontmatter', row: ['n.md', 'title', 'Old title'] },
         { rel: 'Frontmatter', row: ['n.md', 'title', 'New'] },
       ),
-    ).toThrow(/is "My note", not "Old title"/)
+    ).toThrow(/is not in the file/)
   })
 })
 
@@ -227,13 +240,22 @@ describe('deleteMarkdownFact', () => {
   it('rejects a stale status and non-task lines', () => {
     expect(() =>
       deleteMarkdownFact(NOTE, { rel: 'Task', row: ['n.md', 'closed', 'buy milk', 10] }),
-    ).toThrow(/is "open", not "closed"/)
+    ).toThrow(/is not in the file/)
     expect(() =>
       deleteMarkdownFact(NOTE, { rel: 'Task', row: ['n.md', 'open', 'x', 6] }),
-    ).toThrow(/not a task-list item/)
+    ).toThrow(/is not in the file/)
     expect(() =>
-      deleteMarkdownFact(NOTE, { rel: 'Heading', row: ['n.md', 1, 'Top heading', 6] }),
-    ).toThrow(/not deletable/)
+      deleteMarkdownFact(NOTE, { rel: 'File', row: ['n.md', 0] }),
+    ).toThrow(/not writable by the markdown plugin/)
+  })
+
+  it('removes a heading line', () => {
+    const out = deleteMarkdownFact(NOTE, {
+      rel: 'Heading',
+      row: ['n.md', 1, 'Top heading', 6],
+    })
+    expect(out).not.toContain('# Top heading')
+    expect(out).toContain('- [ ] buy milk')
   })
 })
 
@@ -307,13 +329,179 @@ describe('updateMarkdownFact: general', () => {
     for (const l of lines.slice(0, -1)) expect(l.endsWith('\r')).toBe(true)
   })
 
-  it('rejects unknown relations', () => {
+  it('rejects relations with no source of their own', () => {
+    // File is derived from the filesystem, not from anything written in the
+    // file, so there is nothing to rewrite.
     expect(() =>
       updateMarkdownFact(
         NOTE,
-        { rel: 'Tag', row: ['n.md', 'tag'] },
-        { rel: 'Tag', row: ['n.md', 'other'] },
+        { rel: 'File', row: ['n.md', 0] },
+        { rel: 'File', row: ['n.md', 1] },
       ),
     ).toThrow(/not writable by the markdown plugin/)
+  })
+
+  it('refuses an edit that could mean two places', () => {
+    // Link has no line column, so the same URL twice is genuinely two
+    // candidates. (LinkLabel does carry a line, which is why it's the one to
+    // write through when a page can appear twice.)
+    const dup = md('- [one](https://x)', '- [two](https://x)')
+    expect(() =>
+      updateMarkdownFact(
+        dup,
+        { rel: 'Link', row: ['n.md', 'https://x', 'md'] },
+        { rel: 'Link', row: ['n.md', 'https://y', 'md'] },
+      ),
+    ).toThrow(/appears 2 times/)
+  })
+})
+
+// A space file, in the shape the browser shell reads: frontmatter for the
+// space itself, links for its tabs.
+const SPACE = md(
+  '---',
+  'name: Research',
+  'emoji: 🔭',
+  'hue: 190',
+  'pinned:',
+  '  - https://tanstack.com/hotkeys',
+  '---',
+  '',
+  '- [Vim (text editor)](https://en.wikipedia.org/wiki/Vim)',
+  '- [Controlled Frame](https://wicg.github.io/controlled-frame/)',
+  '',
+)
+
+describe('LinkLabel', () => {
+  it('is parsed with its label and line', () => {
+    const facts = parseMarkdown('s.md', SPACE, 0).facts
+    expect(facts).toContainEqual({
+      rel: 'LinkLabel',
+      row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'Vim (text editor)', 9],
+    })
+    // Link keeps its old shape, so existing queries still work.
+    expect(facts).toContainEqual({
+      rel: 'Link',
+      row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'md'],
+    })
+  })
+
+  it('renames a link without touching its target', () => {
+    const out = updateMarkdownFact(
+      SPACE,
+      { rel: 'LinkLabel', row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'Vim (text editor)', 9] },
+      { rel: 'LinkLabel', row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'Vim', 9] },
+    )
+    expect(out).toContain('- [Vim](https://en.wikipedia.org/wiki/Vim)')
+  })
+
+  it('retargets a link without touching its name', () => {
+    const out = updateMarkdownFact(
+      SPACE,
+      { rel: 'LinkLabel', row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'Vim (text editor)', 9] },
+      { rel: 'LinkLabel', row: ['s.md', 'https://neovim.io/', 'Vim (text editor)', 9] },
+    )
+    expect(out).toContain('- [Vim (text editor)](https://neovim.io/)')
+  })
+
+  it('appends one, and removes one, line for line', () => {
+    const added = insertMarkdownFact(SPACE, {
+      rel: 'LinkLabel',
+      row: ['s.md', 'https://example.com/', 'Example', 0],
+    })
+    expect(added).toContain('- [Example](https://example.com/)')
+
+    const removed = deleteMarkdownFact(added, {
+      rel: 'LinkLabel',
+      row: ['s.md', 'https://example.com/', 'Example', 11],
+    })
+    expect(removed).not.toContain('example.com')
+    expect(removed).toContain('- [Controlled Frame](https://wicg.github.io/controlled-frame/)')
+  })
+
+  it('carries a wiki-link alias as the label', () => {
+    const facts = parseMarkdown('s.md', 'See [[Target|the target]].', 0).facts
+    expect(facts).toContainEqual({
+      rel: 'LinkLabel',
+      row: ['s.md', 'Target', 'the target', 1],
+    })
+  })
+})
+
+describe('Frontmatter: adding and removing entries', () => {
+  it('appends to a block list — what pinning a tab does', () => {
+    const out = insertMarkdownFact(SPACE, {
+      rel: 'Frontmatter',
+      row: ['s.md', 'pinned', 'https://example.com/'],
+    })
+    expect(out).toContain('  - https://tanstack.com/hotkeys\n  - https://example.com/')
+  })
+
+  it('adds a key that was not there', () => {
+    const out = insertMarkdownFact(SPACE, {
+      rel: 'Frontmatter',
+      row: ['s.md', 'icon', 'compass'],
+    })
+    expect(out).toContain('icon: compass')
+    expect(parseMarkdown('s.md', out, 0).facts).toContainEqual({
+      rel: 'Frontmatter',
+      row: ['s.md', 'icon', 'compass'],
+    })
+  })
+
+  it('turns a lone scalar into a list rather than replacing it', () => {
+    const out = insertMarkdownFact(SPACE, {
+      rel: 'Frontmatter',
+      row: ['s.md', 'name', 'Reading'],
+    })
+    expect(out).toContain('name:\n  - Research\n  - Reading')
+  })
+
+  it('removes a list item without disturbing the rest', () => {
+    const out = deleteMarkdownFact(SPACE, {
+      rel: 'Frontmatter',
+      row: ['s.md', 'pinned', 'https://tanstack.com/hotkeys'],
+    })
+    expect(out).not.toContain('tanstack')
+    expect(out).toContain('name: Research')
+  })
+
+  it('removes a whole key, taking its name with it', () => {
+    const out = deleteMarkdownFact(SPACE, {
+      rel: 'Frontmatter',
+      row: ['s.md', 'emoji', '🔭'],
+    })
+    expect(out).not.toContain('emoji')
+    expect(out).toContain('hue: 190')
+  })
+})
+
+describe('the other relations write too', () => {
+  it('rewrites a code fence language', () => {
+    const doc = md('```js', 'const a = 1', '```')
+    const out = updateMarkdownFact(
+      doc,
+      { rel: 'CodeBlock', row: ['n.md', 'js', 1] },
+      { rel: 'CodeBlock', row: ['n.md', 'ts', 1] },
+    )
+    expect(out.split('\n')[0]).toBe('```ts')
+  })
+
+  it('renames an inline tag', () => {
+    const out = updateMarkdownFact(
+      NOTE,
+      { rel: 'Tag', row: ['n.md', 'tag'] },
+      { rel: 'Tag', row: ['n.md', 'renamed'] },
+    )
+    expect(out).toContain('Some text with a #renamed.')
+  })
+
+  it('removes a link, leaving no empty line behind', () => {
+    const out = deleteMarkdownFact(SPACE, {
+      rel: 'Link',
+      row: ['s.md', 'https://en.wikipedia.org/wiki/Vim', 'md'],
+    })
+    expect(out).not.toContain('wikipedia')
+    expect(out.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1)
   })
 })

@@ -3,35 +3,126 @@
 // resolves a query-row edit down to (oldFact, newFact) and hands us the file
 // content; we splice the change into the source text.
 //
-// Writable columns and their strategies:
-//   Task.status        toggle the GFM checkbox char on the fact's line
-//   Task.text          replace the line's tail — only when the raw tail
-//                      equals the fact text (formatted or multi-line task
-//                      text differs from its mdToString form, so those stay
-//                      read-only rather than risk mangling markup)
-//   Heading.text       same raw-equality rule, on the ATX heading line
-//   Frontmatter.value  rewrite a single-line scalar `key: value` entry;
-//                      lists, maps and block scalars are read-only
+// There is deliberately no per-relation rewriting logic here. The parser
+// records where every cell was read from (see parse.ts), so an update is:
+// find the fact, splice the spans of the columns that changed. A delete is:
+// splice the fact's removable range. Adding a relation to the writable set is
+// a matter of the parser recording spans for it and an entry in SYNTAX below,
+// not a new function.
 //
-// Every handler structurally verifies the target line still matches the old
-// fact and throws a human-readable error otherwise. The caller (the vault)
-// additionally reparses the content to confirm the old fact is derivable, so
-// these checks are belt-and-braces against stale rows.
+// Only inserts need per-relation syntax, because rendering *new* source can't
+// be derived from spans that don't exist yet. Those are one-line templates,
+// with frontmatter the single exception: YAML has its own structure, and
+// placing a key inside a block is not "a line in the body".
+//
+// Every write reparses the file first and requires the old fact to be
+// derivable from exactly one place. A fact that appears twice is ambiguous and
+// refused rather than guessed at.
 
-import type { Cell, Fact, WritableRel } from '@flow-md/plugin-api'
+import type { Cell, EdbDef, Fact, WritableRel } from '@flow-md/plugin-api'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+import { parseAnnotated, type Provenance, type Span } from './parse.js'
+import { MARKDOWN_SCHEMA } from './schema.js'
 
-export const MARKDOWN_WRITABLE: WritableRel[] = [
-  {
-    rel: 'Task',
+/** How a value is written into a span. Omitted means "the value verbatim". */
+type Encode = (value: Cell) => string
+
+interface RelSyntax {
+  /** Columns that may be rewritten, by name. A column still needs a span at
+   *  write time — `# heading` has one, a heading inside a table cell may not. */
+  cols: string[]
+  /** Non-verbatim encodings, by column name. */
+  encode?: Record<string, Encode>
+  /** Renders a new fact as a line of markdown; presence enables insert. */
+  render?: (row: Cell[]) => string
+  /** Custom placement, for facts that don't live in the document body. */
+  insert?: (content: string, row: Cell[]) => string
+  deletable?: boolean
+  /** Which column holds the vault-relative path (required for insert). */
+  pathAttr?: string
+}
+
+const CHECKBOX: Record<string, string> = { open: ' ', closed: 'x' }
+
+function checkbox(status: Cell | undefined): string {
+  const mark = CHECKBOX[String(status)]
+  if (mark === undefined) throw new Error('Task status must be "open" or "closed"')
+  return mark
+}
+
+const SYNTAX: Record<string, RelSyntax> = {
+  Task: {
     cols: ['status', 'text'],
-    canDelete: true,
-    canInsert: true,
+    encode: {
+      status: checkbox,
+    },
+    render: ([, status, text]) => `- [${checkbox(status)}] ${literal(text, 'Task text')}`,
+    deletable: true,
     pathAttr: 'path',
   },
-  { rel: 'Heading', cols: ['text'] },
-  { rel: 'Frontmatter', cols: ['value'] },
-]
+  Heading: {
+    // Level is as writable as text: the span is the run of #s.
+    cols: ['level', 'text'],
+    encode: { level: (v) => '#'.repeat(clampLevel(v)) },
+    render: ([, level, text]) => `${'#'.repeat(clampLevel(level))} ${literal(text, 'Heading text')}`,
+    deletable: true,
+    pathAttr: 'path',
+  },
+  Link: {
+    cols: ['dst'],
+    render: ([, dst, kind]) => (kind === 'wiki' ? `- [[${dst}]]` : `- [${dst}](${dst})`),
+    deletable: true,
+    pathAttr: 'src',
+  },
+  LinkLabel: {
+    cols: ['dst', 'text'],
+    render: ([, dst, text]) => `- [${text}](${dst})`,
+    deletable: true,
+    pathAttr: 'src',
+  },
+  Tag: {
+    cols: ['tag'],
+    render: ([, tag]) => `#${tag}`,
+    deletable: true,
+    pathAttr: 'path',
+  },
+  CodeBlock: {
+    cols: ['lang'],
+    render: ([, lang]) => `\`\`\`${lang}\n\`\`\``,
+    deletable: true,
+    pathAttr: 'path',
+  },
+  Frontmatter: {
+    cols: ['value'],
+    encode: { value: (v) => renderScalar(String(v)) },
+    insert: (content, [, key, value]) => insertFrontmatter(content, String(key), String(value)),
+    deletable: true,
+    pathAttr: 'path',
+  },
+  FrontmatterNumber: {
+    cols: ['num'],
+    encode: { num: (v) => renderScalar(String(v)) },
+    insert: (content, [, key, num]) => insertFrontmatter(content, String(key), String(num)),
+    deletable: true,
+    pathAttr: 'path',
+  },
+}
+
+/** Column names per relation, from the schema — so `cols` above can't name a
+ *  column that doesn't exist, and indices never drift from the EDB. */
+const ATTRS: Record<string, string[]> = Object.fromEntries(
+  MARKDOWN_SCHEMA.map((def: EdbDef) => [def.name, def.attrs.map(([name]) => name)]),
+)
+
+export const MARKDOWN_WRITABLE: WritableRel[] = Object.entries(SYNTAX).map(
+  ([rel, syntax]) => ({
+    rel,
+    cols: syntax.cols,
+    canDelete: syntax.deletable ?? false,
+    canInsert: !!(syntax.render || syntax.insert),
+    ...(syntax.pathAttr ? { pathAttr: syntax.pathAttr } : {}),
+  }),
+)
 
 export function updateMarkdownFact(
   content: string,
@@ -41,201 +132,171 @@ export function updateMarkdownFact(
   if (oldFact.rel !== newFact.rel || oldFact.row.length !== newFact.row.length) {
     throw new Error('old and new fact must belong to the same relation')
   }
-  switch (oldFact.rel) {
-    case 'Task':
-      return updateTask(content, oldFact.row, newFact.row)
-    case 'Heading':
-      return updateHeading(content, oldFact.row, newFact.row)
-    case 'Frontmatter':
-      return updateFrontmatter(content, oldFact.row, newFact.row)
-    default:
-      throw new Error(
-        `relation "${oldFact.rel}" is not writable by the markdown plugin`,
-      )
-  }
-}
+  const syntax = syntaxFor(oldFact.rel)
+  const attrs = ATTRS[oldFact.rel] ?? []
+  const prov = locate(content, oldFact)
 
-// --- Task -------------------------------------------------------------------
-
-// `- [ ] text` / `1. [x] text`, capturing prefix, checkbox char, separator,
-// tail and optional CR so a rewrite preserves everything else byte-for-byte.
-const TASK_LINE = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\]\s+)(.*?)(\r?)$/
-
-function updateTask(content: string, oldRow: Cell[], newRow: Cell[]): string {
-  const diffs = changedColumns(oldRow, newRow, ['path', 'status', 'text', 'line'])
-  assertOnly(diffs, ['status', 'text'], 'Task')
-  const [, oldStatus, oldText, line] = oldRow
-
-  const { lines, idx, cur } = lineAt(content, line)
-  const m = cur.match(TASK_LINE)
-  if (!m) throw new Error(`line ${line} is not a task-list item`)
-  const curStatus = m[2] === ' ' ? 'open' : 'closed'
-  if (curStatus !== oldStatus) {
-    throw new Error(`task on line ${line} is "${curStatus}", not "${oldStatus}"`)
-  }
-
-  let mark = m[2]!
-  let tail = m[4]!
-  if (diffs.includes('status')) {
-    const next = newRow[1]
-    if (next !== 'open' && next !== 'closed') {
-      throw new Error('Task status must be "open" or "closed"')
+  // Highest offset first: splicing from the end keeps the earlier spans valid.
+  const edits: Array<{ span: Span; text: string }> = []
+  for (let i = 0; i < oldFact.row.length; i++) {
+    if (oldFact.row[i] === newFact.row[i]) continue
+    const name = attrs[i] ?? `#${i}`
+    if (!syntax.cols.includes(name)) {
+      throw new Error(`column "${name}" of ${oldFact.rel} is not writable`)
     }
-    mark = next === 'open' ? ' ' : 'x'
-  }
-  if (diffs.includes('text')) {
-    if (tail.trim() !== String(oldText)) {
+    const span = prov.cols[i]
+    if (!span) {
       throw new Error(
-        `task text on line ${line} does not round-trip (formatted or ` +
-          'multi-line task text is read-only)',
+        `${oldFact.rel}.${name} can't be located in the source here — this ` +
+          'occurrence is derived rather than written literally',
       )
     }
-    tail = singleLine(newRow[2], 'Task text')
+    const encode = syntax.encode?.[name]
+    edits.push({ span, text: encode ? encode(newFact.row[i]!) : literal(newFact.row[i], name) })
   }
-  lines[idx] = m[1]! + mark + m[3]! + tail + m[5]!
-  return lines.join('\n')
+  if (edits.length === 0) return content
+
+  let out = content
+  for (const edit of edits.sort((a, b) => b.span[0] - a.span[0])) {
+    out = out.slice(0, edit.span[0]) + edit.text + out.slice(edit.span[1])
+  }
+  return verify(out, newFact, 'produce')
 }
 
-/** Delete a Task: drop the fact's line after verifying it's the right task.
- *  Nested sub-items (more-indented task lines directly below) go with it —
- *  leaving them behind would silently reparent them. */
+/** Remove the source behind a fact: the list item, the heading line, the
+ *  frontmatter entry. A line left blank by the removal goes too — otherwise
+ *  deleting the only link in a paragraph leaves an empty paragraph behind. */
 export function deleteMarkdownFact(content: string, fact: Fact): string {
-  if (fact.rel !== 'Task') {
+  const syntax = syntaxFor(fact.rel)
+  if (!syntax.deletable) {
     throw new Error(`relation "${fact.rel}" is not deletable by the markdown plugin`)
   }
-  const [, status, , line] = fact.row
-  const { lines, idx, cur } = lineAt(content, line)
-  const m = cur.match(TASK_LINE)
-  if (!m) throw new Error(`line ${line} is not a task-list item`)
-  const curStatus = m[2] === ' ' ? 'open' : 'closed'
-  if (curStatus !== status) {
-    throw new Error(`task on line ${line} is "${curStatus}", not "${status}"`)
+  const prov = locate(content, fact)
+  if (!prov.del) {
+    throw new Error(`${fact.rel} has no removable source text here`)
   }
-  const indent = indentOf(cur)
-  let end = idx + 1
-  while (end < lines.length && lines[end]!.trim() && indentOf(lines[end]!) > indent) {
-    end++
-  }
-  lines.splice(idx, end - idx)
-  return lines.join('\n')
+  const [start, end] = prov.del
+  const spliced = content.slice(0, start) + content.slice(end)
+  // Entries that took their own newline with them (frontmatter) are done.
+  const out = content[end - 1] === '\n' ? spliced : dropBlankLineAt(spliced, start)
+  return verify(out, fact, 'remove')
 }
 
-/** Insert a Task. `line` > 0 inserts before that 1-based line; `line` 0
- *  appends at the end of the file. */
+/** Add source deriving a fact. Locator columns the caller can't know yet
+ *  (line numbers) arrive as 0, so `line` > 0 inserts before that 1-based
+ *  line and 0 appends. */
 export function insertMarkdownFact(content: string, fact: Fact): string {
-  if (fact.rel !== 'Task') {
+  const syntax = syntaxFor(fact.rel)
+  if (syntax.insert) return verify(syntax.insert(content, fact.row), fact, 'produce')
+  if (!syntax.render) {
     throw new Error(`relation "${fact.rel}" is not insertable by the markdown plugin`)
   }
-  const [, status, text, line] = fact.row
-  if (status !== 'open' && status !== 'closed') {
-    throw new Error('Task status must be "open" or "closed"')
-  }
-  const item = `- [${status === 'open' ? ' ' : 'x'}] ${singleLine(text, 'Task text')}`
+  const rendered = syntax.render(fact.row)
+  const attrs = ATTRS[fact.rel] ?? []
+  const lineIdx = attrs.indexOf('line')
+  const at = lineIdx >= 0 ? Number(fact.row[lineIdx] ?? 0) : 0
+
   const lines = content.split('\n')
-  const at = Number(line ?? 0)
   if (at > 0) {
     if (!Number.isInteger(at) || at > lines.length + 1) {
-      throw new Error(`line ${line} is out of range`)
+      throw new Error(`line ${at} is out of range`)
     }
-    lines.splice(at - 1, 0, item)
+    lines.splice(at - 1, 0, rendered)
     return lines.join('\n')
   }
   // Append: before the trailing newline if the file ends with one.
-  if (lines[lines.length - 1] === '') {
-    lines.splice(lines.length - 1, 0, item)
-  } else {
-    lines.push(item)
-  }
-  return lines.join('\n')
+  if (lines[lines.length - 1] === '') lines.splice(lines.length - 1, 0, rendered)
+  else lines.push(rendered)
+  return verify(lines.join('\n'), fact, 'produce')
 }
 
-function indentOf(line: string): number {
-  return line.length - line.trimStart().length
-}
-
-// --- Heading ----------------------------------------------------------------
-
-const HEADING_LINE = /^(#{1,6})(\s+)(.*?)(\s*)(\r?)$/
-
-function updateHeading(content: string, oldRow: Cell[], newRow: Cell[]): string {
-  const diffs = changedColumns(oldRow, newRow, ['path', 'level', 'text', 'line'])
-  assertOnly(diffs, ['text'], 'Heading')
-  const [, level, oldText, line] = oldRow
-
-  const { lines, idx, cur } = lineAt(content, line)
-  const m = cur.match(HEADING_LINE)
-  if (!m || m[1]!.length !== level) {
-    throw new Error(`line ${line} is not a level-${level} ATX heading`)
-  }
-  if (m[3] !== String(oldText)) {
+/** Reparse the rewritten file and check it says what the edit claimed.
+ *
+ *  This is the generic replacement for the per-relation guards the old code
+ *  carried — "heading text must not start with #", "task text must
+ *  round-trip", and every other rule about what a value may contain. Rather
+ *  than enumerate the ways markdown can reinterpret a value, write it and
+ *  check the fact comes back. A value that changes the structure is rejected
+ *  because the file no longer derives the fact that was asked for.
+ *
+ *  Locator columns the caller couldn't know (a line of 0 on insert) are
+ *  ignored when matching. */
+function verify(out: string, fact: Fact, mode: 'produce' | 'remove'): string {
+  const path = String(fact.row[0] ?? '')
+  const { facts } = parseAnnotated(path, out)
+  const attrs = ATTRS[fact.rel] ?? []
+  const found = facts.some(
+    (f) =>
+      f.rel === fact.rel &&
+      f.row.length === fact.row.length &&
+      f.row.every((cell, i) => {
+        const want = fact.row[i]
+        if (attrs[i] === 'line' && Number(want) === 0) return true
+        return String(cell) === String(want)
+      }),
+  )
+  if (mode === 'produce' && !found) {
     throw new Error(
-      `heading text on line ${line} does not round-trip (formatted headings ` +
-        'are read-only)',
+      `the edit doesn't round-trip: ${fact.rel}(${fact.row.join(', ')}) is not ` +
+        'what the file says afterwards — the value changes the markdown structure',
     )
   }
-  const text = singleLine(newRow[2], 'Heading text')
-  if (!text.trim() || text.trimStart().startsWith('#')) {
-    throw new Error('Heading text must be non-empty and not start with "#"')
+  if (mode === 'remove' && found) {
+    throw new Error(`${fact.rel}(${fact.row.join(', ')}) survived the deletion`)
   }
-  lines[idx] = m[1]! + m[2]! + text + m[4]! + m[5]!
-  return lines.join('\n')
+  return out
 }
 
-// --- Frontmatter ------------------------------------------------------------
+// --- locating ---------------------------------------------------------------
 
-function updateFrontmatter(
-  content: string,
-  oldRow: Cell[],
-  newRow: Cell[],
-): string {
-  const diffs = changedColumns(oldRow, newRow, ['path', 'key', 'value'])
-  assertOnly(diffs, ['value'], 'Frontmatter')
-  const [, key, oldValue] = oldRow
-
-  const lines = content.split('\n')
-  if (lines[0]?.trimEnd() !== '---') {
-    throw new Error('file has no frontmatter block')
+function syntaxFor(rel: string): RelSyntax {
+  const syntax = SYNTAX[rel]
+  if (!syntax) {
+    throw new Error(`relation "${rel}" is not writable by the markdown plugin`)
   }
-  const end = lines.findIndex((l, i) => i > 0 && l.trimEnd() === '---')
-  if (end < 0) throw new Error('unterminated frontmatter block')
-
-  const re = new RegExp(`^(${escapeRegExp(String(key))}:[ \\t]*)(.*?)(\\r?)$`)
-  for (let i = 1; i < end; i++) {
-    const m = lines[i]!.match(re)
-    if (!m) continue
-    const parsed = parseScalar(m[2]!)
-    if (parsed.kind !== 'scalar') {
-      throw new Error(
-        `frontmatter "${key}" is not a single-line scalar (lists, maps and ` +
-          'block values are read-only)',
-      )
-    }
-    if (parsed.text !== String(oldValue)) {
-      throw new Error(
-        `frontmatter "${key}" is "${parsed.text}", not "${oldValue}"`,
-      )
-    }
-    const value = singleLine(newRow[2], 'Frontmatter value')
-    lines[i] = m[1]! + renderScalar(value) + m[3]!
-    return lines.join('\n')
-  }
-  throw new Error(`frontmatter has no single-line "${key}" entry`)
+  return syntax
 }
 
-/** Parse one YAML flow value; classify whether it's a plain scalar. The
- *  scalar's fact form is String(value) — matching emitFrontmatter. */
-function parseScalar(
-  src: string,
-): { kind: 'scalar'; text: string } | { kind: 'other' } {
-  if (!src.trim()) return { kind: 'other' }
-  let v: unknown
-  try {
-    v = parseYaml(src)
-  } catch {
-    return { kind: 'other' }
+/** Find the one place a fact was read from. Two identical facts in one file
+ *  are a genuine ambiguity — rewriting either would be a guess — so this
+ *  refuses rather than picking the first. */
+function locate(content: string, fact: Fact): Provenance {
+  const path = String(fact.row[0] ?? '')
+  const { facts, prov } = parseAnnotated(path, content)
+  const hits: Provenance[] = []
+  for (let i = 0; i < facts.length; i++) {
+    const f = facts[i]!
+    if (f.rel !== fact.rel || f.row.length !== fact.row.length) continue
+    if (f.row.every((cell, j) => String(cell) === String(fact.row[j]))) hits.push(prov[i]!)
   }
-  if (v !== null && typeof v === 'object') return { kind: 'other' }
-  return { kind: 'scalar', text: v == null ? '' : String(v) }
+  if (hits.length === 0) {
+    throw new Error(`${fact.rel}(${fact.row.join(', ')}) is not in the file`)
+  }
+  if (hits.length > 1) {
+    throw new Error(
+      `${fact.rel}(${fact.row.join(', ')}) appears ${hits.length} times — ` +
+        "an edit can't be pinned to one of them",
+    )
+  }
+  return hits[0]!
+}
+
+// --- rendering --------------------------------------------------------------
+
+function literal(value: Cell | undefined, what: string): string {
+  const s = String(value ?? '')
+  if (s.includes('\n') || s.includes('\r')) {
+    throw new Error(`${what} cannot contain newlines`)
+  }
+  return s
+}
+
+function clampLevel(value: Cell | undefined): number {
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 1 || n > 6) {
+    throw new Error('Heading level must be 1–6')
+  }
+  return n
 }
 
 /** Render a new scalar value: plain when it YAML-round-trips to the same
@@ -252,49 +313,60 @@ function renderScalar(value: string): string {
   return stringifyYaml(value).trimEnd()
 }
 
-// --- shared helpers ---------------------------------------------------------
-
-function changedColumns(
-  oldRow: Cell[],
-  newRow: Cell[],
-  names: string[],
-): string[] {
-  const out: string[] = []
-  for (let i = 0; i < names.length; i++) {
-    if (oldRow[i] !== newRow[i]) out.push(names[i]!)
-  }
-  return out
-}
-
-function assertOnly(diffs: string[], allowed: string[], rel: string): void {
-  for (const d of diffs) {
-    if (!allowed.includes(d)) {
-      throw new Error(`column "${d}" of ${rel} is not writable`)
-    }
-  }
-}
-
-function lineAt(
-  content: string,
-  line: Cell | undefined,
-): { lines: string[]; idx: number; cur: string } {
+/** Add `key: value` to the frontmatter block, appending to the list when the
+ *  key already holds one — which is what "add a pinned tab" is. Creates the
+ *  block if the file has none. */
+function insertFrontmatter(content: string, key: string, value: string): string {
+  const scalar = renderScalar(value)
   const lines = content.split('\n')
-  const idx = Number(line) - 1
-  const cur = lines[idx]
-  if (!Number.isInteger(idx) || idx < 0 || cur === undefined) {
-    throw new Error(`line ${line} is out of range`)
+  if (lines[0]?.trimEnd() !== '---') {
+    return `---\n${key}: ${scalar}\n---\n${content}`
   }
-  return { lines, idx, cur }
+  const end = lines.findIndex((l, i) => i > 0 && l.trimEnd() === '---')
+  if (end < 0) throw new Error('unterminated frontmatter block')
+
+  const keyLine = lines.findIndex(
+    (l, i) => i > 0 && i < end && l.startsWith(`${key}:`),
+  )
+  if (keyLine < 0) {
+    lines.splice(end, 0, `${key}: ${scalar}`)
+    return lines.join('\n')
+  }
+
+  const rest = lines[keyLine]!.slice(key.length + 1).trim()
+  // `key:` followed by `- item` lines is a block list; append another item.
+  if (!rest || rest === '[]') {
+    let at = keyLine + 1
+    while (at < end && lines[at]!.trimStart().startsWith('-')) at++
+    const indent = lines[keyLine + 1]?.match(/^\s*/)?.[0] ?? '  '
+    lines.splice(at, 0, `${indent}- ${scalar}`)
+    if (rest === '[]') lines[keyLine] = `${key}:`
+    return lines.join('\n')
+  }
+  // A flow list stays a flow list.
+  if (rest.startsWith('[') && rest.endsWith(']')) {
+    const inner = rest.slice(1, -1).trim()
+    lines[keyLine] = `${key}: [${inner ? `${inner}, ` : ''}${scalar}]`
+    return lines.join('\n')
+  }
+  // A lone scalar becomes a two-item list rather than silently replacing.
+  lines[keyLine] = `${key}:`
+  lines.splice(keyLine + 1, 0, `  - ${rest}`, `  - ${scalar}`)
+  return lines.join('\n')
 }
 
-function singleLine(value: Cell | undefined, what: string): string {
-  const s = String(value ?? '')
-  if (s.includes('\n') || s.includes('\r')) {
-    throw new Error(`${what} cannot contain newlines`)
-  }
-  return s
-}
+/** A line holding nothing but its own bullet — what's left when the only
+ *  content of a list item is removed. */
+const EMPTY_ITEM = /^\s*(?:[-*+]|\d+[.)])\s*$/
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** Drop the line containing `at` if the deletion emptied it. */
+function dropBlankLineAt(content: string, at: number): string {
+  // lastIndexOf clamps a negative fromIndex to 0, which would find a newline
+  // sitting at offset 0 and put the line start after it.
+  const start = at === 0 ? 0 : content.lastIndexOf('\n', at - 1) + 1
+  const eol = content.indexOf('\n', at)
+  const end = eol < 0 ? content.length : eol
+  const line = content.slice(start, end)
+  if (line.trim() && !EMPTY_ITEM.test(line)) return content
+  return content.slice(0, start) + content.slice(eol < 0 ? content.length : eol + 1)
 }

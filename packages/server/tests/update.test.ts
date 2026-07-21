@@ -22,6 +22,26 @@ const TODO = md(
   '```',
 )
 
+/** A plugin that contributes a relation but no capabilities of its own —
+ *  the only way to test "no plugin can do this" now that markdown can do
+ *  everything to its own relations. */
+const notePlugin: Plugin = {
+  name: 'fake',
+  extensions: ['.fake'],
+  schema: [
+    {
+      name: 'Note',
+      attrs: [
+        ['title', 'string'],
+        ['file', 'string'],
+        ['stars', 'number'],
+      ],
+    },
+  ],
+  parse: () => ({ facts: [], rules: [], queries: [] }),
+  updateFact: (c) => c,
+}
+
 function vaultWith(content: string): Vault {
   const vault = new Vault(plugins)
   vault.setFile('todo.md', content, 1)
@@ -213,9 +233,16 @@ describe('Vault.resolveDelete / resolveInsert', () => {
   })
 
   it('rejects deletes of relations no plugin can delete', () => {
-    const vault = vaultWith(TODO)
+    // Every markdown relation is deletable, so this needs a plugin that
+    // declares a column writable without claiming the delete capability.
+    const vault = new Vault([
+      markdownPlugin,
+      { ...notePlugin, writable: [{ rel: 'Note', cols: ['title'] }] },
+    ])
+    vault.setFile('todo.md', TODO, 1)
+    vault.advance()
     expect(() =>
-      vault.resolveDelete({ rel: 'Heading', row: ['todo.md', 1, 'Todo', 1] }),
+      vault.resolveDelete({ rel: 'Note', row: ['a', 'todo.md', 1] }),
     ).toThrow(/cannot be deleted/)
   })
 
@@ -224,7 +251,13 @@ describe('Vault.resolveDelete / resolveInsert', () => {
     const ok = vault.resolveInsert('Task', ['todo.md', 'open', 'new item', 0])
     expect(ok.path).toBe('todo.md')
 
-    expect(() => vault.resolveInsert('Heading', ['todo.md', 1, 'x', 0])).toThrow(
+    const noInsert = new Vault([
+      markdownPlugin,
+      { ...notePlugin, writable: [{ rel: 'Note', cols: ['title'] }] },
+    ])
+    noInsert.setFile('todo.md', TODO, 1)
+    noInsert.advance()
+    expect(() => noInsert.resolveInsert('Note', ['a', 'todo.md', 1])).toThrow(
       /cannot be inserted/,
     )
     expect(() => vault.resolveInsert('Task', ['todo.md', 'open'])).toThrow(
@@ -237,22 +270,10 @@ describe('Vault.resolveDelete / resolveInsert', () => {
 })
 
 describe('writable declarations are validated at startup', () => {
-  /** A plugin skeleton that parses nothing; each test perturbs `writable`. */
+  /** The same skeleton, with every capability present; each test perturbs
+   *  `writable` or strips a method. */
   const base: Plugin = {
-    name: 'fake',
-    extensions: ['.fake'],
-    schema: [
-      {
-        name: 'Note',
-        attrs: [
-          ['title', 'string'],
-          ['file', 'string'],
-          ['stars', 'number'],
-        ],
-      },
-    ],
-    parse: () => ({ facts: [], rules: [], queries: [] }),
-    updateFact: (c) => c,
+    ...notePlugin,
     deleteFact: (c) => c,
     insertFact: (c) => c,
   }

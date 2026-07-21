@@ -8,8 +8,13 @@
 //   anything else     → a CodeBlock(path, lang, line) fact
 // Wiki-links ([[Target]]) and #tags are scraped from text nodes, so they
 // never pick up matches inside code spans or fenced blocks.
+//
+// Every fact is emitted with its *provenance*: the byte range each cell was
+// read from, and the range to remove if the fact is deleted. That's what
+// makes write-back generic — see update.ts, which splices spans rather than
+// pattern-matching each relation's syntax back out of the file.
 
-import type { Fact, ParseResult } from '@flow-md/plugin-api'
+import type { Cell, Fact, ParseResult } from '@flow-md/plugin-api'
 import type { Code, Heading, Link, ListItem, Root, Text, Yaml } from 'mdast'
 import { toString as mdToString } from 'mdast-util-to-string'
 import remarkFrontmatter from 'remark-frontmatter'
@@ -17,10 +22,32 @@ import remarkGfm from 'remark-gfm'
 import remarkMdx from 'remark-mdx'
 import remarkParse from 'remark-parse'
 import { unified } from 'unified'
-import { parse as parseYaml } from 'yaml'
+import { isMap, isScalar, isSeq, parseDocument, type Node as YamlNode } from 'yaml'
 
 export const RULE_LANG = 'datalog'
 export const QUERY_LANG = 'datalog-query'
+
+/** A half-open byte range into the file. */
+export type Span = readonly [start: number, end: number]
+
+export interface Provenance {
+  /** Where each cell was read from, or null when the cell isn't a literal
+   *  slice of the source (a path, an mtime, a line number). A cell with a
+   *  span is a cell that can be rewritten. */
+  cols: (Span | null)[]
+  /** What to remove when the fact is deleted — usually more than any single
+   *  cell: the whole list item, heading line or frontmatter entry. Null when
+   *  the fact has no removable source of its own. */
+  del: Span | null
+}
+
+/** Facts with their provenance, in emission order and *not* deduplicated: two
+ *  identical facts from different places are two rows here, which is how
+ *  update.ts detects that an edit can't be pinned to one of them. */
+export interface Annotated {
+  facts: Fact[]
+  prov: Provenance[]
+}
 
 const processor = unified()
   .use(remarkParse)
@@ -44,7 +71,7 @@ export function parseMarkdown(
   content: string,
   mtime: number,
 ): ParseResult {
-  return parseWith(processor, path, content, mtime)
+  return parseWith(processor, path, content, mtime).result
 }
 
 /** `.mdx` parsing: same facts, MDX syntax tolerated. Malformed JSX (which
@@ -56,10 +83,18 @@ export function parseMdx(
   mtime: number,
 ): ParseResult {
   try {
-    return parseWith(mdxProcessor, path, content, mtime)
+    return parseWith(mdxProcessor, path, content, mtime).result
   } catch {
     return { facts: [{ rel: 'File', row: [path, mtime] }], rules: [], queries: [] }
   }
+}
+
+/** The same parse, keeping provenance. Used by write-back, which needs to know
+ *  where each fact came from; `.mdx` is parsed with the MDX processor so the
+ *  spans line up with the file the caller is about to rewrite. */
+export function parseAnnotated(path: string, content: string): Annotated {
+  const proc = path.toLowerCase().endsWith('.mdx') ? mdxProcessor : processor
+  return parseWith(proc, path, content, 0).annotated
 }
 
 function parseWith(
@@ -67,28 +102,53 @@ function parseWith(
   path: string,
   content: string,
   mtime: number,
-): ParseResult {
+): { result: ParseResult; annotated: Annotated } {
   const tree = proc.parse(content) as Root
-  const facts: Fact[] = [{ rel: 'File', row: [path, mtime] }]
+  const facts: Fact[] = []
+  const prov: Provenance[] = []
   const rules: string[] = []
   const queries: ParseResult['queries'] = []
+
+  const emit = (rel: string, row: Cell[], p: Provenance) => {
+    facts.push({ rel, row })
+    prov.push(p)
+  }
+  /** No cell of this fact is a slice of the file. */
+  const none = (n: number): Provenance => ({ cols: Array(n).fill(null), del: null })
+
+  emit('File', [path, mtime], none(2))
 
   walk(tree, (node) => {
     switch (node.type) {
       case 'yaml':
-        emitFrontmatter(path, (node as Yaml).value, facts)
+        emitFrontmatter(path, node as Yaml, content, emit)
         break
       case 'heading': {
         const h = node as Heading
-        facts.push({
-          rel: 'Heading',
-          row: [path, h.depth, mdToString(h), lineOf(node)],
+        const whole = spanOf(node)
+        emit(
+          'Heading',
+          [path, h.depth, mdToString(h), lineOf(node)],
+          {
+            // The run of #s is the level, and the children are the text —
+            // both rewritable, which makes "promote this heading" an edit
+            // rather than a special case.
+            cols: [null, whole && [whole[0], whole[0] + h.depth], childSpan(h), null],
+            del: whole,
+          },
+        )
+        break
+      }
+      case 'link': {
+        const l = node as Link
+        const whole = spanOf(node)
+        emit('Link', [path, l.url, 'md'], { cols: [null, urlSpan(node, content), null], del: whole })
+        emit('LinkLabel', [path, l.url, mdToString(l), lineOf(node)], {
+          cols: [null, urlSpan(node, content), childSpan(l), null],
+          del: whole,
         })
         break
       }
-      case 'link':
-        facts.push({ rel: 'Link', row: [path, (node as Link).url, 'md'] })
-        break
       case 'listItem': {
         // A GFM task-list item (`- [ ]` / `- [x]`) carries a boolean `checked`;
         // plain list items have it null/undefined. Use the item's own leading
@@ -99,7 +159,12 @@ function parseWith(
           const para = li.children.find((c) => c.type === 'paragraph')
           const text = (para ? mdToString(para) : mdToString(li)).trim()
           const status = li.checked ? 'closed' : 'open'
-          facts.push({ rel: 'Task', row: [path, status, text, lineOf(node)] })
+          emit('Task', [path, status, text, lineOf(node)], {
+            cols: [null, checkboxSpan(node, content), childSpan(para as UNode), null],
+            // A list item's span already covers its nested children, so
+            // deleting it can't strand them at the wrong depth.
+            del: spanOf(node),
+          })
         }
         break
       }
@@ -111,30 +176,61 @@ function parseWith(
         } else if (lang === QUERY_LANG) {
           queries.push({ line: lineOf(node), source: c.value })
         } else {
-          facts.push({ rel: 'CodeBlock', row: [path, c.lang ?? '', lineOf(node)] })
+          emit('CodeBlock', [path, c.lang ?? '', lineOf(node)], {
+            cols: [null, infoSpan(node, content), null],
+            del: spanOf(node),
+          })
         }
         break
       }
       case 'text': {
-        const value = (node as Text).value
-        for (const m of value.matchAll(WIKILINK)) {
-          const target = (m[1] ?? '').split('|')[0]!.split('#')[0]!.trim()
-          if (target) facts.push({ rel: 'Link', row: [path, target, 'wiki'] })
+        const t = node as Text
+        const base = spanOf(node)?.[0] ?? 0
+        for (const m of t.value.matchAll(WIKILINK)) {
+          const inner = m[1] ?? ''
+          const target = inner.split('|')[0]!.split('#')[0]!.trim()
+          if (!target) continue
+          // `[[Target|alias]]` — the alias is what the reader sees, so it's
+          // the label; without one the target doubles as its own.
+          const alias = inner.includes('|') ? inner.slice(inner.indexOf('|') + 1).trim() : target
+          const at = base + m.index
+          const whole: Span = [at, at + m[0].length]
+          const targetAt = at + 2 + inner.indexOf(target)
+          emit('Link', [path, target, 'wiki'], {
+            cols: [null, [targetAt, targetAt + target.length], null],
+            del: whole,
+          })
+          emit('LinkLabel', [path, target, alias, lineAt(content, at)], {
+            cols: [null, [targetAt, targetAt + target.length], null, null],
+            del: whole,
+          })
         }
-        for (const m of value.matchAll(TAG)) {
-          facts.push({ rel: 'Tag', row: [path, m[1]!] })
+        for (const m of t.value.matchAll(TAG)) {
+          // The match includes the leading boundary; the tag itself starts
+          // after the "#".
+          const at = base + m.index + m[0].indexOf('#')
+          emit('Tag', [path, m[1]!], {
+            cols: [null, [at + 1, at + m[1]!.length + 1]],
+            del: [at, at + m[1]!.length + 1],
+          })
         }
         break
       }
     }
   })
 
-  return { facts: dedup(facts), rules, queries }
+  return {
+    result: { facts: dedup(facts), rules, queries },
+    annotated: { facts, prov },
+  }
 }
 
 interface UNode {
   type: string
-  position?: { start?: { line?: number } }
+  position?: {
+    start?: { line?: number; offset?: number }
+    end?: { offset?: number }
+  }
   children?: UNode[]
 }
 
@@ -147,32 +243,129 @@ function lineOf(node: UNode): number {
   return node.position?.start?.line ?? 0
 }
 
-function emitFrontmatter(path: string, yamlSrc: string, facts: Fact[]): void {
-  let data: unknown
+/** 1-based line containing a byte offset. */
+function lineAt(content: string, offset: number): number {
+  let line = 1
+  for (let i = 0; i < offset && i < content.length; i++) {
+    if (content[i] === '\n') line++
+  }
+  return line
+}
+
+function spanOf(node: UNode | undefined): Span | null {
+  const start = node?.position?.start?.offset
+  const end = node?.position?.end?.offset
+  return typeof start === 'number' && typeof end === 'number' ? [start, end] : null
+}
+
+/** The range covering a node's children — the text of a heading, the label of
+ *  a link — as opposed to the syntax around them. */
+function childSpan(node: UNode | undefined): Span | null {
+  const kids = node?.children
+  if (!kids?.length) return null
+  const first = spanOf(kids[0])
+  const last = spanOf(kids[kids.length - 1])
+  return first && last ? [first[0], last[1]] : null
+}
+
+/** The URL inside `[label](url)`, found by walking back from the node's end
+ *  rather than re-parsing: everything after the last `](` is the destination
+ *  (plus an optional title, which stays put). */
+function urlSpan(node: UNode, content: string): Span | null {
+  const whole = spanOf(node)
+  if (!whole) return null
+  const raw = content.slice(whole[0], whole[1])
+  const open = raw.lastIndexOf('](')
+  if (open < 0) return null
+  const start = whole[0] + open + 2
+  let end = whole[1] - 1
+  // A title (`](url "title")`) sits between the URL and the closing paren.
+  const title = content.slice(start, end).search(/\s+["'(]/)
+  if (title >= 0) end = start + title
+  return [start, end]
+}
+
+/** The single character between the brackets of a GFM checkbox. */
+function checkboxSpan(node: UNode, content: string): Span | null {
+  const whole = spanOf(node)
+  if (!whole) return null
+  const at = content.indexOf('[', whole[0])
+  return at >= 0 && at < whole[1] ? [at + 1, at + 2] : null
+}
+
+/** The info string on a fenced code block's opening line. */
+function infoSpan(node: UNode, content: string): Span | null {
+  const whole = spanOf(node)
+  if (!whole) return null
+  const eol = content.indexOf('\n', whole[0])
+  const line = content.slice(whole[0], eol < 0 ? whole[1] : eol)
+  const fence = line.match(/^\s*(`{3,}|~{3,})/)
+  if (!fence) return null
+  const start = whole[0] + fence[0].length
+  return [start, whole[0] + line.length]
+}
+
+/** Frontmatter facts come from the YAML document, so their spans come from
+ *  the YAML parser's own ranges — offset by where the block starts in the
+ *  file. That keeps `key: value`, list items and quoting exactly as written
+ *  instead of restringifying the block on every edit. */
+function emitFrontmatter(
+  path: string,
+  node: Yaml,
+  content: string,
+  emit: (rel: string, row: Cell[], p: Provenance) => void,
+): void {
+  const block = spanOf(node as UNode)
+  if (!block) return
+  // The node's span includes the `---` fences; the YAML itself is the value.
+  const base = content.indexOf(node.value, block[0])
+  if (base < 0) return
+
+  let doc: ReturnType<typeof parseDocument>
   try {
-    data = parseYaml(yamlSrc)
+    doc = parseDocument(node.value)
   } catch {
     return
   }
-  if (!data || typeof data !== 'object') return
-  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-    const items = Array.isArray(value) ? value : [value]
+  if (!isMap(doc.contents)) return
+
+  const shift = (r: YamlNode['range']): Span | null =>
+    r ? [base + r[0], base + r[1]] : null
+  /** The whole line an entry sits on, so deleting it doesn't leave a stub. */
+  const entryLine = (r: YamlNode['range']): Span | null => {
+    if (!r) return null
+    const start = content.lastIndexOf('\n', base + r[0]) + 1
+    const eol = content.indexOf('\n', base + r[1])
+    return [start, eol < 0 ? content.length : eol + 1]
+  }
+
+  for (const pair of doc.contents.items) {
+    if (!isScalar(pair.key)) continue
+    const key = String(pair.key.value)
+    const value = pair.value
+    const items = isSeq(value) ? value.items : [value]
     for (const item of items) {
-      const s = item == null ? '' : String(item)
-      facts.push({ rel: 'Frontmatter', row: [path, key, s] })
+      if (!isScalar(item)) continue
+      const raw = item.value
+      const s = raw == null ? '' : String(raw)
+      const span = shift(item.range)
+      // A list item is deleted by the line; a lone `key: value` takes the
+      // key with it, so its removable range starts at the key.
+      const del = isSeq(value) ? entryLine(item.range) : entryLine(pair.key.range)
+      emit('Frontmatter', [path, key, s], { cols: [null, null, span], del })
       // Numeric values also get a typed fact so rules can compare/aggregate
       // them numerically (the string form sorts lexicographically).
-      if (typeof item === 'number' && Number.isFinite(item)) {
-        facts.push({ rel: 'FrontmatterNumber', row: [path, key, item] })
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        emit('FrontmatterNumber', [path, key, raw], { cols: [null, null, span], del })
       }
       if (key === 'tags' || key === 'tag') {
-        facts.push({ rel: 'Tag', row: [path, s] })
+        emit('Tag', [path, s], { cols: [null, span], del })
       }
     }
   }
 }
 
-const SEP = ''
+const SEP = ''
 
 function dedup(facts: Fact[]): Fact[] {
   const seen = new Set<string>()
