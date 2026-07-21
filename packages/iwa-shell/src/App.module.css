@@ -35,8 +35,10 @@
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.5rem 0.6rem 0.6rem;
-  /* Keep clear of the window controls in an app window. */
-  padding-top: max(env(titlebar-area-height, 2.1rem), 2.1rem);
+  /* Only reserve space when the window-controls overlay is actually active.
+     Chrome draws its own title bar otherwise, and env() is 0 — forcing a
+     minimum here just left a dead band under the title bar. */
+  padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
   color: rgba(255, 255, 255, 0.92);
   overflow: hidden;
   transition: width 220ms ease, padding 220ms ease, opacity 180ms ease;
@@ -212,7 +214,7 @@
   flex: 1;
   min-width: 0;
   padding: 0.5rem 0.5rem 0.5rem 0;
-  padding-top: max(env(titlebar-area-height, 2.1rem), 2.1rem);
+  padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
   transition: padding 220ms ease;
 }
 .shell:has(.sidebar.collapsed) .stage { padding-left: 0.5rem; }
