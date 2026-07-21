@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import styles from './SpaceRail.module.css'
 import { Tooltip } from './Tooltip.js'
 
@@ -21,14 +22,29 @@ export interface SpaceRailProps {
 /** The space switcher along the bottom of a sidebar: a centered row of dots,
  *  each showing its emoji if it has one. Deliberately not labelled — the
  *  current space is named in the header above, so repeating every name here
- *  would just crowd the rail as spaces are added. */
+ *  would just crowd the rail as spaces are added.
+ *
+ *  The indicator normally sits on the active space, but it will follow an
+ *  inherited `--space-position` if something upstream sets one — a fractional
+ *  index, so a swipe that's halfway between two spaces shows an indicator
+ *  halfway between their dots. See SwipeDeck's `onProgress`. */
 export function SpaceRail({ spaces, activeId, onSelect, onAddSpace }: SpaceRailProps) {
+  const activeIndex = Math.max(
+    0,
+    spaces.findIndex((s) => s.id === activeId),
+  )
   return (
-    <div className={styles.rail}>
+    <div
+      className={styles.rail}
+      // Live position if there is one, the settled space if not. Expressed as
+      // a fallback rather than a ref so nothing has to re-render per frame.
+      style={{ '--rail-position': `var(--space-position, ${activeIndex})` } as CSSProperties}
+    >
       {/* Grouped, so the dots can be centred in the rail independently of
           whatever sits beside them. */}
       <div className={styles.dots}>
-        {spaces.map((space) => {
+        <span className={styles.thumb} aria-hidden="true" />
+        {spaces.map((space, i) => {
           const active = space.id === activeId
           return (
             // Opens upward: the rail sits at the bottom of a sidebar, so a
@@ -36,7 +52,8 @@ export function SpaceRail({ spaces, activeId, onSelect, onAddSpace }: SpaceRailP
             <Tooltip key={space.id} label={space.title ?? space.name} placement="top">
               <button
                 type="button"
-                className={`${styles.space} ${active ? styles.active : ''}`}
+                className={styles.space}
+                style={{ '--index': i } as CSSProperties}
                 onClick={() => onSelect(space.id)}
                 aria-label={space.name}
                 aria-current={active ? 'true' : undefined}

@@ -102,6 +102,7 @@ export function App() {
   const [unframed, setUnframed] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
+  const shellRef = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
   const seq = useRef(0)
   /** Creating guests is an imperative side effect, and StrictMode invokes
@@ -365,6 +366,34 @@ export function App() {
     spaces.findIndex((s) => s.id === spaceId),
   )
 
+  /** The window's tint and the rail's indicator follow the swipe rather than
+   *  waiting for it to commit: drag halfway towards the next space and you're
+   *  halfway to its colour, with the indicator halfway between the two dots,
+   *  so you can see where you're going and back out of it.
+   *
+   *  Written straight to the DOM — this runs on every scroll frame, and these
+   *  are two custom properties, not state anything renders from. */
+  const follow = useCallback(
+    (position: number) => {
+      const from = spaces[Math.min(Math.floor(position), spaces.length - 1)]
+      const to = spaces[Math.min(Math.floor(position) + 1, spaces.length - 1)]
+      if (!from || !to) return
+      // Round the short way, so 350° to 10° passes through 0 rather than
+      // sweeping back through every other colour.
+      const delta = (((to.hue - from.hue + 540) % 360) - 180) * (position - Math.floor(position))
+      shellRef.current?.style.setProperty('--hue', String(from.hue + delta))
+      shellRef.current?.style.setProperty('--space-position', String(position))
+    },
+    [spaces],
+  )
+
+  // Switching space by any other route — the palette, a new space — still has
+  // to land on the right tint.
+  useEffect(() => {
+    shellRef.current?.style.setProperty('--hue', String(space.hue))
+    shellRef.current?.style.setProperty('--space-position', String(spaceIndex))
+  }, [space.hue, spaceIndex])
+
   const capture = async () => {
     if (!activeFrame) return
     setShowLog(true)
@@ -389,7 +418,7 @@ export function App() {
   )
 
   return (
-    <div className={styles.shell} style={{ ['--hue' as string]: space.hue }}>
+    <div className={styles.shell} ref={shellRef}>
       {!controlledFrame.available && (
         <Banner tone="error" floating>
           {`<controlledframe> unavailable — ${controlledFrame.detail} · run: mise run iwa`}
@@ -430,6 +459,7 @@ export function App() {
             const next = spaces[i]
             if (next) setSpaceId(next.id)
           }}
+          onProgress={follow}
           className={styles.deck}
         >
           {spaces.map((sp) => {

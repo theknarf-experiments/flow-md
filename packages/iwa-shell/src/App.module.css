@@ -1,5 +1,15 @@
 /* Arc-like chrome: a vertical sidebar over a per-space gradient, with the
-   page floating as a rounded card. --hue is set per space from JS. */
+   page floating as a rounded card. --hue is set from JS: on the settled
+   space, and continuously while a swipe is in flight. */
+
+/* Registered so it's a number rather than a token — an unregistered custom
+   property makes the gradient jump between values instead of sweeping
+   through them. */
+@property --hue {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 260;
+}
 
 .shell {
   display: flex;
@@ -11,7 +21,9 @@
       hsl(calc(var(--hue) + 30) 30% 24%) 55%,
       hsl(calc(var(--hue) + 50) 26% 17%) 100%
     );
-  transition: background 400ms ease;
+  /* No transition: the hue is driven from the deck's scroll position, so it's
+     already following the gesture frame by frame. A transition would only
+     make it lag behind the fingers. */
 }
 
 /* ---------------------------------------------------------------- sidebar */

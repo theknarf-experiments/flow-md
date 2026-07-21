@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
-import { useState } from 'react'
+import { type CSSProperties, useState } from 'react'
 import { AddressPill } from './AddressPill.js'
 import { SpaceRail } from './SpaceRail.js'
 
@@ -42,6 +42,25 @@ export const WithAddButton: Story = {
     onSelect: () => {},
     onAddSpace: () => {},
   },
+}
+
+/** Mid-swipe. Something upstream — SwipeDeck's `onProgress` — has set
+ *  `--space-position` to 1.5, so the indicator sits between the two dots and
+ *  both are half-lit. Nothing has been committed yet. */
+export const MidSwipe: Story = {
+  args: {
+    spaces: [
+      { id: 'vault', name: 'Vault', emoji: '📓' },
+      { id: 'web', name: 'Web', emoji: '🌐' },
+      { id: 'scratch', name: 'Scratch', emoji: '🧪' },
+    ],
+    activeId: 'vault',
+    onSelect: () => {},
+    onAddSpace: () => {},
+  },
+  decorators: [
+    (Story) => <div style={{ '--space-position': 1.5 } as CSSProperties}>{Story()}</div>,
+  ],
 }
 
 export const Interactive: Story = {

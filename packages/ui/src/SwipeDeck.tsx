@@ -6,6 +6,11 @@ export interface SwipeDeckProps {
   index: number
   /** Fired when a gesture settles on a different panel. */
   onIndexChange?: (index: number) => void
+  /** Fired continuously while the deck moves, with the fractional position —
+   *  1.5 means halfway between panels 1 and 2. For anything that should
+   *  follow the gesture rather than wait for it to commit, like tinting the
+   *  window to the space you're dragging towards. */
+  onProgress?: (position: number) => void
   /** One node per panel, in the same order as the deck's items. */
   children: ReactNode
   className?: string
@@ -27,7 +32,7 @@ export interface SwipeDeckProps {
  *  ends with no wrapping, and horizontal gestures over a vertically
  *  scrollable panel chaining out to here without hijacking the vertical
  *  scroll. */
-export function SwipeDeck({ index, onIndexChange, children, className }: SwipeDeckProps) {
+export function SwipeDeck({ index, onIndexChange, onProgress, children, className }: SwipeDeckProps) {
   const viewport = useRef<HTMLDivElement>(null)
   const panels = Array.isArray(children) ? children : [children]
 
@@ -40,6 +45,17 @@ export function SwipeDeck({ index, onIndexChange, children, className }: SwipeDe
     if (Math.abs(el.scrollLeft - target) < 1) return
     el.scrollTo({ left: target, behavior: 'smooth' })
   }, [index])
+
+  useEffect(() => {
+    const el = viewport.current
+    if (!el || !onProgress) return
+    const onScroll = () => {
+      if (el.clientWidth > 0) onProgress(el.scrollLeft / el.clientWidth)
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [onProgress])
 
   useEffect(() => {
     const el = viewport.current
