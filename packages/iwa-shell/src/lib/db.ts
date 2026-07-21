@@ -367,18 +367,52 @@ export async function moveLink(tab: Tab, before: Tab | null, depth?: number): Pr
   await tabsCollection.utils.refetch()
 }
 
-export async function addLink(space: string, url: string, title: string): Promise<void> {
-  // Line 0 means append; the reparse decides where it really goes.
-  await vault.insert('LinkLabel', [space, url, title, 0])
+export async function addLink(
+  space: string,
+  url: string,
+  title: string,
+  /** Where it belongs in the tree: the tab it came from, if it came from one.
+   *  A link opened out of a page is a child of the page that offered it. */
+  under?: Tab,
+): Promise<void> {
+  // A child goes after everything already under its parent, the way a browser
+  // opens one next to its siblings. Line 0 means append to the file.
+  const at = under ? subtreeEnd(under) + 1 : 0
+  await vault.insert('LinkLabel', [space, url, title, at])
   // Then name it, without waiting for the read that would find it anyway:
   // a tab that takes a poll to appear is a tab that looks broken.
+  const line = at || (await lastLineOf(space, url))
+  if (line === undefined) {
+    await tabsCollection.utils.refetch()
+    return
+  }
+  if (under) {
+    await vault.update(INDENT_QUERY, [space, line, 0], 'spaces', (under.depth + 1) * INDENT_STEP)
+  }
+  await nameLinks([[space, line]])
+}
+
+/** The last line belonging to a tab: itself, or its deepest last descendant.
+ *  The tree is indentation, so the subtree ends where the indent comes back. */
+function subtreeEnd(tab: Tab): number {
+  const after = tabsCollection.toArray
+    .filter((t) => t.space === tab.space && t.line > tab.line)
+    .sort((a, b) => a.line - b.line)
+  let end = tab.line
+  for (const t of after) {
+    if (t.depth <= tab.depth) break
+    end = t.line
+  }
+  return end
+}
+
+/** Where a just-appended link landed, asked of the file rather than assumed. */
+async function lastLineOf(space: string, url: string): Promise<number | undefined> {
   const written = await vault.run(TAB_QUERY)
-  const line = (written.rows as [string, ...unknown[]][])
+  return (written.rows as [string, ...unknown[]][])
     .filter((r) => r[0] === space && r[8] === url)
     .map((r) => Number(r[4]))
     .sort((a, b) => b - a)[0]
-  if (line !== undefined) await nameLinks([[space, line]])
-  else await tabsCollection.utils.refetch()
 }
 
 export const tabsCollection = createCollection(

@@ -241,7 +241,7 @@ export function insertMarkdownFact(content: string, fact: Fact): string {
       throw new Error(`line ${at} is out of range`)
     }
     lines.splice(at - 1, 0, rendered)
-    return lines.join('\n')
+    return verify(content, lines.join('\n'), fact, 'produce')
   }
   // Append: before the trailing newline if the file ends with one.
   if (lines[lines.length - 1] === '') lines.splice(lines.length - 1, 0, rendered)

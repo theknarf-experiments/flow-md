@@ -505,7 +505,14 @@ export class Vault {
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
-      return { error, columns: [], writable: [], rows: [] }
+      // The engine sees a rule, because a query is run as one. Whoever typed
+      // the query shouldn't have to know the name we wrapped it in.
+      return {
+        error: error.replace(/an atom in a rule for "FlowMdAdHoc"/, 'this query'),
+        columns: [],
+        writable: [],
+        rows: [],
+      }
     }
   }
 

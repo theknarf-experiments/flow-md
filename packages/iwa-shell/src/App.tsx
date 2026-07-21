@@ -227,10 +227,10 @@ export function App() {
    *  round trip later and the effect above gives it a guest — including when
    *  the same page is already open, because a second link is a second row. */
   const openTab = useCallback(
-    (url: string, opts: { space?: string; activate?: boolean } = {}) => {
+    (url: string, opts: { space?: string; activate?: boolean; under?: Row } = {}) => {
       const target = opts.space ?? spaceId
       if (!target) return
-      void addLink(target, url, url).then(() => {
+      void addLink(target, url, url, opts.under).then(() => {
         if (opts.activate === false) return
         const opened = tabsCollection.toArray
           .filter((t) => t.space === target && t.url === url)
@@ -280,8 +280,14 @@ export function App() {
         styles.frameActive!,
         () => void sync(id),
         // A link opened in a new tab is a link written into the space, the
-        // same as any other — so ⌘-click adds a line to the file.
-        (target) => openTab(target, { space: row.space, activate: false }),
+        // same as any other — so ⌘-click adds a line to the file, indented
+        // under the tab it was opened from.
+        (target) =>
+          openTab(target, {
+            space: row.space,
+            activate: false,
+            under: tabsCollection.get(id),
+          }),
       )
       frames.current.set(id, frame)
     }
