@@ -34,6 +34,9 @@ import {
   Sidebar,
   ReloadIcon,
   SidebarIcon,
+  Sheet,
+  SheetSection,
+  ShortcutList,
   SpaceRail,
   SidebarButton,
   SpaceHeader,
@@ -43,7 +46,13 @@ import {
   fuzzyFilter,
   useContextMenu,
 } from '@flow-md/ui'
-import { useHotkey, useHotkeySequence } from '@tanstack/react-hotkeys'
+import {
+  formatForDisplay,
+  getHotkeyManager,
+  getSequenceManager,
+  useHotkey,
+  useHotkeySequence,
+} from '@tanstack/react-hotkeys'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import {
@@ -59,6 +68,13 @@ const HOME = 'http://localhost:4748/'
  *  lights, which a frameless window draws over the top-left of our content.
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
+declare module '@tanstack/hotkeys' {
+  interface HotkeyMeta {
+    /** Groups the binding in the shortcut sheet. */
+    category?: string
+  }
+}
+
 /** The recess drawn behind the traffic lights.
  *
  *  No web API will say where they are, but macOS itself will — the
@@ -113,6 +129,7 @@ export function App() {
   const [spaces, setSpaces] = useState<Space[]>(INITIAL_SPACES)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamingTab, setRenamingTab] = useState<number | null>(null)
+  const [settings, setSettings] = useState(false)
   const spaceMenu = useContextMenu<string>()
   const tabMenu = useContextMenu<number>()
   const [spaceId, setSpaceId] = useState(INITIAL_SPACES[0]!.id)
@@ -342,26 +359,71 @@ export function App() {
    *  only fires while the chrome has focus — once you click into a page, its
    *  own keystrokes are its business, and a guest is a separate process that
    *  never reports them back. */
-  const vim = { enabled: !command.open }
-  useHotkey('Mod+T', () => setCommand({ open: true, value: '', newTab: true }))
-  useHotkey('Mod+L', () => setCommand({ open: true, value: active?.url ?? '', newTab: false }))
-  useHotkey('Mod+S', () => setSidebar((v) => !v))
-  useHotkey('Mod+W', () => {
-    if (activeId !== null) closeTab(activeId)
-  })
+  const vim = (name: string) => ({ enabled: !command.open, meta: { name, category: 'Page' } })
+  const tabs_ = (name: string) => ({ meta: { name, category: 'Tabs & spaces' } })
+  const win = (name: string) => ({ meta: { name, category: 'Window' } })
+
+  useHotkey('Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
+  useHotkey(
+    'Mod+L',
+    () => setCommand({ open: true, value: active?.url ?? '', newTab: false }),
+    win('Edit address'),
+  )
+  useHotkey('Mod+S', () => setSidebar((v) => !v), win('Show or hide the sidebar'))
+  useHotkey(
+    'Mod+W',
+    () => {
+      if (activeId !== null) closeTab(activeId)
+    },
+    tabs_('Close tab'),
+  )
+  useHotkey('Mod+,', () => setSettings(true), win('Settings'))
   useHotkey('Escape', () => setCommand((c) => ({ ...c, open: false })))
 
-  useHotkey('Control+J', () => stepTab(1))
-  useHotkey('Control+K', () => stepTab(-1))
-  useHotkey('Control+H', () => stepSpace(-1))
-  useHotkey('Control+L', () => stepSpace(1))
+  useHotkey('Control+J', () => stepTab(1), tabs_('Next tab'))
+  useHotkey('Control+K', () => stepTab(-1), tabs_('Previous tab'))
+  useHotkey('Control+H', () => stepSpace(-1), tabs_('Space to the left'))
+  useHotkey('Control+L', () => stepSpace(1), tabs_('Space to the right'))
 
-  useHotkey('J', () => activeFrame?.scrollBy(120), vim)
-  useHotkey('K', () => activeFrame?.scrollBy(-120), vim)
-  useHotkey('Shift+G', () => activeFrame?.scrollToEdge('end'), vim)
-  useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim)
-  useHotkey('Shift+H', () => activeFrame?.back(), vim)
-  useHotkey('Shift+L', () => activeFrame?.forward(), vim)
+  useHotkey('J', () => activeFrame?.scrollBy(120), vim('Scroll down'))
+  useHotkey('K', () => activeFrame?.scrollBy(-120), vim('Scroll up'))
+  useHotkey('Shift+G', () => activeFrame?.scrollToEdge('end'), vim('Jump to the end'))
+  useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim('Jump to the top'))
+  useHotkey('Shift+H', () => activeFrame?.back(), vim('Back'))
+  useHotkey('Shift+L', () => activeFrame?.forward(), vim('Forward'))
+
+  /** The cheatsheet reads the hotkey manager rather than a table written
+   *  alongside it: a binding that changes, or one someone forgets to
+   *  document, can't drift out of sync with what's actually registered.
+   *
+   *  Read as a snapshot when the sheet opens, not subscribed to. useHotkey
+   *  re-syncs its options into the manager's store during every render, so a
+   *  component that both registers hotkeys and subscribes to the registry
+   *  re-renders itself forever — this froze the whole window. Nothing
+   *  registers or unregisters while the sheet is open anyway. */
+  const shortcuts = useMemo(() => {
+    if (!settings) return []
+    const chips = (hotkey: string) => formatForDisplay(hotkey).split(' ').filter(Boolean)
+    const named = (meta?: { name?: string }) => !!meta?.name
+    const hotkeys = [...getHotkeyManager().registrations.state.values()]
+      .filter((r) => named(r.options.meta))
+      .map((r) => ({
+        name: r.options.meta!.name!,
+        category: r.options.meta!.category,
+        keys: chips(r.hotkey),
+      }))
+    const sequences = [...getSequenceManager().registrations.state.values()]
+      .filter((r) => named(r.options.meta))
+      .map((r) => ({
+        name: r.options.meta!.name!,
+        category: r.options.meta!.category,
+        keys: r.sequence.map((step) => chips(step).join('')),
+        sequence: true,
+      }))
+    return [...hotkeys, ...sequences].sort((a, b) =>
+      (a.category ?? '').localeCompare(b.category ?? ''),
+    )
+  }, [settings])
 
   /** The shell's ⌘T/⌘L results — the same searchable palette the app uses,
    *  just over tabs and shell commands instead of vault notes. Typing a URL
@@ -416,6 +478,7 @@ export function App() {
         label: 'Toggle sidebar',
         run: () => setSidebar((v) => !v),
       },
+      { key: 'cmd:settings', icon: '⌘', label: 'Settings', run: () => setSettings(true) },
       { key: 'cmd:log', icon: '⌘', label: 'Toggle log', run: () => setShowLog((v) => !v) },
       { key: 'cmd:capture', icon: '⌘', label: 'Capture page', run: () => void capture() },
       ...spaces.map((sp) => ({
@@ -818,6 +881,12 @@ export function App() {
           </ContextMenuItem>
         </ContextMenu>
       )}
+
+      <Sheet open={settings} title="Settings" onClose={() => setSettings(false)}>
+        <SheetSection title="Keyboard shortcuts">
+          <ShortcutList shortcuts={shortcuts} />
+        </SheetSection>
+      </Sheet>
 
       <main className={styles.stage}>
         <div className={styles.card} ref={cardRef} />

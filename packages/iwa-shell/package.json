@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@flow-md/ui": "workspace:*",
+    "@tanstack/hotkeys": "^0.8.0",
     "@tanstack/react-hotkeys": "^0.10.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

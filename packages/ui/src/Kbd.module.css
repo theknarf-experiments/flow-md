@@ -1,0 +1,30 @@
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.45em;
+  padding: 0.12em 0.36em;
+  border-radius: 5px;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  /* The lip that makes a key look pressable. */
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, currentColor 18%, transparent);
+  font: inherit;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.then {
+  font-size: 0.62rem;
+  opacity: 0.45;
+}

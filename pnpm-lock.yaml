@@ -253,6 +253,9 @@ importers:
       '@flow-md/ui':
         specifier: workspace:*
         version: link:../ui
+      '@tanstack/hotkeys':
+        specifier: ^0.8.0
+        version: 0.8.0
       '@tanstack/react-hotkeys':
         specifier: ^0.10.0
         version: 0.10.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

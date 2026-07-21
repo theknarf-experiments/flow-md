@@ -1,0 +1,29 @@
+.group + .group { margin-top: 1rem; }
+
+.groupTitle {
+  padding: 0.3rem 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  opacity: 0.55;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  /* Roomy rows: a cheatsheet is scanned, not read. */
+  padding: 0.32rem 0;
+}
+.row + .row { border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent); }
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.83rem;
+}
+
+.hint {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.45;
+}

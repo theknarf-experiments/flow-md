@@ -1,0 +1,70 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 10vh 1rem 2rem;
+  background: rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(2px);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 92vw);
+  /* Tall enough to be worth opening, short enough to stay a sheet. */
+  max-height: min(70vh, 640px);
+  border-radius: 14px;
+  background: var(--bg-raise, #26262b);
+  color: var(--fg, #f2f2f2);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 1.1rem 0.7rem;
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  font: inherit;
+  cursor: default;
+}
+.close:hover { background: color-mix(in srgb, currentColor 14%, transparent); opacity: 1; }
+
+.body {
+  overflow-y: auto;
+  padding: 0 1.1rem 1.1rem;
+}
+.body::-webkit-scrollbar { width: 0; }
+
+.section + .section { margin-top: 1.4rem; }
+
+.sectionTitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
