@@ -1,0 +1,25 @@
+{
+  "name": "flow-md IWA shell",
+  "short_name": "flow-md shell",
+  "description": "Prototype: Controlled Frame as the canvas-browser primitive",
+  "version": "0.0.1",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "permissions_policy": {
+    "cross-origin-isolated": ["self"],
+    "controlled-frame": ["self"]
+  }
+}

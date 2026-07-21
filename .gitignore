@@ -41,3 +41,6 @@ Session.vim
 .DS_Store
 Thumbs.db
 storybook-static/
+
+# Rust (iwa-launcher)
+target/

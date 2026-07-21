@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>partition probe</title>
+    <style>
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        height: 100vh;
+        background: #101014;
+        color: #dedede;
+        font: 15px/1.6 ui-monospace, Menlo, monospace;
+        text-align: center;
+      }
+      b { font-size: 2.4rem; color: #1a8fff; display: block; }
+      small { color: #8a8a8a; }
+    </style>
+  </head>
+  <body>
+    <!-- Loaded inside a <controlledframe> to prove two things at once:
+         that a Controlled Frame can load http content, and that a
+         partition="persist:..." keeps storage across relaunches. The counter
+         increments once per load and survives only if the partition persists. -->
+    <div>
+      <span>loads in this partition</span>
+      <b id="n">?</b>
+      <small id="t"></small>
+    </div>
+    <script src="/probe.js"></script>
+  </body>
+</html>
