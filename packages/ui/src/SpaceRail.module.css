@@ -1,8 +1,12 @@
 .rail {
   app-region: no-drag;
-  display: flex;
+  /* Three tracks so the dots sit in the middle of the rail rather than in the
+     middle of whatever is left over after the + — with a plain flex row the
+     dots drift right by half the + as spaces are added. The outer tracks are
+     equal, so the empty one balances the + exactly. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 0.35rem;
   padding-top: 0.5rem;
   border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
@@ -44,11 +48,20 @@
 }
 .space.active .dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }
 
-/* Pushed to the far end, the way Arc separates "add" from the spaces
-   themselves. The leading auto margin also centres the dots when there's no
-   add button, since the rail is otherwise flex-start. */
-.add {
-  margin-left: auto;
-  font-size: 1rem;
+/* The dots themselves, as one centred unit. */
+.dots {
+  grid-area: 1 / 2;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
-.rail > :first-child { margin-left: auto; }
+
+/* Anything else in the rail goes to the far end, the way Arc separates "add"
+   from the spaces themselves. Placed by position rather than by class because
+   the + is wrapped in a tooltip, so the grid item is the wrapper. */
+.rail > :not(.dots) {
+  grid-area: 1 / 3;
+  justify-self: end;
+}
+
+.add { font-size: 1rem; }

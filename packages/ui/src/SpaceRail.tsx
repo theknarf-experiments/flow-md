@@ -25,30 +25,34 @@ export interface SpaceRailProps {
 export function SpaceRail({ spaces, activeId, onSelect, onAddSpace }: SpaceRailProps) {
   return (
     <div className={styles.rail}>
-      {spaces.map((space) => {
-        const active = space.id === activeId
-        return (
-          // Opens upward: the rail sits at the bottom of a sidebar, so a
-          // label below it would be clipped by the window.
-          <Tooltip key={space.id} label={space.title ?? space.name} placement="top">
-            <button
-              type="button"
-              className={`${styles.space} ${active ? styles.active : ''}`}
-              onClick={() => onSelect(space.id)}
-              aria-label={space.name}
-              aria-current={active ? 'true' : undefined}
-            >
-              {space.emoji ? (
-                <span className={styles.emoji} aria-hidden="true">
-                  {space.emoji}
-                </span>
-              ) : (
-                <span className={styles.dot} aria-hidden="true" />
-              )}
-            </button>
-          </Tooltip>
-        )
-      })}
+      {/* Grouped, so the dots can be centred in the rail independently of
+          whatever sits beside them. */}
+      <div className={styles.dots}>
+        {spaces.map((space) => {
+          const active = space.id === activeId
+          return (
+            // Opens upward: the rail sits at the bottom of a sidebar, so a
+            // label below it would be clipped by the window.
+            <Tooltip key={space.id} label={space.title ?? space.name} placement="top">
+              <button
+                type="button"
+                className={`${styles.space} ${active ? styles.active : ''}`}
+                onClick={() => onSelect(space.id)}
+                aria-label={space.name}
+                aria-current={active ? 'true' : undefined}
+              >
+                {space.emoji ? (
+                  <span className={styles.emoji} aria-hidden="true">
+                    {space.emoji}
+                  </span>
+                ) : (
+                  <span className={styles.dot} aria-hidden="true" />
+                )}
+              </button>
+            </Tooltip>
+          )
+        })}
+      </div>
       {onAddSpace && (
         <Tooltip label="New space" placement="top">
           <button
