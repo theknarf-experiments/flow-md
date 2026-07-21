@@ -87,6 +87,9 @@ declare module '@tanstack/hotkeys' {
   interface HotkeyMeta {
     /** Groups the binding in the shortcut sheet. */
     category?: string
+    /** Bound and claimed like any other, but not listed on its own — for the
+     *  members of a range the sheet describes in one line. */
+    hidden?: boolean
   }
 }
 
@@ -434,19 +437,36 @@ export function App() {
     [activeFrame, activeId, openTab, log],
   )
 
+  /** The current space's tabs in the order the sidebar shows them: pinned
+   *  first, because that's where the eye counts from. ⌘1 means the first
+   *  thing in the list, whatever kind of tab that is. */
+  const tabOrder = useCallback(() => {
+    const inSpace = tabs.filter((t) => t.space === spaceId)
+    return [...inSpace.filter((t) => t.pinned), ...inSpace.filter((t) => !t.pinned)]
+  }, [tabs, spaceId])
+
   /** Move the selection through the current space's tabs, in the order the
    *  sidebar shows them. */
   const stepTab = useCallback(
     (delta: number) => {
-      const inSpace = tabs.filter((t) => t.space === spaceId)
-      const order = [...inSpace.filter((t) => t.pinned), ...inSpace.filter((t) => !t.pinned)]
+      const order = tabOrder()
       if (order.length === 0) return
       const i = order.findIndex((t) => t.id === activeId)
       // From nowhere, j lands on the first tab and k on the last.
       const next = order[i < 0 ? (delta > 0 ? 0 : order.length - 1) : (i + delta + order.length) % order.length]
       if (next) setActiveBySpace((m) => ({ ...m, [spaceId]: next.id }))
     },
-    [tabs, spaceId, activeId],
+    [tabOrder, spaceId, activeId],
+  )
+
+  /** ⌘1…⌘9 — and ⌘9 is the last tab, not the ninth, the way browsers do it. */
+  const jumpToTab = useCallback(
+    (n: number) => {
+      const order = tabOrder()
+      const tab = n === 9 ? order[order.length - 1] : order[n - 1]
+      if (tab) setActiveBySpace((m) => ({ ...m, [spaceId]: tab.id }))
+    },
+    [tabOrder, spaceId],
   )
 
   /** Keys a guest handed back — replayed as ordinary keydowns so they go
@@ -493,13 +513,15 @@ export function App() {
     [spaces, spaceId],
   )
 
-  /** Chords the shell owns. Anything vim-ish is deliberately bare-key and so
-   *  only fires while the chrome has focus — once you click into a page, its
-   *  own keystrokes are its business, and a guest is a separate process that
-   *  never reports them back. */
+  /** Chords the shell owns. Every named one works inside a page too: guests
+   *  are handed this table at adopt time and post the claimed keys back. */
   const vim = (name: string) => ({ enabled: !command.open, meta: { name, category: 'Page' } })
   const tabs_ = (name: string) => ({ meta: { name, category: 'Tabs & spaces' } })
   const win = (name: string) => ({ meta: { name, category: 'Window' } })
+  // Named so guests claim it, hidden so the sheet says "⌘1–9" only once.
+  const nth = (n: number) => ({
+    meta: { name: `Jump to tab ${n}`, category: 'Tabs & spaces', hidden: true },
+  })
 
   useHotkey('Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
   useHotkey(
@@ -518,6 +540,10 @@ export function App() {
   useHotkey('Mod+,', () => setSettings(true), win('Settings'))
   useHotkey('Escape', () => setCommand((c) => ({ ...c, open: false })))
 
+  // ⌘R belongs to the page, not the window — reloading the shell would throw
+  // away every guest to refresh one of them. preventDefault (on by default)
+  // is what stops the window from reloading underneath us.
+  useHotkey('Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
   useHotkey('Control+J', () => stepTab(1), tabs_('Next tab'))
   useHotkey('Control+K', () => stepTab(-1), tabs_('Previous tab'))
   useHotkey('Control+H', () => stepSpace(-1), tabs_('Space to the left'))
@@ -530,6 +556,18 @@ export function App() {
   useHotkey('Shift+H', () => activeFrame?.back(), vim('Back'))
   useHotkey('Shift+L', () => activeFrame?.forward(), vim('Forward'))
   useHotkey('Mod+Shift+T', () => void reopenLast(), tabs_('Reopen the last closed tab'))
+  // Nine registrations rather than a loop: hooks can't be called in one, and
+  // the manager wants a literal chord per binding anyway. Only ⌘1 carries a
+  // name, so the shortcuts sheet lists the range once instead of nine times.
+  useHotkey('Mod+1', () => jumpToTab(1), tabs_('Jump to tab 1–9 (9 is the last)'))
+  useHotkey('Mod+2', () => jumpToTab(2), nth(2))
+  useHotkey('Mod+3', () => jumpToTab(3), nth(3))
+  useHotkey('Mod+4', () => jumpToTab(4), nth(4))
+  useHotkey('Mod+5', () => jumpToTab(5), nth(5))
+  useHotkey('Mod+6', () => jumpToTab(6), nth(6))
+  useHotkey('Mod+7', () => jumpToTab(7), nth(7))
+  useHotkey('Mod+8', () => jumpToTab(8), nth(8))
+  useHotkey('Mod+9', () => jumpToTab(9), nth(9))
   useHotkey('F', () => void activeFrame?.hint(false), vim('Hint a link'))
   useHotkey('Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
 
@@ -545,7 +583,7 @@ export function App() {
   const shortcuts = useMemo(() => {
     if (!settings) return []
     const chips = (hotkey: string) => formatForDisplay(hotkey).split(' ').filter(Boolean)
-    const named = (meta?: { name?: string }) => !!meta?.name
+    const named = (meta?: { name?: string; hidden?: boolean }) => !!meta?.name && !meta.hidden
     const hotkeys = [...getHotkeyManager().registrations.state.values()]
       .filter((r) => named(r.options.meta))
       .map((r) => ({
@@ -877,7 +915,7 @@ export function App() {
           them turns an unavoidable gap into somewhere they sit. */}
       {unframed && (
         <div
-          className={styles.trafficWell}
+          className={`${styles.trafficWell}${sidebar ? '' : ` ${styles.bare}`}`}
           style={{ left: TRAFFIC_WELL.left, width: TRAFFIC_WELL.width }}
         />
       )}
@@ -1041,6 +1079,15 @@ export function App() {
             }}
           >
             Rename tab
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              const tab = tabs.find((t) => t.id === tabMenu.anchor?.target)
+              if (tab) togglePin(tab)
+              tabMenu.close()
+            }}
+          >
+            {tabs.find((t) => t.id === tabMenu.anchor?.target)?.pinned ? 'Unpin tab' : 'Pin tab'}
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {
