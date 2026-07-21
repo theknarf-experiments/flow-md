@@ -36,8 +36,8 @@
 .trafficWell {
   position: absolute;
   top: 0;
-  height: 24px;
-  border-radius: 0 0 11px 11px;
+  height: 32px;
+  border-radius: 0 0 12px 12px;
   background: rgba(0, 0, 0, 0.2);
   pointer-events: none;
 }

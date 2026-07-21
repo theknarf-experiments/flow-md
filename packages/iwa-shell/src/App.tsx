@@ -59,14 +59,18 @@ const HOME = 'http://localhost:4748/'
  *  lights, which a frameless window draws over the top-left of our content.
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
-/** The recess drawn behind the traffic lights. macOS puts them at a fixed
- *  spot — spanning about 23–75px across and 5–17px down from the window's
- *  top-left — and won't say where, so these numbers are measured off a
- *  screenshot and chosen to leave the same 7px on the left, right and bottom.
- *  Above them is the one edge that can't be padded: the well hangs from the
- *  window's top, and macOS keeps the lights that close to it. The toolbar
- *  starts where the well ends. */
-const TRAFFIC_WELL = { left: 16, width: 66 }
+/** The recess drawn behind the traffic lights.
+ *
+ *  No web API will say where they are, but macOS itself will — the
+ *  Accessibility API reports their frames, and against this window's origin
+ *  the three buttons come out at x 19/39/59, 16px square, y −1. So the
+ *  circles they draw span x 21–73 and y 1–13.
+ *
+ *  Hence 11px of clearance either side. Above them there is none to give:
+ *  the well hangs from the window's top edge and macOS parks the lights 1px
+ *  below it, so the well is bottom-heavy by construction. The toolbar starts
+ *  where the well ends. */
+const TRAFFIC_WELL = { left: 10, width: 74 }
 
 interface Space {
   id: string
