@@ -73,18 +73,9 @@ export const MARKDOWN_SCHEMA: EdbDef[] = [
     attrs: [['path', 'string'], ['key', 'string'], ['num', 'float']],
   },
   {
-    // `[[wiki]]` links and #tags are scraped from text with a regex, which is
-    // likewise not something a rule can do. The friendly Link/Tag relations
-    // are rules that read these alongside the tree — see rules.ts.
-    name: 'MdWikiLink',
-    attrs: [
-      ['path', 'string'],
-      ['dst', 'string'],
-      ['text', 'string'],
-      ['line', 'number'],
-    ],
-  },
-  {
+    // #tags are scraped from prose with a regex, which is not something a
+    // rule can do. (`[[wiki]]` links are scraped too, but they become nodes
+    // of the tree — they're syntax mdast happens not to know.)
     name: 'MdInlineTag',
     attrs: [['path', 'string'], ['tag', 'string'], ['line', 'number']],
   },

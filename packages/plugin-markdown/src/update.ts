@@ -78,12 +78,6 @@ const SYNTAX: Record<string, RelSyntax> = {
     deletable: true,
     pathAttr: 'path',
   },
-  MdWikiLink: {
-    cols: ['dst', 'text'],
-    render: ([, dst]) => `- [[${dst}]]`,
-    deletable: true,
-    pathAttr: 'path',
-  },
   MdInlineTag: {
     cols: ['tag'],
     render: ([, tag]) => `#${tag}`,

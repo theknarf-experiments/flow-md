@@ -89,18 +89,22 @@ describe('parseMarkdown', () => {
     ])
   })
 
-  it('captures wiki-links with their alias, and links as nodes', () => {
-    const wiki = rows(parsed.facts, 'MdWikiLink')
-    expect(wiki.map((r) => r.slice(1, 3))).toContainEqual(['Wiki Target', 'Wiki Target'])
-    expect(wiki.map((r) => r.slice(1, 3))).toContainEqual(['Aliased', 'shown text'])
-    // A markdown link is a node; its url is a property of it.
-    const link = rows(parsed.facts, 'MdNode').find((r) => r[3] === 'link')!
-    expect(rows(parsed.facts, 'MdProp')).toContainEqual([
-      'notes/my-note.md',
-      link[1],
-      'url',
-      'https://example.com',
-    ])
+  it('grows a node for a wiki-link, which mdast has no syntax for', () => {
+    const nodes = parsed.facts.filter((f) => f.rel === 'MdNode').map((f) => f.row)
+    const props = parsed.facts.filter((f) => f.rel === 'MdProp').map((f) => f.row)
+    const texts = parsed.facts.filter((f) => f.rel === 'MdNodeText').map((f) => f.row)
+    const wiki = nodes.filter((r) => r[3] === 'wikiLink')
+    expect(wiki).toHaveLength(2)
+
+    const urlOf = (id: unknown) => props.find((r) => r[1] === id && r[2] === 'url')![3]
+    const textOf = (id: unknown) => texts.find((r) => r[1] === id)![2]
+    expect([urlOf(wiki[0]![1]), textOf(wiki[0]![1])]).toEqual(['Wiki Target', 'Wiki Target'])
+    expect([urlOf(wiki[1]![1]), textOf(wiki[1]![1])]).toEqual(['Aliased', 'shown text'])
+
+    // Both kinds carry the same marker, which is what lets one rule define
+    // Link over the pair.
+    const kinds = props.filter((r) => r[2] === 'link').map((r) => r[3])
+    expect(kinds.sort()).toEqual(['md', 'wiki', 'wiki'])
   })
 
   it('routes code blocks: datalog→rules, datalog-query→queries, else→node', () => {

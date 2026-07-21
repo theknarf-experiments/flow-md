@@ -67,6 +67,40 @@ import {
 import path from 'node:path'
 import type { Vault } from './vault.js'
 
+/** The relay. Deliberately tiny and dependency-free: it holds no state beyond
+ *  who asked, and every request names the path and body it wants. */
+const BRIDGE_HTML = `<!doctype html>
+<meta charset="utf-8">
+<title>flow-md vault bridge</title>
+<body>vault bridge</body>
+<script>
+  let host = null
+  addEventListener('message', async (event) => {
+    const msg = event.data
+    if (!msg || msg.flowmd !== 'vault') return
+    if (msg.kind === 'hello') {
+      host = event.source
+      host.postMessage({ flowmd: 'vault', kind: 'ready' }, '*')
+      return
+    }
+    if (msg.kind !== 'request' || !host) return
+    try {
+      const res = await fetch(msg.path, msg.init)
+      const body = await res.text()
+      host.postMessage(
+        { flowmd: 'vault', kind: 'response', id: msg.id, status: res.status, body },
+        '*',
+      )
+    } catch (err) {
+      host.postMessage(
+        { flowmd: 'vault', kind: 'response', id: msg.id, error: String(err) },
+        '*',
+      )
+    }
+  })
+</script>
+`
+
 export function createHttpServer(vault: Vault, root: string): Server {
   const absRoot = path.resolve(root)
   const toRel = (abspath: string): string =>
@@ -106,6 +140,17 @@ export function createHttpServer(vault: Vault, root: string): Server {
     }
 
     const url = new URL(req.url ?? '/', 'http://localhost')
+
+    // A page served from this origin, for embedders that can't reach it
+    // directly. An Isolated Web App's CSP pins connect-src to `'self' https:`,
+    // so the shell can't fetch a local http API however local it is — but a
+    // guest frame is not subject to the embedder's CSP, so one loaded from
+    // here can, and relays over postMessage.
+    if (url.pathname === '/bridge') {
+      res.setHeader('content-type', 'text/html; charset=utf-8')
+      res.writeHead(200)
+      return res.end(BRIDGE_HTML)
+    }
 
     if (url.pathname === '/health') {
       return json(res, 200, { ok: vault.error() === null, error: vault.error() })

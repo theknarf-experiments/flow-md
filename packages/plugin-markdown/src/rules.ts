@@ -31,16 +31,20 @@ export const MARKDOWN_RULES: string[] = [
      MdNode(path, para, id, "paragraph", _, _, _),
      MdNodeText(path, para, text).`,
 
-  `Link(path, dst, "md") :-
-     MdNode(path, id, _, "link", _, _, _),
+  // One rule, covering `[md](url)` and `[[wiki]]` alike — the parser marks
+  // both with a `link` property, so this doesn't need to know the syntax.
+  // Two rules would also work, and would cost both views their writability:
+  // lineage can only trace a column through a single definition.
+  `Link(path, dst, kind) :-
+     MdNode(path, id, _, _, _, _, _),
+     MdProp(path, id, "link", kind),
      MdProp(path, id, "url", dst).`,
-  `Link(path, dst, "wiki") :- MdWikiLink(path, dst, _, _).`,
 
   `LinkLabel(path, dst, text, line) :-
-     MdNode(path, id, _, "link", line, _, _),
+     MdNode(path, id, _, _, line, _, _),
+     MdProp(path, id, "link", _),
      MdProp(path, id, "url", dst),
      MdNodeText(path, id, text).`,
-  `LinkLabel(path, dst, text, line) :- MdWikiLink(path, dst, text, line).`,
 
   // The two langs that feed the engine are the program, not content.
   `CodeBlock(path, lang, line) :-

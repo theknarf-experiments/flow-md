@@ -183,22 +183,6 @@ function parseWith(
       case 'text': {
         const t = node as Text
         const base = spanOf(node)?.[0] ?? 0
-        for (const m of t.value.matchAll(WIKILINK)) {
-          const inner = m[1] ?? ''
-          const target = inner.split('|')[0]!.split('#')[0]!.trim()
-          if (!target) continue
-          // `[[Target|alias]]` — the alias is what the reader sees, so it's
-          // the label; without one the target doubles as its own.
-          const alias = inner.includes('|')
-            ? inner.slice(inner.indexOf('|') + 1).trim()
-            : target
-          const at = base + m.index
-          const targetAt = at + 2 + inner.indexOf(target)
-          emit('MdWikiLink', [path, target, alias, lineAt(content, at)], {
-            cols: [null, plain([targetAt, targetAt + target.length]), null, null],
-            del: [at, at + m[0].length],
-          })
-        }
         for (const m of t.value.matchAll(TAG)) {
           // The match includes the leading boundary; the tag itself starts
           // after the "#".
@@ -279,6 +263,17 @@ function emitAst(
     const literal = inner && content.slice(inner[0], inner[1]) === text ? inner : null
     emit('MdNodeText', [path, self, text], { cols: [null, null, plain(literal)], del: whole })
 
+    // A link is a link whether the parser knew the syntax or not. Marking
+    // both kinds with one property lets a single rule define Link and
+    // LinkLabel — and a view defined by one rule is a view you can write
+    // through, which is what makes a tab's link editable.
+    if (node.type === 'link') {
+      emit('MdProp', [path, self, 'link', 'md'], {
+        cols: [null, null, null, null],
+        del: null,
+      })
+    }
+
     for (const [key, value] of Object.entries(node as unknown as Record<string, unknown>)) {
       if (key === 'type' || key === 'children' || key === 'position' || key === 'value') continue
       const span = PROP_SPAN[`${node.type}.${key}`]?.(node, content) ?? null
@@ -305,6 +300,46 @@ function emitAst(
         cols: [null, null, null, encoded(checkboxSpan(node, content), checkboxMark)],
         del: null,
       })
+    }
+
+    // `[[wiki]]` links have no mdast node, so the tree grows one here: same
+    // shape, same properties, a type of its own. Nothing downstream needs to
+    // know it was scraped with a regular expression.
+    if (node.type === 'text') {
+      const value = String((node as { value?: string }).value ?? '')
+      const base = whole?.[0] ?? 0
+      for (const m of value.matchAll(WIKILINK)) {
+        const inner = m[1] ?? ''
+        const target = inner.split('|')[0]!.split('#')[0]!.trim()
+        if (!target) continue
+        // `[[Target|alias]]` — the alias is what the reader sees, so it's the
+        // label; without one the target doubles as its own.
+        const alias = inner.includes('|') ? inner.slice(inner.indexOf('|') + 1).trim() : target
+        const at = base + m.index
+        const span: Span = [at, at + m[0].length]
+        const targetAt = at + 2 + inner.indexOf(target)
+        const aliasAt = inner.includes('|')
+          ? at + 2 + inner.indexOf('|') + 1 + (inner.slice(inner.indexOf('|') + 1).length -
+              inner.slice(inner.indexOf('|') + 1).trimStart().length)
+          : targetAt
+        const wiki = id++
+        emit('MdNode', [path, wiki, self, 'wikiLink', lineAt(content, at), span[0], span[1]], {
+          cols: [null, null, null, null, null, null, null],
+          del: span,
+        })
+        emit('MdNodeText', [path, wiki, alias], {
+          cols: [null, null, plain([aliasAt, aliasAt + alias.length])],
+          del: span,
+        })
+        emit('MdProp', [path, wiki, 'url', target], {
+          cols: [null, null, null, plain([targetAt, targetAt + target.length])],
+          del: null,
+        })
+        emit('MdProp', [path, wiki, 'link', 'wiki'], {
+          cols: [null, null, null, null],
+          del: null,
+        })
+      }
     }
 
     if (node.children) for (const child of node.children) visit(child, self)

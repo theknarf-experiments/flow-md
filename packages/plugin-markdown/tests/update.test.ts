@@ -232,13 +232,14 @@ describe('frontmatter', () => {
 
 describe('the scraped constructs', () => {
   it('retargets a wiki-link, keeping its alias', () => {
-    const row = facts(NOTE, 'MdWikiLink')[0]!
-    const out = updateMarkdownFact(
-      NOTE,
-      { rel: 'MdWikiLink', row },
-      { rel: 'MdWikiLink', row: [row[0]!, 'Elsewhere', row[2]!, row[3]!] },
-    )
-    expect(out).toContain('[[Elsewhere|alias]]')
+    // A wiki-link is a node like any other; its target is a property.
+    const id = nodeType(NOTE, 'wikiLink')
+    expect(setProp(NOTE, id, 'url', 'Target', 'Elsewhere')).toContain('[[Elsewhere|alias]]')
+  })
+
+  it('renames a wiki-link without moving it', () => {
+    const id = nodeType(NOTE, 'wikiLink')
+    expect(setText(NOTE, id, 'alias', 'other words')).toContain('[[Target|other words]]')
   })
 
   it('renames an inline tag', () => {
@@ -255,9 +256,8 @@ describe('the scraped constructs', () => {
     expect(
       deleteMarkdownFact(NOTE, { rel: 'MdInlineTag', row: facts(NOTE, 'MdInlineTag')[0]! }),
     ).not.toContain('#tag')
-    expect(
-      deleteMarkdownFact(NOTE, { rel: 'MdWikiLink', row: facts(NOTE, 'MdWikiLink')[0]! }),
-    ).not.toContain('[[')
+    const wiki = facts(NOTE, 'MdNode').find((r) => r[3] === 'wikiLink')!
+    expect(deleteMarkdownFact(NOTE, { rel: 'MdNode', row: wiki })).not.toContain('[[')
   })
 })
 

@@ -25,10 +25,12 @@ describe('parseMdx', () => {
   it('extracts the same fact kinds as markdown', () => {
     const nodes = parsed.facts.filter((f) => f.rel === 'MdNode')
     expect(nodes.map((f) => f.row[3])).toContain('heading')
-    expect(parsed.facts).toContainEqual({
-      rel: 'MdWikiLink',
-      row: ['board.mdx', 'wiki link', 'wiki link', 7],
-    })
+    const wiki = parsed.facts.find((f) => f.rel === 'MdNode' && f.row[3] === 'wikiLink')!
+    expect(
+      parsed.facts.some(
+        (f) => f.rel === 'MdProp' && f.row[1] === wiki.row[1] && f.row[3] === 'wiki link',
+      ),
+    ).toBe(true)
     expect(parsed.facts.some((f) => f.rel === 'MdInlineTag' && f.row[1] === 'atag')).toBe(
       true,
     )

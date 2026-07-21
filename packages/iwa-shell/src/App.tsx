@@ -62,6 +62,8 @@ import {
   windowManagementState,
 } from './lib/env.js'
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
+import * as spaceFile from './lib/spaces.js'
+import { vault } from './lib/vault.js'
 
 const HOME = 'http://localhost:4748/'
 /** Width to keep clear at the start of the toolbar row for the macOS traffic
@@ -89,6 +91,7 @@ declare module '@tanstack/hotkeys' {
 const TRAFFIC_WELL = { left: 10, width: 74 }
 
 interface Space {
+  /** The markdown file this space *is* — also its identity. */
   id: string
   name: string
   emoji: string
@@ -97,12 +100,22 @@ interface Space {
   /** Guests are partitioned per space, so spaces are real containers:
    *  separate cookies, storage and logins. */
   partition: string
+  /** Urls listed under `pinned:` in the file's frontmatter. */
+  pinned: string[]
 }
 
-const INITIAL_SPACES: Space[] = [
-  { id: 'vault', name: 'Vault', emoji: '📓', hue: 250, partition: 'persist:vault' },
-  { id: 'web', name: 'Web', emoji: '🌐', hue: 190, partition: 'persist:web' },
-  { id: 'scratch', name: 'Scratch', emoji: '🧪', hue: 320, partition: 'persist:scratch' },
+/** What the shell shows before the vault answers, and what it falls back to
+ *  when there isn't one — the browser still works without a vault, it just
+ *  has nowhere to write its spaces down. */
+const OFFLINE_SPACES: Space[] = [
+  {
+    id: '',
+    name: 'Browser',
+    emoji: '🌐',
+    hue: 250,
+    partition: 'persist:offline',
+    pinned: [],
+  },
 ]
 
 interface Tab {
@@ -113,6 +126,10 @@ interface Tab {
   pinned: boolean
   /** Set by "Rename tab" — stops the guest's own <title> overwriting it. */
   renamed?: boolean
+  /** The url as the space's file spells it, which is what identifies the
+   *  link to edit. The tab's own url moves with every redirect; this follows
+   *  it deliberately, one write at a time. */
+  vaultUrl?: string
   /** Inlined favicon; null until the guest has fetched it. */
   icon: string | null
 }
@@ -126,13 +143,24 @@ const HUES = [250, 285, 320, 355, 25, 90, 155, 190]
 
 export function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
-  const [spaces, setSpaces] = useState<Space[]>(INITIAL_SPACES)
+  const [spaces, setSpaces] = useState<Space[]>(OFFLINE_SPACES)
+  /** The same list, readable without waiting for a render. Boot loads the
+   *  spaces and opens their tabs in one pass, and a tab needs its space's
+   *  partition *now* — a guest's container is fixed when it's created, so
+   *  reading a stale list would put every tab in the wrong one. */
+  const spacesRef = useRef(spaces)
+  spacesRef.current = spaces
+  /** True once the vault has answered — writes are pointless before that. */
+  const [backed, setBacked] = useState(false)
+  /** The same, for callbacks that outlive a render: a guest's lifecycle
+   *  handler is created once, when nothing is backed yet. */
+  const backedRef = useRef(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamingTab, setRenamingTab] = useState<number | null>(null)
   const [settings, setSettings] = useState(false)
   const spaceMenu = useContextMenu<string>()
   const tabMenu = useContextMenu<number>()
-  const [spaceId, setSpaceId] = useState(INITIAL_SPACES[0]!.id)
+  const [spaceId, setSpaceId] = useState(OFFLINE_SPACES[0]!.id)
   /** Active tab per space, so switching spaces restores where you were. */
   const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
   const [nav, setNav] = useState({ back: false, forward: false })
@@ -176,6 +204,23 @@ export function App() {
     void frame.adopt()
     const info = await frame.probe()
     if (info) {
+      // A tab that has gone somewhere else is a link that has gone somewhere
+      // else. Rewriting it keeps the file a description of what's open rather
+      // than of what was opened.
+      setTabs((ts) => {
+        const tab = ts.find((t) => t.id === id)
+        if (tab?.vaultUrl && tab.vaultUrl !== info.url && backedRef.current) {
+          const from = tab.vaultUrl
+          void spaceFile
+            .loadTabs(tab.spaceId)
+            .then((rows) => {
+              const row = rows.find((r) => r.url === from)
+              return row ? spaceFile.retarget(tab.spaceId, row, info.url) : null
+            })
+            .catch(() => null)
+        }
+        return ts
+      })
       setTabs((ts) =>
         ts.map((t) =>
           t.id === id
@@ -184,6 +229,7 @@ export function App() {
                 title: t.renamed ? t.title : info.title || info.url,
                 url: info.url,
                 icon: info.icon ?? t.icon,
+                ...(t.vaultUrl ? { vaultUrl: info.url } : {}),
               }
             : t,
         ),
@@ -199,25 +245,53 @@ export function App() {
   }, [])
 
   const openTab = useCallback(
-    (url: string, opts: { space?: string; pinned?: boolean; activate?: boolean } = {}) => {
+    (
+      url: string,
+      opts: {
+        space?: string
+        pinned?: boolean
+        activate?: boolean
+        title?: string
+        /** Already a line in the file — don't write it back again. */
+        fromVault?: boolean
+      } = {},
+    ) => {
       const container = cardRef.current
       if (!container) return undefined
       const target = opts.space ?? spaceId
-      const partition = (spaces.find((s) => s.id === target) ?? spaces[0]!).partition
+      const known = spacesRef.current
+      const space = known.find((s) => s.id === target) ?? known[0]!
       const id = ++seq.current
-      const frame = createFrame(url, partition, container, styles.frameActive!, () => {
+      const frame = createFrame(url, space.partition, container, styles.frameActive!, () => {
         void sync(id)
       })
       frames.current.set(id, frame)
+      const title = opts.title ?? url
       setTabs((ts) => [
         ...ts,
-        { id, spaceId: target, title: url, url, pinned: !!opts.pinned, icon: null },
+        {
+          id,
+          spaceId: target,
+          title,
+          url,
+          pinned: !!opts.pinned,
+          icon: null,
+          ...(opts.title ? { renamed: true } : {}),
+          ...(space.id ? { vaultUrl: url } : {}),
+        },
       ])
       if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
+      // Opening a tab writes a link into the space's file. That's the whole
+      // trick: the tab list is the document.
+      if (!opts.fromVault && backed && space.id) {
+        void spaceFile.openTab(space.id, url, title).then((r) => {
+          if (r.error) log(`vault: ${r.error}`)
+        })
+      }
       log(`tab ${id} → ${url}`)
       return id
     },
-    [spaceId, spaces, log, sync],
+    [spaceId, spaces, backed, log, sync],
   )
 
   const closeTab = useCallback(
@@ -227,6 +301,22 @@ export function App() {
       setTabs((ts) => {
         const victim = ts.find((t) => t.id === id)
         const next = ts.filter((t) => t.id !== id)
+        // Closing a tab takes its line out of the file. The line number is
+        // whatever the file says now, so it's looked up rather than
+        // remembered — the file may have been edited since.
+        if (victim && backed && victim.spaceId && victim.vaultUrl) {
+          const written = victim.vaultUrl
+          void spaceFile
+            .loadTabs(victim.spaceId)
+            .then((rows) => {
+              const row = rows.find((t) => t.url === written)
+              return row ? spaceFile.closeTab(victim.spaceId, row) : null
+            })
+            .then((r) => {
+              if (r?.error) log(`vault: ${r.error}`)
+            })
+            .catch(() => {})
+        }
         if (victim) {
           const siblings = next.filter((t) => t.spaceId === victim.spaceId)
           setActiveBySpace((m) =>
@@ -239,7 +329,7 @@ export function App() {
       })
       log(`closed tab ${id}`)
     },
-    [log],
+    [backed, log],
   )
 
   useEffect(() => {
@@ -249,7 +339,9 @@ export function App() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Boot: flow-md pinned in the Vault space, a site in Web.
+  // Boot: read the spaces out of the vault, and open every link each one
+  // holds. Without a vault the shell still runs — one space, nothing written
+  // down — so a browser is usable before a notebook exists.
   useEffect(() => {
     if (booted.current) return
     booted.current = true
@@ -259,8 +351,37 @@ export function App() {
         ? `controlledframe: ${controlledFrame.detail}`
         : `controlledframe MISSING — ${controlledFrame.detail}`,
     )
-    openTab(HOME, { space: 'vault', pinned: true })
-    openTab('https://example.com', { space: 'web', activate: false })
+    void (async () => {
+      if (!(await vault.available())) {
+        log('no vault — spaces are in memory only')
+        openTab(HOME, { pinned: true })
+        return
+      }
+      setBacked(true)
+      backedRef.current = true
+      const loaded = await spaceFile.loadSpaces()
+      if (loaded.length === 0) {
+        log('vault has no spaces (frontmatter `type: space`)')
+        openTab(HOME, { pinned: true })
+        return
+      }
+      spacesRef.current = loaded
+      setSpaces(loaded)
+      setSpaceId(loaded[0]!.id)
+      log(`vault: ${loaded.length} spaces`)
+      for (const space of loaded) {
+        const tabs = await spaceFile.loadTabs(space.id)
+        for (const tab of tabs) {
+          openTab(tab.url, {
+            space: space.id,
+            title: tab.title,
+            pinned: space.pinned.includes(tab.url),
+            activate: space.id === loaded[0]!.id,
+            fromVault: true,
+          })
+        }
+      }
+    })()
     void windowManagementState().then((state) => {
       log(`window-management: ${state} · title bar: ${hasTitleBar()}`)
     })
@@ -506,35 +627,72 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command.value, command.newTab, tabs, spaces, go, openTab])
 
+  /** Creating a space creates a file. The vault owns File as a system
+   *  relation, so inserting one writes it to disk; the frontmatter that makes
+   *  it a space follows. */
   const addSpace = useCallback(() => {
-    const id = `space-${spaces.length + 1}-${Math.random().toString(36).slice(2, 7)}`
-    const next: Space = {
-      id,
-      name: `Space ${spaces.length + 1}`,
-      emoji: SPACE_EMOJI[(spaces.length + 3) % SPACE_EMOJI.length] ?? '•',
-      // Spread the hues so a new space is visibly its own place.
-      hue: (spaces.length * 67 + 250) % 360,
-      partition: `persist:${id}`,
+    const n = spaces.length + 1
+    const name = `Space ${n}`
+    const emoji = SPACE_EMOJI[(n + 2) % SPACE_EMOJI.length] ?? '•'
+    // Spread the hues so a new space is visibly its own place.
+    const hue = (spaces.length * 67 + 250) % 360
+    const id = `spaces/space-${n}-${Math.random().toString(36).slice(2, 7)}.md`
+
+    if (!backed) {
+      setSpaces((ss) => [
+        ...ss,
+        { id, name, emoji, hue, partition: `persist:${n}`, pinned: [] },
+      ])
+      setSpaceId(id)
+      openTab(HOME, { space: id })
+      return
     }
-    setSpaces((s) => [...s, next])
-    setSpaceId(id)
-    // A brand-new space with no tabs would render a blank card.
-    openTab(HOME, { space: id })
-    log(`space ${next.name} (${next.partition})`)
-  }, [spaces, openTab, log])
 
-  const renameSpace = useCallback((id: string, name: string) => {
-    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, name } : s)))
-    setRenaming(null)
-  }, [])
+    void (async () => {
+      const made = await spaceFile.create(id, { name, emoji, hue })
+      if (made) {
+        log(`vault: ${made}`)
+        return
+      }
+      const loaded = await spaceFile.loadSpaces()
+      setSpaces(loaded)
+      setSpaceId(id)
+      log(`space ${name} → ${id}`)
+    })()
+  }, [spaces, backed, openTab, log])
 
-  const recolourSpace = useCallback((id: string, hue: number) => {
-    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, hue } : s)))
-  }, [])
+  /** The space's own metadata lives in its frontmatter, so each of these is a
+   *  YAML edit. The local state moves first — a rename shouldn't wait on a
+   *  file write to show up. */
+  const editSpace = useCallback(
+    (id: string, key: 'name' | 'emoji' | 'hue', value: string | number) => {
+      const before = spaces.find((s) => s.id === id)
+      setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, [key]: value } : s)))
+      if (!backed || !before) return
+      void spaceFile.setSpaceKey(id, key, String(before[key]), value).then((r) => {
+        if (r.error) log(`vault: ${r.error}`)
+      })
+    },
+    [spaces, backed, log],
+  )
 
-  const reiconSpace = useCallback((id: string, emoji: string) => {
-    setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, emoji } : s)))
-  }, [])
+  const renameSpace = useCallback(
+    (id: string, name: string) => {
+      editSpace(id, 'name', name)
+      setRenaming(null)
+    },
+    [editSpace],
+  )
+
+  const recolourSpace = useCallback(
+    (id: string, hue: number) => editSpace(id, 'hue', hue),
+    [editSpace],
+  )
+
+  const reiconSpace = useCallback(
+    (id: string, emoji: string) => editSpace(id, 'emoji', emoji),
+    [editSpace],
+  )
 
   /** Deleting a space takes its tabs with it — they live nowhere else, and
    *  their guests would otherwise stay loaded and invisible. */
@@ -551,6 +709,13 @@ export function App() {
         return remaining
       })
       for (const tab of tabs.filter((t) => t.spaceId === id)) closeTab(tab.id)
+      // Deleting a space deletes the file it is. File is a system relation,
+      // so the vault unlinks it.
+      if (backed && id) {
+        void vault.delete('File(path, mtime)', [id, 0]).then((r) => {
+          if (r.error) log(`vault: ${r.error}`)
+        })
+      }
       log(`space ${id} deleted`)
     },
     [tabs, closeTab, log],

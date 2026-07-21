@@ -28,6 +28,23 @@ export default defineConfig({
   server: {
     port: 5193,
     strictPort: true,
+    // The vault's HTTP API, under our own origin. An IWA's CSP fixes
+    // connect-src to `'self' https: wss: blob: data:` — plain http is not in
+    // it, so the shell cannot reach http://localhost:4747 directly, however
+    // local it is. Proxying makes it same-origin, which 'self' allows.
+    //
+    // Dev only: a packaged IWA serves static files and has no proxy. The
+    // shipping answer is a Controlled Frame pointed at the vault relaying
+    // over postMessage — guests aren't subject to the IWA's CSP — which is
+    // why the shell talks to a client module rather than to fetch directly.
+    proxy: {
+      '/vault': {
+        target: 'http://localhost:4747',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/vault/, ''),
+      },
+    },
+
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -36,6 +53,23 @@ export default defineConfig({
   preview: {
     port: 5193,
     strictPort: true,
+    // The vault's HTTP API, under our own origin. An IWA's CSP fixes
+    // connect-src to `'self' https: wss: blob: data:` — plain http is not in
+    // it, so the shell cannot reach http://localhost:4747 directly, however
+    // local it is. Proxying makes it same-origin, which 'self' allows.
+    //
+    // Dev only: a packaged IWA serves static files and has no proxy. The
+    // shipping answer is a Controlled Frame pointed at the vault relaying
+    // over postMessage — guests aren't subject to the IWA's CSP — which is
+    // why the shell talks to a client module rather than to fetch directly.
+    proxy: {
+      '/vault': {
+        target: 'http://localhost:4747',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/vault/, ''),
+      },
+    },
+
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
