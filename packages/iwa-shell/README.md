@@ -1,9 +1,22 @@
 # IWA shell
 
-An Isolated Web App that is **a browser wrapper whose tabs we own**. Chrome
-gives us one app window; the tab strip, address bar, navigation and tab
+An Isolated Web App that is **an Arc-shaped browser whose tabs we own**.
+Chrome gives us one app window; the sidebar, spaces, command bar and tab
 lifecycle are all ours, because every tab is a `<controlledframe>` we create
 and control.
+
+Arc-isms: tabs live in a vertical sidebar rather than a strip, pinned tabs
+sit above ephemeral ones, each space has its own gradient **and its own
+partition** (so spaces are real containers — separate cookies, storage and
+logins), and there's no persistent address bar — ⌘L/⌘T open a floating
+command bar.
+
+| key | |
+| --- | --- |
+| ⌘T | new tab (command bar) |
+| ⌘L | edit this tab's address |
+| ⌘S | toggle sidebar |
+| ⌘W | close tab |
 
 flow-md itself is just a tab — an ordinary page served by the local process —
 so **nothing about the app has to change**. MDX with live components,

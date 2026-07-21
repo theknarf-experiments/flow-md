@@ -1,130 +1,235 @@
+/* Arc-like chrome: a vertical sidebar over a per-space gradient, with the
+   page floating as a rounded card. --hue is set per space from JS. */
+
 .shell {
   display: flex;
-  flex-direction: column;
   height: 100%;
+  background:
+    linear-gradient(
+      160deg,
+      hsl(var(--hue) 62% 32%) 0%,
+      hsl(calc(var(--hue) + 38) 54% 20%) 55%,
+      hsl(calc(var(--hue) + 60) 48% 14%) 100%
+    );
+  transition: background 400ms ease;
 }
 
 .banner {
-  flex: none;
-  padding: 0.5rem 0.9rem;
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 20;
+  padding: 0.45rem 0.9rem;
   background: #3a2222;
   color: var(--danger);
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   white-space: pre-wrap;
 }
 
-/* ---- tab strip: ours, not Chrome's ---- */
-.tabs {
+/* ---------------------------------------------------------------- sidebar */
+
+.sidebar {
   flex: none;
+  width: 244px;
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 0.3rem 0.4rem 0;
-  /* Leave room for the window controls in an IWA app window. */
-  padding-left: env(titlebar-area-x, 0.4rem);
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+  /* Keep clear of the window controls in an app window. */
+  padding-top: max(env(titlebar-area-height, 2.1rem), 2.1rem);
+  color: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+  transition: width 220ms ease, padding 220ms ease, opacity 180ms ease;
   app-region: drag;
 }
-
-.strip {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  flex: 1;
+.sidebar.collapsed {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
 }
-.strip::-webkit-scrollbar { height: 0; }
 
-.tab {
-  app-region: no-drag;
+.navRow {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  min-width: 8rem;
-  max-width: 15rem;
-  padding: 0.35rem 0.5rem;
+  gap: 0.15rem;
+  app-region: no-drag;
+}
+
+.iconButton {
+  app-region: no-drag;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border: 0;
-  border-radius: 8px 8px 0 0;
-  background: transparent;
-  color: var(--fg-dim);
+  border-radius: 7px;
+  background: none;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.iconButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.iconButton:disabled { opacity: 0.28; cursor: default; }
+
+.spacer { flex: 1; }
+
+/* The address "pill" — click to open the command bar, like Arc. */
+.address {
+  app-region: no-drag;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: text;
   font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.address:hover { background: rgba(255, 255, 255, 0.18); }
+
+.sectionLabel {
+  padding: 0.35rem 0.5rem 0.1rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.tabList {
+  app-region: no-drag;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.tabList::-webkit-scrollbar { width: 0; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.34rem 0.5rem;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: rgba(255, 255, 255, 0.78);
+  font: inherit;
+  font-size: 0.8rem;
   text-align: left;
   cursor: default;
   white-space: nowrap;
 }
-.tab:hover { background: var(--bg-tab); }
-.tab.active { background: var(--bg-raise); color: var(--fg); }
-
-.label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.tab:hover { background: rgba(255, 255, 255, 0.13); color: #fff; }
+.tab.active {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 
-.close {
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+}
+.tab.active .dot { background: #fff; }
+
+.tabLabel { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+.tabAction {
+  flex: none;
   border: 0;
   background: none;
   color: inherit;
   cursor: pointer;
-  opacity: 0.5;
-  padding: 0 0.2rem;
-  border-radius: 4px;
+  opacity: 0;
+  padding: 0 0.12rem;
+  border-radius: 5px;
+  font-size: 0.72rem;
 }
-.close:hover { opacity: 1; background: rgba(255, 255, 255, 0.14); }
+.tab:hover .tabAction { opacity: 0.6; }
+.tabAction:hover { opacity: 1 !important; background: rgba(255, 255, 255, 0.2); }
 
 .newTab {
-  app-region: no-drag;
-  flex: none;
-  margin-bottom: 0.2rem;
-}
-
-/* ---- toolbar ---- */
-.bar {
-  flex: none;
   display: flex;
-  gap: 0.35rem;
   align-items: center;
-  padding: 0.4rem 0.5rem;
-  background: var(--bg-raise);
-  border-bottom: 1px solid var(--border);
+  gap: 0.45rem;
+  padding: 0.34rem 0.5rem;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: rgba(255, 255, 255, 0.5);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  app-region: no-drag;
+}
+.newTab:hover { background: rgba(255, 255, 255, 0.11); color: #fff; }
+
+/* ---- spaces rail at the bottom, Arc-style ---- */
+.spaces {
+  app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-.button {
+.space {
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
   background: none;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--fg-dim);
+  color: rgba(255, 255, 255, 0.55);
   cursor: pointer;
   font: inherit;
-  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.button:hover:not(:disabled) { color: var(--fg); background: var(--bg-tab); }
-.button:disabled { opacity: 0.3; cursor: default; }
+.space:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.space.activeSpace { background: rgba(255, 255, 255, 0.2); color: #fff; }
 
-.url {
+/* ---------------------------------------------------------------- content */
+
+.stage {
   flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--fg);
-  font: inherit;
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  padding: 0.3rem 0.8rem;
-  outline: none;
+  min-width: 0;
+  padding: 0.5rem 0.5rem 0.5rem 0;
+  padding-top: max(env(titlebar-area-height, 2.1rem), 2.1rem);
+  transition: padding 220ms ease;
 }
-.url:focus { border-color: var(--accent); }
+.shell:has(.sidebar.collapsed) .stage { padding-left: 0.5rem; }
 
-/* ---- guests ---- */
-.content {
-  flex: 1;
+.card {
   position: relative;
+  height: 100%;
+  border-radius: 11px;
+  overflow: hidden;
   background: #fff;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
 }
 
 /* Inactive tabs stay loaded but hidden, so switching is instant and page
-   state survives. :global because the elements are created imperatively. */
-.content :global(controlledframe),
-.content :global(iframe) {
+   state survives. :global because the guests are created imperatively. */
+.card :global(controlledframe),
+.card :global(iframe) {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -133,26 +238,65 @@
   visibility: hidden;
 }
 
-.frameActive {
-  visibility: visible !important;
+.frameActive { visibility: visible !important; }
+
+/* ------------------------------------------------------------ command bar */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 22vh;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
 }
+
+.command {
+  width: min(620px, 86vw);
+  border-radius: 13px;
+  background: #26262b;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.commandInput {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: #f2f2f2;
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.95rem 1.1rem;
+  outline: none;
+}
+
+.commandHint {
+  padding: 0.4rem 1.1rem 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.74rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ------------------------------------------------------------------- log */
 
 .log {
   position: fixed;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  z-index: 25;
   width: 420px;
-  max-height: 45%;
+  max-height: 40%;
   overflow-y: auto;
   padding: 0.5rem 0.75rem;
-  background: rgba(16, 16, 16, 0.95);
-  border-left: 1px solid var(--border);
-  border-top: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(12, 12, 14, 0.94);
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--fg-dim);
 }
-.log p { margin: 0; padding: 0.1rem 0; white-space: pre-wrap; word-break: break-word; }
+.log p { margin: 0; padding: 0.08rem 0; white-space: pre-wrap; word-break: break-word; }
 .ok { color: var(--ok); }
 .err { color: var(--danger); }

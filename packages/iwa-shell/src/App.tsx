@@ -1,82 +1,112 @@
-// The IWA shell: a browser wrapper whose tabs we own.
+// The IWA shell: an Arc-shaped browser whose tabs we own.
 //
-// Chrome gives us one app window; the tab strip, address bar, navigation and
+// Chrome gives us one app window; the sidebar, spaces, command bar and tab
 // lifecycle are all ours, because every tab is a <controlledframe> we create
 // and control. flow-md is just a tab — an ordinary page served by the local
 // process — so it keeps runtime MDX evaluation and everything else a normal
-// web page can do. The strict IWA CSP applies to *this* document, not to
-// guests.
+// web page can do. The strict IWA CSP applies to *this* document, not guests.
+//
+// Arc-isms worth naming: tabs live in a vertical sidebar rather than a strip,
+// pinned tabs sit above ephemeral ones, each space has its own gradient and
+// its own tab set, and there's no persistent address bar — ⌘L/⌘T open a
+// floating command bar instead.
 //
 // React owns the chrome only; guests live in lib/frames.ts, outside
 // reconciliation, so a re-render can never throw a loaded page away.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import { controlledFrame, cspSelfTest } from './lib/env.js'
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
 
-/** One shared partition, so tabs behave like a single browser profile and
- *  logins persist. Per-space containers would just be another persist: name. */
-const PARTITION = 'persist:flow-md'
 const HOME = 'http://localhost:4748/'
+
+interface Space {
+  id: string
+  name: string
+  /** Base hue for the gradient; each space feels distinct, as in Arc. */
+  hue: number
+  /** Guests are partitioned per space, so spaces are real containers:
+   *  separate cookies, storage and logins. */
+  partition: string
+}
+
+const SPACES: Space[] = [
+  { id: 'vault', name: 'Vault', hue: 250, partition: 'persist:vault' },
+  { id: 'web', name: 'Web', hue: 190, partition: 'persist:web' },
+  { id: 'scratch', name: 'Scratch', hue: 320, partition: 'persist:scratch' },
+]
 
 interface Tab {
   id: number
+  spaceId: string
   title: string
   url: string
+  pinned: boolean
 }
 
 export function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
-  const [activeId, setActiveId] = useState<number | null>(null)
-  const [draft, setDraft] = useState('')
+  const [spaceId, setSpaceId] = useState(SPACES[0]!.id)
+  /** Active tab per space, so switching spaces restores where you were. */
+  const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
   const [nav, setNav] = useState({ back: false, forward: false })
+  const [sidebar, setSidebar] = useState(true)
+  const [command, setCommand] = useState<{ open: boolean; value: string; newTab: boolean }>({
+    open: false,
+    value: '',
+    newTab: false,
+  })
   const [lines, setLines] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
 
-  const contentRef = useRef<HTMLDivElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
   const seq = useRef(0)
-  const editing = useRef(false)
   /** Creating guests is an imperative side effect, and StrictMode invokes
    *  effects twice in dev — without this we boot two of every tab. */
   const booted = useRef(false)
 
-  const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
-
+  const space = SPACES.find((s) => s.id === spaceId) ?? SPACES[0]!
+  const activeId = activeBySpace[spaceId] ?? null
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeFrame = activeId !== null ? frames.current.get(activeId) : undefined
 
+  const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
+
+  const spaceTabs = useMemo(() => tabs.filter((t) => t.spaceId === spaceId), [tabs, spaceId])
+  const pinned = spaceTabs.filter((t) => t.pinned)
+  const loose = spaceTabs.filter((t) => !t.pinned)
+
   /** Pull the guest's real title/url back out after it navigates. */
-  const sync = useCallback(
-    async (id: number) => {
-      const frame = frames.current.get(id)
-      if (!frame) return
-      const info = await frame.probe()
-      if (info) {
-        setTabs((ts) =>
-          ts.map((t) => (t.id === id ? { ...t, title: info.title || info.url, url: info.url } : t)),
-        )
-      }
-      setNav({ back: await frame.canGoBack(), forward: await frame.canGoForward() })
-    },
-    [],
-  )
+  const sync = useCallback(async (id: number) => {
+    const frame = frames.current.get(id)
+    if (!frame) return
+    const info = await frame.probe()
+    if (info) {
+      setTabs((ts) =>
+        ts.map((t) => (t.id === id ? { ...t, title: info.title || info.url, url: info.url } : t)),
+      )
+    }
+    setNav({ back: await frame.canGoBack(), forward: await frame.canGoForward() })
+  }, [])
 
   const openTab = useCallback(
-    (url: string, activate = true) => {
-      const container = contentRef.current
+    (url: string, opts: { space?: string; pinned?: boolean; activate?: boolean } = {}) => {
+      const container = cardRef.current
       if (!container) return
+      const target = opts.space ?? spaceId
+      const partition = (SPACES.find((s) => s.id === target) ?? SPACES[0]!).partition
       const id = ++seq.current
-      const frame = createFrame(url, PARTITION, container, styles.frameActive!, () => {
+      const frame = createFrame(url, partition, container, styles.frameActive!, () => {
         void sync(id)
       })
       frames.current.set(id, frame)
-      setTabs((ts) => [...ts, { id, title: url, url }])
-      if (activate) setActiveId(id)
+      setTabs((ts) => [...ts, { id, spaceId: target, title: url, url, pinned: !!opts.pinned }])
+      if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
       log(`tab ${id} → ${url}`)
     },
-    [log, sync],
+    [spaceId, log, sync],
   )
 
   const closeTab = useCallback(
@@ -84,12 +114,16 @@ export function App() {
       frames.current.get(id)?.destroy()
       frames.current.delete(id)
       setTabs((ts) => {
-        const i = ts.findIndex((t) => t.id === id)
+        const victim = ts.find((t) => t.id === id)
         const next = ts.filter((t) => t.id !== id)
-        setActiveId((current) => {
-          if (current !== id) return current
-          return (next[i] ?? next[i - 1])?.id ?? null
-        })
+        if (victim) {
+          const siblings = next.filter((t) => t.spaceId === victim.spaceId)
+          setActiveBySpace((m) =>
+            m[victim.spaceId] === id
+              ? { ...m, [victim.spaceId]: siblings[siblings.length - 1]?.id ?? null }
+              : m,
+          )
+        }
         return next
       })
       log(`closed tab ${id}`)
@@ -97,7 +131,7 @@ export function App() {
     [log],
   )
 
-  // Boot: one flow-md tab, one third-party tab to prove arbitrary sites load.
+  // Boot: flow-md pinned in the Vault space, a site in Web.
   useEffect(() => {
     if (booted.current) return
     booted.current = true
@@ -107,30 +141,53 @@ export function App() {
         ? `controlledframe: ${controlledFrame.detail}`
         : `controlledframe MISSING — ${controlledFrame.detail}`,
     )
-    openTab(HOME)
-    openTab('https://example.com', false)
-    // Boot once; openTab is stable but we explicitly want no re-runs.
+    openTab(HOME, { space: 'vault', pinned: true })
+    openTab('https://example.com', { space: 'web', activate: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Show only the active guest.
+  // A space with tabs but no active one (opened in the background, or its
+  // active tab was closed) should show its first tab rather than a blank card.
+  useEffect(() => {
+    if (activeBySpace[spaceId] != null) return
+    const first = tabs.find((t) => t.spaceId === spaceId)
+    if (first) setActiveBySpace((m) => ({ ...m, [spaceId]: first.id }))
+  }, [spaceId, tabs, activeBySpace])
+
+  // Only the active tab of the active space is visible.
   useEffect(() => {
     for (const [id, frame] of frames.current) frame.setActive(id === activeId)
     if (activeId !== null) void sync(activeId)
   }, [activeId, tabs.length, sync])
 
-  // Keep the address bar in step unless the user is typing in it.
-  useEffect(() => {
-    if (!editing.current) setDraft(active?.url ?? '')
-  }, [active?.url])
+  const go = useCallback(
+    (value: string, asNewTab: boolean) => {
+      const url = normalizeUrl(value, HOME)
+      if (asNewTab || !activeFrame || activeId === null) {
+        openTab(url)
+      } else {
+        activeFrame.navigate(url)
+        setTabs((ts) => ts.map((t) => (t.id === activeId ? { ...t, url } : t)))
+        log(`navigate → ${url}`)
+      }
+    },
+    [activeFrame, activeId, openTab, log],
+  )
 
-  // Browser-ish shortcuts.
+  // Arc-ish shortcuts: ⌘T new tab, ⌘L edit address, ⌘S sidebar, ⌘W close.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return setCommand((c) => ({ ...c, open: false }))
       if (!(e.metaKey || e.ctrlKey)) return
       if (e.key === 't') {
         e.preventDefault()
-        openTab(HOME)
+        setCommand({ open: true, value: '', newTab: true })
+      } else if (e.key === 'l') {
+        e.preventDefault()
+        setCommand({ open: true, value: active?.url ?? '', newTab: false })
+      } else if (e.key === 's') {
+        e.preventDefault()
+        setSidebar((s) => !s)
       } else if (e.key === 'w') {
         e.preventDefault()
         if (activeId !== null) closeTab(activeId)
@@ -138,15 +195,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeId, closeTab, openTab])
-
-  const go = (value: string) => {
-    if (!activeFrame || activeId === null) return
-    const url = normalizeUrl(value, HOME)
-    activeFrame.navigate(url)
-    setTabs((ts) => ts.map((t) => (t.id === activeId ? { ...t, url } : t)))
-    log(`navigate → ${url}`)
-  }
+  }, [active?.url, activeId, closeTab])
 
   const capture = async () => {
     if (!activeFrame) return
@@ -155,107 +204,174 @@ export function App() {
     log(info ? `capture → ${JSON.stringify(info)}` : 'capture failed (no executeScript)')
   }
 
+  const renderTab = (tab: Tab) => (
+    <button
+      key={tab.id}
+      type="button"
+      className={`${styles.tab} ${tab.id === activeId ? styles.active : ''}`}
+      onClick={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
+      title={tab.url}
+    >
+      <span className={styles.dot} />
+      <span className={styles.tabLabel}>{tab.title}</span>
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-label={tab.pinned ? 'unpin tab' : 'pin tab'}
+        className={styles.tabAction}
+        onClick={(e) => {
+          e.stopPropagation()
+          setTabs((ts) => ts.map((t) => (t.id === tab.id ? { ...t, pinned: !t.pinned } : t)))
+        }}
+      >
+        {tab.pinned ? '▼' : '▲'}
+      </span>
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-label="close tab"
+        className={styles.tabAction}
+        onClick={(e) => {
+          e.stopPropagation()
+          closeTab(tab.id)
+        }}
+      >
+        ✕
+      </span>
+    </button>
+  )
+
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} style={{ ['--hue' as string]: space.hue }}>
       {!controlledFrame.available && (
         <div className={styles.banner}>
-          {`<controlledframe> unavailable — ${controlledFrame.detail}\n` +
-            'Falling back to <iframe>; most sites will refuse to load.\n' +
-            'Run: mise run iwa'}
+          {`<controlledframe> unavailable — ${controlledFrame.detail} · run: mise run iwa`}
         </div>
       )}
 
-      <nav className={styles.tabs} aria-label="tabs">
-        <div className={styles.strip}>
-          {tabs.map((tab) => (
+      <aside className={`${styles.sidebar} ${sidebar ? '' : styles.collapsed}`}>
+        <div className={styles.navRow}>
+          <button
+            type="button"
+            className={styles.iconButton}
+            title="toggle sidebar (⌘S)"
+            onClick={() => setSidebar((s) => !s)}
+          >
+            ▏
+          </button>
+          <button
+            type="button"
+            className={styles.iconButton}
+            disabled={!nav.back}
+            title="back"
+            onClick={() => activeFrame?.back()}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            className={styles.iconButton}
+            disabled={!nav.forward}
+            title="forward"
+            onClick={() => activeFrame?.forward()}
+          >
+            ›
+          </button>
+          <button
+            type="button"
+            className={styles.iconButton}
+            title="reload"
+            onClick={() => activeFrame?.reload()}
+          >
+            ⟳
+          </button>
+          <span className={styles.spacer} />
+          <button
+            type="button"
+            className={styles.iconButton}
+            title="capture page (archive test)"
+            onClick={() => void capture()}
+          >
+            ⤓
+          </button>
+        </div>
+
+        <button
+          type="button"
+          className={styles.address}
+          title="edit address (⌘L)"
+          onClick={() => setCommand({ open: true, value: active?.url ?? '', newTab: false })}
+        >
+          {active ? active.url.replace(/^https?:\/\//, '') : 'new tab'}
+        </button>
+
+        {pinned.length > 0 && (
+          <>
+            <div className={styles.sectionLabel}>Pinned</div>
+            <div className={styles.tabList}>{pinned.map(renderTab)}</div>
+          </>
+        )}
+
+        <div className={styles.sectionLabel}>{space.name}</div>
+        <div className={styles.tabList}>
+          {loose.map(renderTab)}
+          <button
+            type="button"
+            className={styles.newTab}
+            onClick={() => setCommand({ open: true, value: '', newTab: true })}
+          >
+            + New tab
+          </button>
+        </div>
+
+        <span className={styles.spacer} />
+
+        <div className={styles.spaces}>
+          {SPACES.map((s) => (
             <button
-              key={tab.id}
+              key={s.id}
               type="button"
-              className={`${styles.tab} ${tab.id === activeId ? styles.active : ''}`}
-              onClick={() => setActiveId(tab.id)}
-              title={tab.url}
+              className={`${styles.space} ${s.id === spaceId ? styles.activeSpace : ''}`}
+              onClick={() => setSpaceId(s.id)}
+              title={`${s.name} — separate container (${s.partition})`}
             >
-              <span className={styles.label}>{tab.title}</span>
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label="close tab"
-                className={styles.close}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  closeTab(tab.id)
-                }}
-              >
-                ✕
-              </span>
+              {s.name}
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.newTab}`}
-          onClick={() => openTab(HOME)}
-          title="new tab (⌘T)"
-        >
-          +
-        </button>
-      </nav>
+      </aside>
 
-      <header className={styles.bar}>
-        <button
-          type="button"
-          className={styles.button}
-          disabled={!nav.back}
-          onClick={() => activeFrame?.back()}
-          title="back"
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          className={styles.button}
-          disabled={!nav.forward}
-          onClick={() => activeFrame?.forward()}
-          title="forward"
-        >
-          ›
-        </button>
-        <button
-          type="button"
-          className={styles.button}
-          onClick={() => activeFrame?.reload()}
-          title="reload"
-        >
-          ⟳
-        </button>
-        <input
-          className={styles.url}
-          value={draft}
-          spellCheck={false}
-          placeholder="url…"
-          onFocus={() => {
-            editing.current = true
-          }}
-          onBlur={() => {
-            editing.current = false
-          }}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              go(draft)
-              e.currentTarget.blur()
-            }
-          }}
-        />
-        <button type="button" className={styles.button} onClick={() => void capture()}>
-          capture
-        </button>
-        <button type="button" className={styles.button} onClick={() => setShowLog((s) => !s)}>
-          log
-        </button>
-      </header>
+      <main className={styles.stage}>
+        <div className={styles.card} ref={cardRef} />
+      </main>
 
-      <main className={styles.content} ref={contentRef} />
+      {command.open && (
+        <div
+          className={styles.overlay}
+          onClick={() => setCommand((c) => ({ ...c, open: false }))}
+        >
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: click-through guard */}
+          <div className={styles.command} onClick={(e) => e.stopPropagation()}>
+            <input
+              className={styles.commandInput}
+              autoFocus
+              spellCheck={false}
+              placeholder={command.newTab ? 'Search or enter address…' : 'Edit address…'}
+              value={command.value}
+              onChange={(e) => setCommand((c) => ({ ...c, value: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  go(command.value, command.newTab)
+                  setCommand((c) => ({ ...c, open: false }))
+                }
+              }}
+            />
+            <div className={styles.commandHint}>
+              {command.newTab ? 'Opens in a new tab' : 'Navigates this tab'} · Esc to dismiss
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLog && (
         <aside className={styles.log} aria-label="log">
@@ -264,7 +380,9 @@ export function App() {
               // Log lines are append-only and never reordered.
               // biome-ignore lint/suspicious/noArrayIndexKey: see above
               key={i}
-              className={line.includes('blocked') ? styles.ok : line.includes('MISSING') ? styles.err : ''}
+              className={
+                line.includes('blocked') ? styles.ok : line.includes('MISSING') ? styles.err : ''
+              }
             >
               {line}
             </p>
