@@ -1,7 +1,7 @@
 {
-  "name": "flow-md IWA shell",
-  "short_name": "flow-md shell",
-  "description": "Prototype: Controlled Frame as the canvas-browser primitive",
+  "name": "flow-md",
+  "short_name": "flow-md",
+  "description": "A browser and a markdown vault in one window",
   "version": "0.0.1",
   "id": "/",
   "start_url": "/",
