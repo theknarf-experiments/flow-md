@@ -21,6 +21,7 @@
 
 import type { Cell, EdbDef, Fact, WritableRel } from '@flow-md/plugin-api'
 import { parseAnnotated, renderScalar, type Provenance, type Span } from './parse.js'
+import { MARKDOWN_DERIVED } from './rules.js'
 import { MARKDOWN_SCHEMA } from './schema.js'
 
 interface RelSyntax {
@@ -45,67 +46,26 @@ function checkbox(status: Cell | undefined): string {
 }
 
 const SYNTAX: Record<string, RelSyntax> = {
-  Task: {
-    cols: ['status', 'text'],
-    render: ([, status, text]) => `- [${checkbox(status)}] ${literal(text, 'Task text')}`,
-    deletable: true,
-    pathAttr: 'path',
-  },
-  Heading: {
-    // Level is as writable as text: the span is the run of #s.
-    cols: ['level', 'text'],
-    render: ([, level, text]) => `${'#'.repeat(clampLevel(level))} ${literal(text, 'Heading text')}`,
-    deletable: true,
-    pathAttr: 'path',
-  },
-  Link: {
-    cols: ['dst'],
-    render: ([, dst, kind]) => (kind === 'wiki' ? `- [[${dst}]]` : `- [${dst}](${dst})`),
-    deletable: true,
-    pathAttr: 'src',
-  },
-  LinkLabel: {
-    cols: ['dst', 'text'],
-    render: ([, dst, text]) => `- [${text}](${dst})`,
-    deletable: true,
-    pathAttr: 'src',
-  },
-  Tag: {
-    cols: ['tag'],
-    render: ([, tag]) => `#${tag}`,
-    deletable: true,
-    pathAttr: 'path',
-  },
-  CodeBlock: {
-    cols: ['lang'],
-    render: ([, lang]) => `\`\`\`${lang}\n\`\`\``,
-    deletable: true,
-    pathAttr: 'path',
-  },
-  // --- the syntax tree ------------------------------------------------------
+  // --- the tree ------------------------------------------------------------
   //
-  // Writing through these is the structure-preserving path: MdNodeText of a
-  // text node is exactly the characters it occupies, so rewriting it leaves
-  // everything around it — emphasis, links, the rest of the sentence — alone.
-  MdNodeText: {
-    cols: ['text'],
-    pathAttr: 'path',
-  },
-  MdProp: {
-    cols: ['value'],
-    pathAttr: 'path',
-  },
-  MdPropNum: {
-    cols: ['num'],
-    pathAttr: 'path',
-  },
+  // These are what the parser reads out of the file, so these are what can be
+  // rewritten in place. An edit to a view — a Task's text, a Heading's level —
+  // arrives here as an edit to one of these, traced through the rules by the
+  // vault's lineage.
+  MdNodeText: { cols: ['text'], pathAttr: 'path' },
+  MdProp: { cols: ['value'], pathAttr: 'path' },
+  MdPropNum: { cols: ['num'], pathAttr: 'path' },
   MdNode: {
     // Nothing about a node is rewritable in place — its type and position are
-    // what the syntax *is*. It can be removed, which takes its subtree.
+    // what the syntax *is*. It can be removed, which takes its subtree, and
+    // that is how a view row is deleted: lineage traces the row back to the
+    // node behind it.
     cols: [],
     deletable: true,
     pathAttr: 'path',
   },
+
+  // --- the two parsed languages --------------------------------------------
   Frontmatter: {
     cols: ['value'],
     insert: (content, [, key, value]) => insertFrontmatter(content, String(key), String(value)),
@@ -118,13 +78,69 @@ const SYNTAX: Record<string, RelSyntax> = {
     deletable: true,
     pathAttr: 'path',
   },
+  MdWikiLink: {
+    cols: ['dst', 'text'],
+    render: ([, dst]) => `- [[${dst}]]`,
+    deletable: true,
+    pathAttr: 'path',
+  },
+  MdInlineTag: {
+    cols: ['tag'],
+    render: ([, tag]) => `#${tag}`,
+    deletable: true,
+    pathAttr: 'path',
+  },
+
+  // --- views ---------------------------------------------------------------
+  //
+  // A view has no source text of its own, so it can't be rewritten or located
+  // — but it can be *written*: rendering `- [ ] text` doesn't require knowing
+  // where an existing one is. Deleting one goes through lineage to its node.
+  Task: {
+    cols: [],
+    render: ([, status, text]) => `- [${checkbox(status)}] ${literal(text, 'Task text')}`,
+    pathAttr: 'path',
+  },
+  Heading: {
+    cols: [],
+    render: ([, level, text]) =>
+      `${'#'.repeat(clampLevel(level))} ${literal(text, 'Heading text')}`,
+    pathAttr: 'path',
+  },
+  Link: {
+    cols: [],
+    render: ([, dst, kind]) => (kind === 'wiki' ? `- [[${dst}]]` : `- [${dst}](${dst})`),
+    pathAttr: 'src',
+  },
+  LinkLabel: {
+    cols: [],
+    render: ([, dst, text]) => `- [${text}](${dst})`,
+    pathAttr: 'src',
+  },
+  CodeBlock: {
+    cols: [],
+    render: ([, lang]) => `\`\`\`${lang}\n\`\`\``,
+    pathAttr: 'path',
+  },
+  Tag: {
+    cols: [],
+    render: ([, tag]) => `#${tag}`,
+    pathAttr: 'path',
+  },
 }
 
 /** Column names per relation, from the schema — so `cols` above can't name a
  *  column that doesn't exist, and indices never drift from the EDB. */
 const ATTRS: Record<string, string[]> = Object.fromEntries(
-  MARKDOWN_SCHEMA.map((def: EdbDef) => [def.name, def.attrs.map(([name]) => name)]),
+  [...MARKDOWN_SCHEMA, ...MARKDOWN_DERIVED].map((def: EdbDef) => [
+    def.name,
+    def.attrs.map(([name]) => name),
+  ]),
 )
+
+/** True for relations the parser actually emits. A view can be written but
+ *  never verified against a reparse — the plugin doesn't evaluate rules. */
+const isFact = (rel: string): boolean => MARKDOWN_SCHEMA.some((d) => d.name === rel)
 
 export const MARKDOWN_WRITABLE: WritableRel[] = Object.entries(SYNTAX).map(
   ([rel, syntax]) => ({
@@ -175,7 +191,7 @@ export function updateMarkdownFact(
   for (const edit of edits.sort((a, b) => b.span[0] - a.span[0])) {
     out = out.slice(0, edit.span[0]) + edit.text + out.slice(edit.span[1])
   }
-  return verify(out, newFact, 'produce')
+  return verify(content, out, newFact, 'produce')
 }
 
 /** Remove the source behind a fact: the list item, the heading line, the
@@ -194,7 +210,7 @@ export function deleteMarkdownFact(content: string, fact: Fact): string {
   const spliced = content.slice(0, start) + content.slice(end)
   // Entries that took their own newline with them (frontmatter) are done.
   const out = content[end - 1] === '\n' ? spliced : dropBlankLineAt(spliced, start)
-  return verify(out, fact, 'remove')
+  return verify(content, out, fact, 'remove')
 }
 
 /** Add source deriving a fact. Locator columns the caller can't know yet
@@ -202,7 +218,7 @@ export function deleteMarkdownFact(content: string, fact: Fact): string {
  *  line and 0 appends. */
 export function insertMarkdownFact(content: string, fact: Fact): string {
   const syntax = syntaxFor(fact.rel)
-  if (syntax.insert) return verify(syntax.insert(content, fact.row), fact, 'produce')
+  if (syntax.insert) return verify(content, syntax.insert(content, fact.row), fact, 'produce')
   if (!syntax.render) {
     throw new Error(`relation "${fact.rel}" is not insertable by the markdown plugin`)
   }
@@ -222,7 +238,7 @@ export function insertMarkdownFact(content: string, fact: Fact): string {
   // Append: before the trailing newline if the file ends with one.
   if (lines[lines.length - 1] === '') lines.splice(lines.length - 1, 0, rendered)
   else lines.push(rendered)
-  return verify(lines.join('\n'), fact, 'produce')
+  return verify(content, lines.join('\n'), fact, 'produce')
 }
 
 /** Reparse the rewritten file and check it says what the edit claimed.
@@ -236,28 +252,36 @@ export function insertMarkdownFact(content: string, fact: Fact): string {
  *
  *  Locator columns the caller couldn't know (a line of 0 on insert) are
  *  ignored when matching. */
-function verify(out: string, fact: Fact, mode: 'produce' | 'remove'): string {
+function verify(
+  before: string,
+  out: string,
+  fact: Fact,
+  mode: 'produce' | 'remove',
+): string {
+  if (!isFact(fact.rel)) return out
   const path = String(fact.row[0] ?? '')
-  const { facts } = parseAnnotated(path, out)
   const attrs = ATTRS[fact.rel] ?? []
-  const found = facts.some(
-    (f) =>
-      f.rel === fact.rel &&
-      f.row.length === fact.row.length &&
-      f.row.every((cell, i) => {
-        const want = fact.row[i]
-        if (attrs[i] === 'line' && Number(want) === 0) return true
-        return String(cell) === String(want)
-      }),
-  )
-  if (mode === 'produce' && !found) {
+  const matches = (f: Fact): boolean =>
+    f.rel === fact.rel &&
+    f.row.length === fact.row.length &&
+    f.row.every((cell, i) => {
+      const want = fact.row[i]
+      // A locator the caller couldn't know yet (a line of 0 on insert).
+      if (attrs[i] === 'line' && Number(want) === 0) return true
+      return String(cell) === String(want)
+    })
+  if (mode === 'produce' && !parseAnnotated(path, out).facts.some(matches)) {
     throw new Error(
       `the edit doesn't round-trip: ${fact.rel}(${fact.row.join(', ')}) is not ` +
         'what the file says afterwards — the value changes the markdown structure',
     )
   }
-  if (mode === 'remove' && found) {
-    throw new Error(`${fact.rel}(${fact.row.join(', ')}) survived the deletion`)
+  // Deletion can't be checked by asking whether the fact is gone: ids, lines
+  // and offsets are positions, and positions renumber. Removing the first of
+  // two identical links leaves a row that reads exactly like the one just
+  // deleted. What can be checked is that something actually went.
+  if (mode === 'remove' && out.length >= before.length) {
+    throw new Error(`${fact.rel}(${fact.row.join(', ')}) left the file unchanged`)
   }
   return out
 }

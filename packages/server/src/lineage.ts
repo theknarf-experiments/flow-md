@@ -12,10 +12,13 @@
 // report as read-only.
 //
 // Resolving an edit substitutes the row's values into the traced atom to
-// reconstruct the source fact. Positions the row can't pin — placeholders
-// (`_`) and rule-local variables projected away by unfolding — are recovered
-// by matching the partial row against the current fact set and must match
-// exactly one fact.
+// reconstruct the source fact. Positions the row can't pin directly are
+// solved for: an atom that already matches exactly one fact pins the
+// variables it shares with the others, and that repeats until nothing new is
+// learned. A `Task(path, status, text, line)` row names no node, but its line
+// pins the list item, the item pins its paragraph, and the paragraph pins the
+// text to rewrite. Placeholders (`_`) stay anonymous — two of them are not
+// the same thing — and anything still unpinned must match exactly one fact.
 
 import type { Cell, DataType, Fact } from '@flow-md/plugin-api'
 import { parseProgram } from '@flow-ts/parsing'
@@ -76,12 +79,9 @@ type ParsedArg =
   | { kind: 'Const'; value: { kind: string; value: Cell } }
   | { kind: 'Placeholder' }
 
-function toLArg(arg: ParsedArg, subst?: Map<string, LArg>): LArg {
+function toLArg(arg: ParsedArg): LArg {
   if (arg.kind === 'Const') return { kind: 'Cell', cell: arg.value.value }
-  if (arg.kind === 'Var') {
-    if (!subst) return { kind: 'Var', name: arg.name }
-    return subst.get(arg.name) ?? { kind: 'Unknown' }
-  }
+  if (arg.kind === 'Var') return { kind: 'Var', name: arg.name }
   return { kind: 'Unknown' }
 }
 
@@ -101,6 +101,12 @@ function expandAtoms(
   }
 
   const out: LAtom[] = []
+  // Rule-local variables get a name unique to the unfolding that introduced
+  // them. They aren't query columns, so nothing can pin them directly — but
+  // keeping them *linked* is what lets a value found for one atom pin the
+  // others that share them. `Task(p, s, t, l)` unfolds to atoms joined on the
+  // node id; erase the id and the text atom is left matching on text alone.
+  let scope = 0
   const expand = (rel: string, args: LArg[], stack: Set<string>): void => {
     if (schema.names.has(rel)) {
       out.push({ rel, args })
@@ -117,14 +123,26 @@ function expandAtoms(
     }
     if (headVars.length !== args.length) return
     const subst = new Map(headVars.map((v, i) => [v, args[i]!]))
+    const local = new Map<string, LArg>()
+    const prefix = `${rel}#${scope++}:`
+    const inScope = (a: ParsedArg): LArg => {
+      if (a.kind === 'Const') return { kind: 'Cell', cell: a.value.value }
+      // A placeholder is anonymous by definition: two `_`s are not the same
+      // thing, so they stay unknown.
+      if (a.kind !== 'Var') return { kind: 'Unknown' }
+      const fromHead = subst.get(a.name)
+      if (fromHead) return fromHead
+      let v = local.get(a.name)
+      if (!v) {
+        v = { kind: 'Var', name: prefix + a.name }
+        local.set(a.name, v)
+      }
+      return v
+    }
     stack.add(rel)
     for (const p of rule.rhs) {
       if (p.kind !== 'Atom') continue
-      expand(
-        p.atom.name,
-        (p.atom.args as ParsedArg[]).map((a) => toLArg(a, subst)),
-        stack,
-      )
+      expand(p.atom.name, (p.atom.args as ParsedArg[]).map(inScope), stack)
     }
     stack.delete(rel)
   }
@@ -214,9 +232,8 @@ export function resolveUpdate(opts: {
     throw new Error(`query has no column "${column}"`)
   }
 
-  const occ = occurrences(
-    expandAtoms(source, schema, opts.rules ?? []),
-  ).get(column) ?? []
+  const atoms = expandAtoms(source, schema, opts.rules ?? [])
+  const occ = occurrences(atoms).get(column) ?? []
   if (occ.length === 0) {
     throw new Error(
       `column "${column}" cannot be traced to an EDB relation`,
@@ -239,7 +256,11 @@ export function resolveUpdate(opts: {
     throw new Error(`${atom.rel}.${attrName} is not writable by any plugin`)
   }
 
-  const row = pinRow(atom, colIdx, oldRow, opts.findFacts)
+  const row = pinRow(
+    atom,
+    solveBindings(atoms, colIdx, oldRow, opts.findFacts),
+    opts.findFacts,
+  )
   const newRow = [...row]
   newRow[pos] = coerce(value, attrType, `${atom.rel}.${attrName}`)
   return {
@@ -249,22 +270,91 @@ export function resolveUpdate(opts: {
   }
 }
 
-/** Reconstruct the full source row of `atom`: constants and row-bound
- *  variables pin cells; unknowns are recovered from the current facts and
- *  must match exactly one. */
-function pinRow(
-  atom: LAtom,
+/** What the row itself says, plus everything that follows from it.
+ *
+ *  Seeded with the query's own columns, then grown: any atom that already
+ *  matches exactly one fact pins the variables it shares with the others.
+ *  Repeat until nothing new is learned. This is what makes a view writable —
+ *  the row of a `Task(path, status, text, line)` query names no node id, but
+ *  the line pins the list item, the item pins its paragraph, and the
+ *  paragraph pins the text that has to be rewritten. */
+function solveBindings(
+  atoms: LAtom[],
   colIdx: Map<string, number>,
   oldRow: Cell[],
   findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][],
-): Cell[] {
-  const partial: Array<Cell | null> = atom.args.map((arg) => {
-    if (arg.kind === 'Cell') return arg.cell
-    if (arg.kind === 'Var' && colIdx.has(arg.name)) {
-      return oldRow[colIdx.get(arg.name)!]!
+): Map<string, Cell> {
+  const bound = new Map<string, Cell>()
+  for (const [name, i] of colIdx) {
+    const cell = oldRow[i]
+    if (cell !== undefined) bound.set(name, cell)
+  }
+
+  // What each unbound variable could still be. An atom narrows its variables
+  // to the values its matching facts actually contain, and a variable shared
+  // with another atom is narrowed by both: the text of a task matches a
+  // paragraph *and* the text node inside it, but only one of them is a
+  // paragraph, so the pair pins it. One candidate left means it's known.
+  const candidates = new Map<string, Set<Cell>>()
+  const narrow = (name: string, values: Set<Cell>): boolean => {
+    const prior = candidates.get(name)
+    const next = prior ? new Set([...values].filter((v) => prior.has(v))) : values
+    candidates.set(name, next)
+    const only = next.size === 1 ? [...next][0] : undefined
+    if (only === undefined || bound.has(name)) return false
+    bound.set(name, only)
+    return true
+  }
+
+  for (let pass = 0; pass < atoms.length + 1; pass++) {
+    let learned = false
+    for (const atom of atoms) {
+      const partial = partialRow(atom, bound)
+      const matches = findFacts(atom.rel, partial)
+      // Every atom of the body has to still hold. One that matches nothing
+      // means the row is describing a file that has moved on — and without
+      // this check a row could name a line that no longer exists and still
+      // resolve, through the atoms that happen to match.
+      if (matches.length === 0) {
+        throw new Error(`no current ${atom.rel} fact matches this row (stale result?)`)
+      }
+      if (partial.every((c) => c !== null)) continue
+      const seen = new Map<string, Set<Cell>>()
+      for (const row of matches) {
+        atom.args.forEach((arg, i) => {
+          const cell = row[i]
+          if (arg.kind !== 'Var' || bound.has(arg.name) || cell === undefined) return
+          const set = seen.get(arg.name) ?? new Set<Cell>()
+          set.add(cell)
+          seen.set(arg.name, set)
+        })
+      }
+      for (const [name, values] of seen) {
+        if (narrow(name, values)) learned = true
+      }
     }
+    if (!learned) break
+  }
+  return bound
+}
+
+function partialRow(atom: LAtom, bound: Map<string, Cell>): Array<Cell | null> {
+  return atom.args.map((arg) => {
+    if (arg.kind === 'Cell') return arg.cell
+    if (arg.kind === 'Var') return bound.get(arg.name) ?? null
     return null
   })
+}
+
+/** Reconstruct the full source row of `atom`: bound variables and constants
+ *  pin cells; anything left is recovered from the current facts and must
+ *  match exactly one. */
+function pinRow(
+  atom: LAtom,
+  bound: Map<string, Cell>,
+  findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][],
+): Cell[] {
+  const partial = partialRow(atom, bound)
   if (partial.every((c) => c !== null)) return partial as Cell[]
 
   const matches = findFacts(atom.rel, partial)
@@ -300,7 +390,11 @@ export function resolveFact(opts: {
       `row has ${row.length} cells but the query has ${columns.length} columns`,
     )
   }
-  const atoms = expandAtoms(source, schema, opts.rules ?? []).filter(
+  // Bindings come from the whole body; the filter only chooses which atom is
+  // the target. A delete on a view row is pinned by the atoms around it just
+  // as an update is.
+  const all = expandAtoms(source, schema, opts.rules ?? [])
+  const atoms = all.filter(
     (a) => opts.accepts(a.rel) && (!opts.rel || a.rel === opts.rel),
   )
   if (atoms.length === 0) {
@@ -310,13 +404,21 @@ export function resolveFact(opts: {
         : 'the query reaches no relation that supports this operation',
     )
   }
-  if (atoms.length > 1) {
-    const rels = [...new Set(atoms.map((a) => a.rel))].join(', ')
-    throw new Error(`several atoms qualify (${rels}); pass "rel" to disambiguate`)
+  const rels = [...new Set(atoms.map((a) => a.rel))]
+  if (rels.length > 1) {
+    throw new Error(`several atoms qualify (${rels.join(', ')}); pass "rel" to disambiguate`)
   }
+  // Several atoms of the *same* relation is the ordinary case for a view: a
+  // task is a list item that contains a paragraph, and both are nodes. Body
+  // order decides — the subject of a rule is what it starts from, so removing
+  // a task removes the item rather than the paragraph inside it.
   const atom = atoms[0]!
   const colIdx = new Map(columns.map((c, i) => [c, i]))
-  const cells = pinRow(atom, colIdx, row, opts.findFacts)
+  const cells = pinRow(
+    atom,
+    solveBindings(all, colIdx, row, opts.findFacts),
+    opts.findFacts,
+  )
   return { rel: atom.rel, row: cells }
 }
 

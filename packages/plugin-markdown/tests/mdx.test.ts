@@ -23,19 +23,15 @@ describe('parseMdx', () => {
   const parsed = parseMdx('board.mdx', DOC, 1)
 
   it('extracts the same fact kinds as markdown', () => {
+    const nodes = parsed.facts.filter((f) => f.rel === 'MdNode')
+    expect(nodes.map((f) => f.row[3])).toContain('heading')
     expect(parsed.facts).toContainEqual({
-      rel: 'Heading',
-      row: ['board.mdx', 1, 'Board', 1],
+      rel: 'MdWikiLink',
+      row: ['board.mdx', 'wiki link', 'wiki link', 7],
     })
-    expect(parsed.facts).toContainEqual({
-      rel: 'Task',
-      row: ['board.mdx', 'open', 'try mdx', 5],
-    })
-    expect(parsed.facts).toContainEqual({
-      rel: 'Link',
-      row: ['board.mdx', 'wiki link', 'wiki'],
-    })
-    expect(parsed.facts).toContainEqual({ rel: 'Tag', row: ['board.mdx', 'atag'] })
+    expect(parsed.facts.some((f) => f.rel === 'MdInlineTag' && f.row[1] === 'atag')).toBe(
+      true,
+    )
   })
 
   it('collects query blocks with their fence line', () => {

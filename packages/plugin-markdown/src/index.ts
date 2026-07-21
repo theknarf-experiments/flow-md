@@ -1,9 +1,11 @@
 // The markdown plugin: claims `.md` files, contributes the markdown EDB
-// schema, parses each file into facts plus `datalog`/`datalog-query`
-// code blocks, and can write a fact edit back into the source text.
+// schema *and the rules that define the friendly relations over it*, parses
+// each file into facts plus `datalog`/`datalog-query` code blocks, and can
+// write a fact edit back into the source text.
 
 import type { Plugin } from '@flow-md/plugin-api'
 import { QUERY_LANG, RULE_LANG, parseMarkdown, parseMdx } from './parse.js'
+import { MARKDOWN_DERIVED, MARKDOWN_RULES } from './rules.js'
 import { MARKDOWN_SCHEMA } from './schema.js'
 import {
   MARKDOWN_WRITABLE,
@@ -16,6 +18,8 @@ export const markdownPlugin: Plugin = {
   name: 'markdown',
   extensions: ['.md'],
   schema: MARKDOWN_SCHEMA,
+  rules: MARKDOWN_RULES,
+  derived: MARKDOWN_DERIVED,
   codeBlockLangs: { rule: RULE_LANG, query: QUERY_LANG },
   parse: parseMarkdown,
   writable: MARKDOWN_WRITABLE,
@@ -31,6 +35,8 @@ export const mdxPlugin: Plugin = {
   name: 'mdx',
   extensions: ['.mdx'],
   schema: MARKDOWN_SCHEMA,
+  rules: MARKDOWN_RULES,
+  derived: MARKDOWN_DERIVED,
   codeBlockLangs: { rule: RULE_LANG, query: QUERY_LANG },
   parse: parseMdx,
   writable: MARKDOWN_WRITABLE,
@@ -42,6 +48,8 @@ export const mdxPlugin: Plugin = {
 export {
   parseMarkdown,
   parseMdx,
+  MARKDOWN_DERIVED,
+  MARKDOWN_RULES,
   MARKDOWN_SCHEMA,
   MARKDOWN_WRITABLE,
   deleteMarkdownFact,

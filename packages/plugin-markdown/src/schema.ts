@@ -1,7 +1,10 @@
-// EDB schema contributed by the markdown plugin. Every relation here is
-// emitted by parseMarkdown; together they describe the structure of a vault
-// of markdown notes (files, headings, links, tags, frontmatter, code blocks,
-// task-list items).
+// EDB schema contributed by the markdown plugin: what the parser *reads out
+// of a file*, as opposed to what can be said about it.
+//
+// That's the tree (MdNode and friends) plus the two things a rule can't
+// derive — YAML frontmatter, and the wiki-links and #tags scraped from text
+// with a regex. Heading, Task, Link, Tag and the rest are views over these;
+// see rules.ts.
 //
 // Attribute order is load-bearing: update.ts maps a relation's writable
 // column names back to row indices through this table.
@@ -60,35 +63,8 @@ export const MARKDOWN_SCHEMA: EdbDef[] = [
   },
 
   {
-    name: 'Heading',
-    attrs: [
-      ['path', 'string'],
-      ['level', 'number'],
-      ['text', 'string'],
-      ['line', 'number'],
-    ],
-  },
-  {
-    name: 'Link',
-    attrs: [['src', 'string'], ['dst', 'string'], ['kind', 'string']],
-  },
-  {
-    // The same links, carrying what the reader actually sees and where it
-    // sits. Separate from Link so the edge relation stays a plain graph to
-    // join on, and so `Link(src, dst, kind)` keeps working: join the two when
-    // you want names, e.g.
-    //   Tab(dst, text, line) :-
-    //     Link(p, dst, "md"), LinkLabel(p, dst, text, line).
-    name: 'LinkLabel',
-    attrs: [
-      ['src', 'string'],
-      ['dst', 'string'],
-      ['text', 'string'],
-      ['line', 'number'],
-    ],
-  },
-  { name: 'Tag', attrs: [['path', 'string'], ['tag', 'string']] },
-  {
+    // Frontmatter is YAML — another language, parsed by the plugin rather
+    // than derived from the tree, since Datalog can't parse.
     name: 'Frontmatter',
     attrs: [['path', 'string'], ['key', 'string'], ['value', 'string']],
   },
@@ -97,17 +73,19 @@ export const MARKDOWN_SCHEMA: EdbDef[] = [
     attrs: [['path', 'string'], ['key', 'string'], ['num', 'float']],
   },
   {
-    name: 'CodeBlock',
-    attrs: [['path', 'string'], ['lang', 'string'], ['line', 'number']],
-  },
-  {
-    // GFM task-list items: status is "open" (- [ ]) or "closed" (- [x]).
-    name: 'Task',
+    // `[[wiki]]` links and #tags are scraped from text with a regex, which is
+    // likewise not something a rule can do. The friendly Link/Tag relations
+    // are rules that read these alongside the tree — see rules.ts.
+    name: 'MdWikiLink',
     attrs: [
       ['path', 'string'],
-      ['status', 'string'],
+      ['dst', 'string'],
       ['text', 'string'],
       ['line', 'number'],
     ],
+  },
+  {
+    name: 'MdInlineTag',
+    attrs: [['path', 'string'], ['tag', 'string'], ['line', 'number']],
   },
 ]

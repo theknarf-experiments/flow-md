@@ -44,10 +44,30 @@ describe('parseMarkdown', () => {
     ])
   })
 
-  it('emits headings with level, text and line', () => {
-    const headings = rows(parsed.facts, 'Heading')
-    expect(headings).toContainEqual(['notes/my-note.md', 1, 'Heading One', 7])
-    expect(headings).toContainEqual(['notes/my-note.md', 2, 'Heading Two', 12])
+  it('emits every node of the tree, with its parent and extent', () => {
+    // Emission order is document order, so the root comes first and every
+    // node names the one that contains it.
+    const nodes = parsed.facts.filter((f) => f.rel === 'MdNode').map((f) => f.row)
+    expect(nodes[0]!.slice(0, 4)).toEqual(['notes/my-note.md', 0, -1, 'root'])
+    expect(nodes.map((r) => r[3])).toContain('heading')
+    expect(nodes.map((r) => r[3])).toContain('link')
+    const link = nodes.find((r) => r[3] === 'link')!
+    const parent = nodes.find((r) => r[1] === link[2])!
+    expect(parent[3]).toBe('paragraph')
+  })
+
+  it('emits a heading as a node with a depth and its text', () => {
+    const nodes = parsed.facts.filter((f) => f.rel === 'MdNode').map((f) => f.row)
+    const texts = parsed.facts.filter((f) => f.rel === 'MdNodeText').map((f) => f.row)
+    const headings = nodes.filter((r) => r[3] === 'heading')
+    const depths = rows(parsed.facts, 'MdPropNum')
+    const textOf = (id: unknown) => texts.find((r) => r[1] === id)![2]
+
+    expect(headings).toHaveLength(2)
+    expect(textOf(headings[0]![1])).toBe('Heading One')
+    expect(depths).toContainEqual(['notes/my-note.md', headings[0]![1], 'depth', 1])
+    expect(textOf(headings[1]![1])).toBe('Heading Two')
+    expect(depths).toContainEqual(['notes/my-note.md', headings[1]![1], 'depth', 2])
   })
 
   it('captures frontmatter, including array values', () => {
@@ -58,30 +78,40 @@ describe('parseMarkdown', () => {
     expect(fm).toContainEqual(['notes/my-note.md', 'tags', 'urgent'])
   })
 
-  it('derives tags from both frontmatter and inline #tags', () => {
-    const tags = rows(parsed.facts, 'Tag')
-    expect(tags).toContainEqual(['notes/my-note.md', 'project'])
-    expect(tags).toContainEqual(['notes/my-note.md', 'urgent'])
-    expect(tags).toContainEqual(['notes/my-note.md', 'inline'])
-  })
-
-  it('captures wiki-links (stripping aliases) and markdown links', () => {
-    const links = rows(parsed.facts, 'Link')
-    expect(links).toContainEqual(['notes/my-note.md', 'Wiki Target', 'wiki'])
-    expect(links).toContainEqual(['notes/my-note.md', 'Aliased', 'wiki'])
-    expect(links).toContainEqual([
+  it('scrapes inline #tags, leaving frontmatter ones to a rule', () => {
+    // Tag(path, tag) is a view: it unions these with the `tags:` key below.
+    const tags = rows(parsed.facts, 'MdInlineTag')
+    expect(tags.map((r) => r[1])).toContain('inline')
+    expect(rows(parsed.facts, 'Frontmatter')).toContainEqual([
       'notes/my-note.md',
-      'https://example.com',
-      'md',
+      'tags',
+      'project',
     ])
   })
 
-  it('routes code blocks: datalog→rules, datalog-query→queries, else→fact', () => {
+  it('captures wiki-links with their alias, and links as nodes', () => {
+    const wiki = rows(parsed.facts, 'MdWikiLink')
+    expect(wiki.map((r) => r.slice(1, 3))).toContainEqual(['Wiki Target', 'Wiki Target'])
+    expect(wiki.map((r) => r.slice(1, 3))).toContainEqual(['Aliased', 'shown text'])
+    // A markdown link is a node; its url is a property of it.
+    const link = rows(parsed.facts, 'MdNode').find((r) => r[3] === 'link')!
+    expect(rows(parsed.facts, 'MdProp')).toContainEqual([
+      'notes/my-note.md',
+      link[1],
+      'url',
+      'https://example.com',
+    ])
+  })
+
+  it('routes code blocks: datalog→rules, datalog-query→queries, else→node', () => {
     expect(parsed.rules).toEqual(['Important(p) :- Tag(p, "urgent").'])
     expect(parsed.queries).toEqual([{ line: 18, source: 'Important(p)' }])
-    expect(rows(parsed.facts, 'CodeBlock')).toEqual([
-      ['notes/my-note.md', 'js', 22],
-    ])
+    // Every fence is a node, including the two that feed the engine; the
+    // CodeBlock view is the one that filters those out.
+    const langs = rows(parsed.facts, 'MdProp')
+      .filter((r) => r[2] === 'lang')
+      .map((r) => r[3])
+    expect(langs).toEqual(['datalog', 'datalog-query', 'js'])
   })
 
   it('emits typed FrontmatterNumber facts for numeric values', () => {
@@ -115,23 +145,21 @@ describe('parseMarkdown', () => {
     expect(fm).toContainEqual(['n.md', 'title', 'My Note'])
   })
 
-  it('extracts GFM task-list items as open/closed Task facts', () => {
+  it('marks a checkbox item with a status, in the words the Task view uses', () => {
     const sample = [
       '# Todos',
       '',
       '- [ ] write the parser',
       '- [x] ship the spike',
       '- a normal bullet, not a task',
-      '- [ ] nested parent',
-      '  - [x] sub-item done',
     ].join('\n')
-    const tasks = rows(parseMarkdown('todo.md', sample, 1).facts, 'Task')
-
-    expect(tasks).toContainEqual(['todo.md', 'open', 'write the parser', 3])
-    expect(tasks).toContainEqual(['todo.md', 'closed', 'ship the spike', 4])
-    expect(tasks).toContainEqual(['todo.md', 'open', 'nested parent', 6])
-    expect(tasks).toContainEqual(['todo.md', 'closed', 'sub-item done', 7])
-    // plain bullets are not tasks
-    expect(tasks.map((t) => t[2])).not.toContain('a normal bullet, not a task')
+    const facts = parseMarkdown('todo.md', sample, 1).facts
+    const statuses = facts
+      .filter((f) => f.rel === 'MdProp' && f.row[2] === 'status')
+      .map((f) => f.row[3])
+    // The plain bullet has no checkbox, so it has no status — and so it will
+    // not be a Task.
+    expect(statuses).toEqual(['open', 'closed'])
   })
+
 })

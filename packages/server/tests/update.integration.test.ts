@@ -116,7 +116,7 @@ describe('POST /update integration', () => {
       value: 'closed',
     })
     expect(status).toBe(409)
-    expect(body.error).toMatch(/no longer in the vault/)
+    expect(body.error).toMatch(/stale result|no longer in the vault/)
   })
 
   it('updates through an ad-hoc query body', async () => {
@@ -157,15 +157,15 @@ describe('POST /update integration', () => {
     expect(after.rows.map((r) => r[2])).not.toContain('water plants')
   })
 
-  it('deletes by complete fact and 409s when it is already gone', async () => {
+  it('409s when the row it was told to delete is already gone', async () => {
     await post('insert', { rel: 'Task', row: ['todo.md', 'open', 'temp', 0] })
     const q = await getQuery()
     const row = q.rows.find((r) => r[2] === 'temp')!
-    const first = await post('delete', { rel: 'Task', row })
+    const first = await post('delete', { id: q.id, row })
     expect(first.status).toBe(200)
-    const second = await post('delete', { rel: 'Task', row })
+    const second = await post('delete', { id: q.id, row })
     expect(second.status).toBe(409)
-    expect(second.body.error).toMatch(/no longer in the vault/)
+    expect(second.body.error).toMatch(/stale result|no longer in the vault/)
   })
 
   it('rejects malformed requests with 400 and unknown ids with 404', async () => {

@@ -166,82 +166,18 @@ function parseWith(
   emit('File', [path, mtime], none(2))
   emitAst(path, tree as UNode, content, emit)
 
+  // What's left for the walk: the two constructs a rule can't derive, plus
+  // routing the fenced blocks that carry the program itself.
   walk(tree, (node) => {
     switch (node.type) {
       case 'yaml':
         emitFrontmatter(path, node as Yaml, content, emit)
         break
-      case 'heading': {
-        const h = node as Heading
-        const whole = spanOf(node)
-        emit(
-          'Heading',
-          [path, h.depth, mdToString(h), lineOf(node)],
-          {
-            // The run of #s is the level, and the children are the text —
-            // both rewritable, which makes "promote this heading" an edit
-            // rather than a special case.
-            cols: [
-              null,
-              whole ? { span: [whole[0], whole[0] + h.depth], encode: hashes } : null,
-              plain(childSpan(h)),
-              null,
-            ],
-            del: whole,
-          },
-        )
-        break
-      }
-      case 'link': {
-        const l = node as Link
-        const whole = spanOf(node)
-        emit('Link', [path, l.url, 'md'], {
-          cols: [null, plain(urlSpan(node, content)), null],
-          del: whole,
-        })
-        emit('LinkLabel', [path, l.url, mdToString(l), lineOf(node)], {
-          cols: [null, plain(urlSpan(node, content)), plain(childSpan(l)), null],
-          del: whole,
-        })
-        break
-      }
-      case 'listItem': {
-        // A GFM task-list item (`- [ ]` / `- [x]`) carries a boolean `checked`;
-        // plain list items have it null/undefined. Use the item's own leading
-        // paragraph so nested sub-items don't bleed into the text (they emit
-        // their own Task facts as the walk visits them).
-        const li = node as ListItem
-        if (typeof li.checked === 'boolean') {
-          const para = li.children.find((c) => c.type === 'paragraph')
-          const text = (para ? mdToString(para) : mdToString(li)).trim()
-          const status = li.checked ? 'closed' : 'open'
-          emit('Task', [path, status, text, lineOf(node)], {
-            cols: [
-              null,
-              encoded(checkboxSpan(node, content), checkboxMark),
-              plain(childSpan(para as UNode)),
-              null,
-            ],
-            // A list item's span already covers its nested children, so
-            // deleting it can't strand them at the wrong depth.
-            del: spanOf(node),
-          })
-        }
-        break
-      }
       case 'code': {
         const c = node as Code
         const lang = (c.lang ?? '').toLowerCase()
-        if (lang === RULE_LANG) {
-          rules.push(c.value)
-        } else if (lang === QUERY_LANG) {
-          queries.push({ line: lineOf(node), source: c.value })
-        } else {
-          emit('CodeBlock', [path, c.lang ?? '', lineOf(node)], {
-            cols: [null, plain(infoSpan(node, content)), null],
-            del: spanOf(node),
-          })
-        }
+        if (lang === RULE_LANG) rules.push(c.value)
+        else if (lang === QUERY_LANG) queries.push({ line: lineOf(node), source: c.value })
         break
       }
       case 'text': {
@@ -253,23 +189,22 @@ function parseWith(
           if (!target) continue
           // `[[Target|alias]]` — the alias is what the reader sees, so it's
           // the label; without one the target doubles as its own.
-          const alias = inner.includes('|') ? inner.slice(inner.indexOf('|') + 1).trim() : target
+          const alias = inner.includes('|')
+            ? inner.slice(inner.indexOf('|') + 1).trim()
+            : target
           const at = base + m.index
-          const whole: Span = [at, at + m[0].length]
           const targetAt = at + 2 + inner.indexOf(target)
-          const targetSpan = plain([targetAt, targetAt + target.length])
-          emit('Link', [path, target, 'wiki'], { cols: [null, targetSpan, null], del: whole })
-          emit('LinkLabel', [path, target, alias, lineAt(content, at)], {
-            cols: [null, targetSpan, null, null],
-            del: whole,
+          emit('MdWikiLink', [path, target, alias, lineAt(content, at)], {
+            cols: [null, plain([targetAt, targetAt + target.length]), null, null],
+            del: [at, at + m[0].length],
           })
         }
         for (const m of t.value.matchAll(TAG)) {
           // The match includes the leading boundary; the tag itself starts
           // after the "#".
           const at = base + m.index + m[0].indexOf('#')
-          emit('Tag', [path, m[1]!], {
-            cols: [null, plain([at + 1, at + m[1]!.length + 1])],
+          emit('MdInlineTag', [path, m[1]!, lineAt(content, at)], {
+            cols: [null, plain([at + 1, at + m[1]!.length + 1]), null],
             del: [at, at + m[1]!.length + 1],
           })
         }
@@ -357,6 +292,19 @@ function emitAst(
       }
       // Objects and arrays (MDX attributes, table alignment) are structure of
       // their own; they'd need nodes, not properties.
+    }
+
+    // A checkbox also reads as a status, in the words the Task view uses.
+    // The raw `checked` boolean is above, unchanged; this is the same
+    // character seen as what it means. Without it the view would need one
+    // rule per state, and a column that differs by rule can't be traced back
+    // to anything writable — toggling a task from a query would stop working.
+    const checked = (node as { checked?: boolean | null }).checked
+    if (typeof checked === 'boolean') {
+      emit('MdProp', [path, self, 'status', checked ? 'closed' : 'open'], {
+        cols: [null, null, null, encoded(checkboxSpan(node, content), checkboxMark)],
+        del: null,
+      })
     }
 
     if (node.children) for (const child of node.children) visit(child, self)
@@ -475,6 +423,20 @@ function emitFrontmatter(
     return [start, eol < 0 ? content.length : eol + 1]
   }
 
+  /** An item written inline in `[a, b]`, with the comma that joins it to a
+   *  neighbour. Null when the item is on a line of its own. */
+  const flowItem = (src: string, at: number, r: YamlNode['range']): Span | null => {
+    if (!r) return null
+    const start = at + r[0]
+    const end = at + r[1]
+    const lineStart = src.lastIndexOf('\n', start) + 1
+    if (!src.slice(lineStart, start).includes('[')) return null
+    const after = src.slice(end).match(/^\s*,\s*/)
+    if (after) return [start, end + after[0].length]
+    const before = src.slice(lineStart, start).match(/,\s*$/)
+    return before ? [start - before[0].length, end] : [start, end]
+  }
+
   for (const pair of doc.contents.items) {
     if (!isScalar(pair.key)) continue
     const key = String(pair.key.value)
@@ -485,9 +447,13 @@ function emitFrontmatter(
       const raw = item.value
       const s = raw == null ? '' : String(raw)
       const span = shift(item.range)
-      // A list item is deleted by the line; a lone `key: value` takes the
-      // key with it, so its removable range starts at the key.
-      const del = isSeq(value) ? entryLine(item.range) : entryLine(pair.key.range)
+      // A block list item is deleted by the line, and a lone `key: value`
+      // takes its key with it. An item of a *flow* list (`tags: [a, b]`)
+      // shares its line with the key and its siblings, so only the item and
+      // one separator go.
+      const del = isSeq(value)
+        ? flowItem(content, base, item.range) ?? entryLine(item.range)
+        : entryLine(pair.key.range)
       emit('Frontmatter', [path, key, s], {
         cols: [null, null, encoded(span, renderScalar)],
         del,
@@ -499,9 +465,6 @@ function emitFrontmatter(
           cols: [null, null, encoded(span, renderScalar)],
           del,
         })
-      }
-      if (key === 'tags' || key === 'tag') {
-        emit('Tag', [path, s], { cols: [null, encoded(span, renderScalar)], del })
       }
     }
   }

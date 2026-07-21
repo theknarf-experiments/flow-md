@@ -101,6 +101,12 @@ export class Vault {
   /** Relations whose facts can be deleted from / inserted into source. For
    *  inserts, the value is the index of the declared path attribute. */
   private readonly deletable = new Set<string>()
+  /** Rules contributed by plugins, prepended to every program. Deduplicated
+   *  by text: sibling plugins over the same format (markdown and mdx) ship
+   *  the same rules, and stating one twice would double the work for nothing. */
+  private readonly pluginRules = new Set<string>()
+  /** Column names of relations plugins define by rule rather than by fact. */
+  private readonly derivedAttrs = new Map<string, string[]>()
   private readonly insertable = new Map<string, number>()
   /** Folder paths (incl. empty ones) — the source of `Folder(path)` facts;
    *  fed by the watcher and kept in sync after folder mutations. */
@@ -125,6 +131,22 @@ export class Vault {
         }
     this.options = options
     for (const p of plugins) {
+      for (const def of p.derived ?? []) {
+        if (this.schema.names.has(def.name)) {
+          throw new Error(
+            `plugin "${p.name}": "${def.name}" is declared both as an EDB ` +
+              'relation and as one defined by rules — a relation is either fed ' +
+              'with facts or computed from them',
+          )
+        }
+        this.derivedAttrs.set(
+          def.name,
+          def.attrs.map(([name]) => name),
+        )
+      }
+      for (const rule of p.rules ?? []) this.pluginRules.add(rule)
+    }
+    for (const p of plugins) {
       for (const w of p.writable ?? []) this.registerWritable(p, w)
     }
     // File and Folder are filesystem-backed: their mutations are effects the
@@ -133,6 +155,14 @@ export class Vault {
     // deleted and created.
     this.registerSystemRelation('File', 'path')
     this.registerSystemRelation('Folder', 'path')
+  }
+
+  /** Columns of a relation, whether it's fed with facts or defined by rules. */
+  private arityOf(rel: string): number | undefined {
+    return (
+      this.schema.defs.find((d) => d.name === rel)?.attrs.length ??
+      this.derivedAttrs.get(rel)?.length
+    )
   }
 
   private registerSystemRelation(rel: string, pathAttr: string): void {
@@ -161,7 +191,11 @@ export class Vault {
     const bad = (msg: string): never => {
       throw new Error(`plugin "${p.name}": ${msg}`)
     }
-    const def = p.schema.find((d) => d.name === w.rel)
+    // A plugin may write relations it defines by rule as well as ones it
+    // emits: an insert renders new source text, which doesn't require the
+    // relation to be a fact.
+    const def =
+      p.schema.find((d) => d.name === w.rel) ?? p.derived?.find((d) => d.name === w.rel)
     if (!def) {
       bad(`writable relation "${w.rel}" is not in the plugin's schema`)
       return
@@ -373,7 +407,8 @@ export class Vault {
 
     // User rules: parse the collected rule blocks (EDB + rule program, no IDB
     // section needed for parsing) to recover their head names.
-    const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
+    const ruleText = [...this.pluginRules, ...[...this.files.values()].flatMap((f) => f.rules)]
+      .join('\n')
     const userRules = ruleText.trim()
       ? parseProgram(`${edbSection}\n.rule\n${ruleText}`).rules
       : []
@@ -519,12 +554,10 @@ export class Vault {
       })
     } else {
       if (!input.rel) throw new Error('delete needs a relation (rel) or a query (q/id)')
-      const def = this.schema.defs.find((d) => d.name === input.rel)
-      if (!def) throw new Error(`unknown relation "${input.rel}"`)
-      if (def.attrs.length !== input.row.length) {
-        throw new Error(
-          `${input.rel} has ${def.attrs.length} columns, row has ${input.row.length}`,
-        )
+      const arity = this.arityOf(input.rel)
+      if (arity === undefined) throw new Error(`unknown relation "${input.rel}"`)
+      if (arity !== input.row.length) {
+        throw new Error(`${input.rel} has ${arity} columns, row has ${input.row.length}`)
       }
       fact = { rel: input.rel, row: input.row }
     }
@@ -542,17 +575,18 @@ export class Vault {
     if (pathIdx === undefined) {
       throw new Error(`facts of ${rel} cannot be inserted by any plugin`)
     }
-    const def = this.schema.defs.find((d) => d.name === rel)!
-    if (def.attrs.length !== row.length) {
-      throw new Error(
-        `${rel} has ${def.attrs.length} columns, row has ${row.length}`,
-      )
+    // A relation defined by rules can still be inserted: the plugin renders
+    // new source for it, which needs no existing rows to locate.
+    const attrs =
+      this.schema.defs.find((d) => d.name === rel)?.attrs.map(([n]) => n) ??
+      this.derivedAttrs.get(rel) ??
+      []
+    if (attrs.length !== row.length) {
+      throw new Error(`${rel} has ${attrs.length} columns, row has ${row.length}`)
     }
     const path = row[pathIdx]
     if (typeof path !== 'string' || !path) {
-      throw new Error(
-        `${rel}.${def.attrs[pathIdx]![0]} must name the target file`,
-      )
+      throw new Error(`${rel}.${attrs[pathIdx]} must name the target file`)
     }
     // Content inserts (e.g. a Task) land in an existing file; system inserts
     // (File/Folder) *create* the path, so it need not exist yet.
@@ -673,7 +707,8 @@ export class Vault {
     headNames: Set<string>
     rules: ReturnType<typeof parseProgram>['rules']
   } {
-    const ruleText = [...this.files.values()].flatMap((f) => f.rules).join('\n')
+    const ruleText = [...this.pluginRules, ...[...this.files.values()].flatMap((f) => f.rules)]
+      .join('\n')
     const rules = ruleText.trim()
       ? parseProgram(`${edbSectionText(this.schema)}\n.rule\n${ruleText}`).rules
       : []

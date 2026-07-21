@@ -80,6 +80,17 @@ export interface Plugin {
   binary?: boolean
   /** EDB relations this plugin contributes to the vault's schema. */
   schema: EdbDef[]
+  /** Datalog rules the plugin ships, added to every program the vault runs.
+   *  A plugin can then describe its file format once as facts and express the
+   *  friendlier views over it as rules, instead of emitting both per file.
+   *
+   *  A rule head must not name an EDB relation: a relation is either fed with
+   *  facts or computed from them, never both. */
+  rules?: string[]
+  /** The shapes those rules define. Not part of the EDB — this is what lets
+   *  the vault name their columns for validation, lineage and the schema
+   *  view, the way `schema` does for facts. */
+  derived?: EdbDef[]
   /** Optional metadata about which fenced code-block langs feed the engine. */
   codeBlockLangs?: CodeBlockLangs
   parse(path: string, content: string, mtime: number): ParseResult

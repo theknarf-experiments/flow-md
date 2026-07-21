@@ -115,6 +115,8 @@ describe('Vault lineage: writable columns', () => {
 
 describe('Vault.resolveUpdate', () => {
   it('reconstructs the source fact when the row pins every column', () => {
+    // Task is a view over the tree, so an edit to it resolves to the cell the
+    // view read: the list item's checkbox, as a node property.
     const vault = vaultWith(TODO)
     const r = vault.resolveUpdate(
       'Task(path, status, text, line)',
@@ -123,11 +125,14 @@ describe('Vault.resolveUpdate', () => {
       'closed',
     )
     expect(r.path).toBe('todo.md')
-    expect(r.oldFact).toEqual({ rel: 'Task', row: ['todo.md', 'open', 'buy milk', 3] })
-    expect(r.newFact).toEqual({ rel: 'Task', row: ['todo.md', 'closed', 'buy milk', 3] })
+    expect(r.oldFact.rel).toBe('MdProp')
+    expect(r.oldFact.row.slice(2)).toEqual(['status', 'open'])
+    expect(r.newFact.row.slice(2)).toEqual(['status', 'closed'])
   })
 
   it('recovers placeholder columns from the current facts when unique', () => {
+    // Neither the line nor the node id is in the row: the status pins the
+    // item, the item pins its paragraph, and the paragraph pins the text.
     const vault = vaultWith(TODO)
     const r = vault.resolveUpdate(
       'Task(path, "open", text, _)',
@@ -135,15 +140,18 @@ describe('Vault.resolveUpdate', () => {
       'text',
       'buy oat milk',
     )
-    expect(r.oldFact.row).toEqual(['todo.md', 'open', 'buy milk', 3])
-    expect(r.newFact.row).toEqual(['todo.md', 'open', 'buy oat milk', 3])
+    expect(r.oldFact.rel).toBe('MdNodeText')
+    expect(r.oldFact.row[2]).toBe('buy milk')
+    expect(r.newFact.row[2]).toBe('buy oat milk')
+    // Same node, not a different one that happens to say the same thing.
+    expect(r.newFact.row[1]).toBe(r.oldFact.row[1])
   })
 
   it('rejects a placeholder edit matching several facts', () => {
     const vault = vaultWith(md('- [ ] dup', '- [ ] dup'))
     expect(() =>
       vault.resolveUpdate('Task(path, "open", text, _)', ['todo.md', 'dup'], 'text', 'x'),
-    ).toThrow(/2 Task facts match/)
+    ).toThrow(/facts match this row/)
   })
 
   it('rejects edits through a joined variable', () => {
@@ -162,8 +170,9 @@ describe('Vault.resolveUpdate', () => {
     const vault = vaultWith(TODO)
     const source = 'Task(path, status, text, line)'
     const row = ['todo.md', 'open', 'buy milk', 3]
+    // A line number is where a node *is*, not something written in the file.
     expect(() => vault.resolveUpdate(source, row, 'line', 7)).toThrow(
-      /Task\.line is not writable/,
+      /MdNode\.line is not writable/,
     )
     expect(() => vault.resolveUpdate(source, row, 'nope', 'x')).toThrow(
       /no column "nope"/,
@@ -179,7 +188,7 @@ describe('Vault.resolveUpdate', () => {
         'status',
         'closed',
       ),
-    ).toThrow(/no longer in the vault/)
+    ).toThrow(/stale result|no longer in the vault/)
   })
 
   it('coerces and validates the new value against the schema type', () => {
@@ -203,12 +212,15 @@ describe('Vault.resolveUpdate through IDB rules', () => {
     '- [ ] something', //                            line 5
   )
 
-  it('traces an edit through an unfolded rule to the Task fact', () => {
+  it('traces an edit through a user rule and the plugin\'s own, to the text', () => {
+    // Open unfolds to Task, Task unfolds to the tree: two levels of rule, one
+    // written in the vault and one shipped by the plugin.
     const vault = vaultWith(NOTE)
     const r = vault.resolveUpdate('Open(p, t)', ['todo.md', 'something'], 't', 'changed')
     expect(r.path).toBe('todo.md')
-    expect(r.oldFact).toEqual({ rel: 'Task', row: ['todo.md', 'open', 'something', 5] })
-    expect(r.newFact).toEqual({ rel: 'Task', row: ['todo.md', 'open', 'changed', 5] })
+    expect(r.oldFact.rel).toBe('MdNodeText')
+    expect(r.oldFact.row[2]).toBe('something')
+    expect(r.newFact.row[2]).toBe('changed')
   })
 })
 
@@ -220,15 +232,21 @@ describe('Vault.resolveDelete / resolveInsert', () => {
       row: ['todo.md', 'open', 'buy milk', 3],
     })
     expect(r.path).toBe('todo.md')
-    expect(r.fact).toEqual({ rel: 'Task', row: ['todo.md', 'open', 'buy milk', 3] })
+    // Removing a task means removing the list item it is: the first
+    // deletable atom the rule starts from.
+    expect(r.fact.rel).toBe('MdNode')
+    expect(r.fact.row[3]).toBe('listItem')
+    expect(r.fact.row[4]).toBe(3)
   })
 
   it('resolves a delete from a complete fact', () => {
     const vault = vaultWith(TODO)
-    const r = vault.resolveDelete({
-      rel: 'Task',
-      row: ['todo.md', 'closed', 'ship release', 4],
-    })
+    // A complete fact needs a relation with rows of its own — a view has
+    // none, so this is the node itself.
+    const node = vault
+      .runQuery('MdNode(path, id, parent, type, line, start, end)')
+      .rows.find((r) => r[3] === 'listItem' && r[4] === 4)!
+    const r = vault.resolveDelete({ rel: 'MdNode', row: node })
     expect(r.path).toBe('todo.md')
   })
 
@@ -346,7 +364,10 @@ describe('writable declarations are validated at startup', () => {
 describe('Vault.applyFactDelete / applyFactInsert', () => {
   it('deletes a task line and the query reflects it', () => {
     const vault = vaultWith(TODO)
-    const fact = { rel: 'Task', row: ['todo.md', 'open', 'buy milk', 3] }
+    const { fact } = vault.resolveDelete({
+      source: 'Task(path, status, text, line)',
+      row: ['todo.md', 'open', 'buy milk', 3],
+    })
     const updated = vault.applyFactDelete('todo.md', TODO, fact)
     expect(updated.split('\n')[2]).toBe('- [x] ship release')
 
@@ -358,7 +379,7 @@ describe('Vault.applyFactDelete / applyFactInsert', () => {
 
   it('rejects a stale delete', () => {
     const vault = vaultWith(TODO)
-    const fact = { rel: 'Task', row: ['todo.md', 'open', 'gone', 3] }
+    const fact = { rel: 'MdNodeText', row: ['todo.md', 99, 'gone'] }
     expect(() => vault.applyFactDelete('todo.md', TODO, fact)).toThrow(
       /no longer contains the fact/,
     )
@@ -383,7 +404,13 @@ describe('Vault.applyFactUpdate', () => {
 
   it('rewrites content and the change flows back through setFile', () => {
     const vault = vaultWith(TODO)
-    const updated = vault.applyFactUpdate('todo.md', TODO, oldFact, newFact)
+    const r = vault.resolveUpdate(
+      'Task(path, status, text, line)',
+      ['todo.md', 'open', 'buy milk', 3],
+      'status',
+      'closed',
+    )
+    const updated = vault.applyFactUpdate('todo.md', TODO, r.oldFact, r.newFact)
     expect(updated.split('\n')[2]).toBe('- [x] buy milk')
 
     vault.setFile('todo.md', updated, 2)
@@ -395,9 +422,15 @@ describe('Vault.applyFactUpdate', () => {
 
   it('rejects stale content (the concurrency check)', () => {
     const vault = vaultWith(TODO)
+    const r = vault.resolveUpdate(
+      'Task(path, status, text, line)',
+      ['todo.md', 'open', 'buy milk', 3],
+      'status',
+      'closed',
+    )
     const changed = TODO.replace('- [ ] buy milk', '- [x] buy milk')
     expect(() =>
-      vault.applyFactUpdate('todo.md', changed, oldFact, newFact),
+      vault.applyFactUpdate('todo.md', changed, r.oldFact, r.newFact),
     ).toThrow(/no longer contains the fact/)
   })
 })
