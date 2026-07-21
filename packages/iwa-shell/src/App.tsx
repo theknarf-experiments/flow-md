@@ -223,36 +223,6 @@ export function App() {
     setNav({ back: await frame.canGoBack(), forward: await frame.canGoForward() })
   }, [])
 
-  /** Rows in, guests out. The only place the document and the browser meet:
-   *  every row gets a frame, every frame without a row is destroyed. There is
-   *  nothing to reconcile because there is nothing else keeping score. */
-  useEffect(() => {
-    const container = cardRef.current
-    if (!container) return
-    const wanted = new Map(tabs.map((t) => [t.id, t]))
-
-    for (const [id, row] of wanted) {
-      if (frames.current.has(id)) continue
-      const owner = spaces.find((s) => s.id === row.space)
-      if (!owner) continue
-      const frame = createFrame(
-        row.url,
-        owner.partition,
-        container,
-        styles.frameActive!,
-        () => void sync(id),
-      )
-      frames.current.set(id, frame)
-    }
-
-    for (const [id, frame] of frames.current) {
-      if (wanted.has(id)) continue
-      frame.destroy()
-      frames.current.delete(id)
-      iconRetried.current.delete(id)
-    }
-  }, [tabs, spaces, sync])
-
   /** Opening a tab is writing a link. The row comes back from the vault a
    *  round trip later and the effect above gives it a guest — including when
    *  the same page is already open, because a second link is a second row. */
@@ -290,6 +260,39 @@ export function App() {
     },
     [log],
   )
+
+  /** Rows in, guests out. The only place the document and the browser meet:
+   *  every row gets a frame, every frame without a row is destroyed. There is
+   *  nothing to reconcile because there is nothing else keeping score. */
+  useEffect(() => {
+    const container = cardRef.current
+    if (!container) return
+    const wanted = new Map(tabs.map((t) => [t.id, t]))
+
+    for (const [id, row] of wanted) {
+      if (frames.current.has(id)) continue
+      const owner = spaces.find((s) => s.id === row.space)
+      if (!owner) continue
+      const frame = createFrame(
+        row.url,
+        owner.partition,
+        container,
+        styles.frameActive!,
+        () => void sync(id),
+        // A link opened in a new tab is a link written into the space, the
+        // same as any other — so ⌘-click adds a line to the file.
+        (target) => openTab(target, { space: row.space, activate: false }),
+      )
+      frames.current.set(id, frame)
+    }
+
+    for (const [id, frame] of frames.current) {
+      if (wanted.has(id)) continue
+      frame.destroy()
+      frames.current.delete(id)
+      iconRetried.current.delete(id)
+    }
+  }, [tabs, spaces, sync, openTab])
 
   useEffect(() => {
     const check = () => setUnframed(!hasTitleBar())

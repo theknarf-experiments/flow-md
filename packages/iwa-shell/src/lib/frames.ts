@@ -5,7 +5,7 @@
 // never be unmounted/remounted by a re-render — that would throw away the
 // page. React owns the chrome; this owns the guests.
 
-import type { ControlledFrame } from '../controlled-frame.js'
+import type { ControlledFrame, NewWindowEvent } from '../controlled-frame.js'
 import { controlledFrame } from './env.js'
 
 export interface FrameInfo {
@@ -110,6 +110,9 @@ export function createFrame(
   container: HTMLElement,
   activeClass: string,
   onLifecycle: () => void,
+  /** The guest asked for a window of its own — ⌘-click, target=_blank,
+   *  window.open. Given the url it wanted; the request itself is discarded. */
+  onNewWindow?: (url: string) => void,
 ): FrameHandle {
   let el: HTMLElement
   if (controlledFrame.available) {
@@ -125,6 +128,14 @@ export function createFrame(
   }
   container.append(el)
   for (const ev of LIFECYCLE) el.addEventListener(ev, onLifecycle)
+  el.addEventListener('newwindow', (event) => {
+    const e = event as NewWindowEvent
+    // Nothing is attached to the request, so Chrome drops it — the url is
+    // what matters and the embedder decides where it goes.
+    e.preventDefault()
+    e.window?.discard?.()
+    if (e.targetUrl) onNewWindow?.(e.targetUrl)
+  })
 
   const cf = () => el as unknown as ControlledFrame
   const call = async (fn?: () => unknown): Promise<boolean> => {

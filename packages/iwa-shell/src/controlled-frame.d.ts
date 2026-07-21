@@ -12,3 +12,14 @@ export interface ControlledFrame extends HTMLElement {
   stop?(): void
   clearData?(options?: unknown, types?: unknown): Promise<void>
 }
+
+/** Raised when a guest asks for a window of its own: ⌘-click, a target of
+ *  _blank, or window.open. The embedder decides what that means — here, a new
+ *  tab in the same space. */
+export interface NewWindowEvent extends Event {
+  targetUrl?: string
+  /** The requested window, which can be adopted into another frame or thrown
+   *  away. Left unattached it is discarded, which is what we want: the tab is
+   *  opened from the url instead. */
+  window?: { discard?(): void; attach?(frame: unknown): void }
+}
