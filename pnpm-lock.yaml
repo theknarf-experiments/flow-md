@@ -222,6 +222,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@flow-md/plugin-config':
+        specifier: workspace:*
+        version: link:../plugin-config
       '@flow-md/plugin-csv':
         specifier: workspace:*
         version: link:../plugin-csv
@@ -293,6 +296,22 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  packages/plugin-config:
+    dependencies:
+      '@flow-md/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.19)(jsdom@29.1.1)(lightningcss@1.32.0)
 
   packages/plugin-csv:
     dependencies:
