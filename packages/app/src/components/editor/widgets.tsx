@@ -19,11 +19,12 @@ import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { type ComponentType, type ReactNode, useEffect, useState } from 'react'
 import { type Root, createRoot } from 'react-dom/client'
+import { DataView } from '@flow-md/ui'
 import * as runtime from 'react/jsx-runtime'
-import { queriesCollection } from '../../lib/db.js'
+import { editCell, queriesCollection } from '../../lib/db.js'
 import { type MdTable, parseMdTable, serializeMdTable } from '../../lib/mdtable.js'
 import { viewComponents } from '../../plugins.js'
-import { DataView } from '../DataView.js'
+
 import { MdTableGrid } from './MdTableGrid.js'
 import widgetStyles from './widgets.module.css'
 
@@ -142,6 +143,8 @@ function LiveDataView(props: {
     <DataView
       source={props.source}
       result={match ?? null}
+      // The write-through store stays in the app; DataView just calls back.
+      onEditCell={editCell}
       onEditSource={props.onEditSource}
     />
   )

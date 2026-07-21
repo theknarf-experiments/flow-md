@@ -19,19 +19,36 @@ import {
   useReactTable,
 } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
-import type { Cell, QueryResult } from '../lib/api.js'
-import { editCell } from '../lib/db.js'
 import styles from './DataView.module.css'
+
+export type Cell = string | number
+
+/** One query block's result, as the server returns it. */
+export interface QueryResult {
+  id: string
+  path: string
+  line: number
+  source: string
+  columns: string[]
+  /** Columns the server says are writable — these render editable. */
+  writable: string[]
+  rows: Cell[][]
+}
 
 const rowKey = (row: Cell[]): string => JSON.stringify(row)
 
-export function DataView(props: {
+export interface DataViewProps {
   source: string
   result: QueryResult | null
+  /** Commit a cell edit. Left out, cells render read-only — which is what
+   *  keeps this component free of the app's write-through store. */
+  onEditCell?: (id: string, row: Cell[], column: string, value: Cell) => Promise<unknown>
   /** Edit the query block's source text (wired by the markdown view). */
   onEditSource?: () => void
-}) {
-  const { source, result, onEditSource } = props
+}
+
+export function DataView(props: DataViewProps) {
+  const { source, result, onEditCell, onEditSource } = props
   const [sorting, setSorting] = useState<SortingState>([])
   const [editing, setEditing] = useState<{ key: string; column: string } | null>(
     null,
@@ -69,9 +86,10 @@ export function DataView(props: {
 
   const commit = (row: Cell[], column: string) => {
     setEditing(null)
+    if (!onEditCell) return
     // Optimistic: the cell shows the new value immediately via the live
     // query; a rejected write rolls back and surfaces the server's reason.
-    editCell(result.id, row, column, draft).then(
+    onEditCell(result.id, row, column, draft).then(
       () => setError(null),
       (err: unknown) =>
         setError(err instanceof Error ? err.message : String(err)),
@@ -100,7 +118,7 @@ export function DataView(props: {
                     }
                   >
                     {flexRender(h.column.columnDef.header, h.getContext())}
-                    {result.writable.includes(h.column.id) && (
+                    {onEditCell && result.writable.includes(h.column.id) && (
                       <span className={styles.pen}> ✎</span>
                     )}
                     {/* Always rendered at a fixed width so toggling sort
@@ -119,7 +137,7 @@ export function DataView(props: {
             <tr key={rowKey(row.original)}>
               {row.getVisibleCells().map((cell) => {
                 const column = cell.column.id
-                const writable = result.writable.includes(column)
+                const writable = !!onEditCell && result.writable.includes(column)
                 const isEditing =
                   editing?.key === rowKey(row.original) &&
                   editing.column === column

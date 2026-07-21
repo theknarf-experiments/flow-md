@@ -7,9 +7,9 @@
 import { composeStories } from '@storybook/react-vite'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import * as calendarStories from '../src/components/Calendar.stories.js'
-import * as dataViewStories from '../src/components/DataView.stories.js'
-import * as fileTreeStories from '../src/components/FileTree.stories.js'
+import * as calendarStories from '../../view-ics/src/Calendar.stories.js'
+import * as dataViewStories from '../src/DataView.stories.js'
+import * as fileTreeStories from '../../view-filetree/src/FileTree.stories.js'
 
 const fileTree = composeStories(fileTreeStories)
 const ics = composeStories(calendarStories)
@@ -61,6 +61,13 @@ describe('DataView stories', () => {
     expect(screen.getByText('3 rows')).toBeTruthy()
     // Two writable columns carry the pen marker.
     expect(screen.getAllByText('✎')).toHaveLength(2)
+  })
+
+  it('ReadOnly drops the edit affordance when no commit handler is given', () => {
+    render(<dataView.ReadOnly />)
+    expect(screen.queryByText('✎')).toBeNull()
+    // The rows still render — it's editing that's gone, not the data.
+    expect(screen.getByText('water the plants')).toBeTruthy()
   })
 
   it('EmptyResult and NoServerMatch render their fallbacks', () => {

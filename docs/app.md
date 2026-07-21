@@ -122,7 +122,7 @@ the sidebar runs through the host.
 packages/app/src
 ├── routes/           __root (sidebar shell — builds the app-level host),
 │                     index, note.$ (splat = path)
-├── components/       NotePage, DataView, IcsView, CsvView, CommandPalette,
+├── components/       NotePage, IcsView, CsvView, CommandPalette,
 │                     Editor (+ *.module.css per component)
 │   └── editor/       LiveEditor + live-preview (CM6 Typora view), widgets,
 │                     MdTableGrid
@@ -130,6 +130,8 @@ packages/app/src
 │                     view-plugin host impl), wiki, fuzzy, ics
 └── plugins.ts        the registered view plugins → the MDX component registry
 
+packages/ui             shared presentational components (DataView, Tab,
+                        CommandBar, …) + the monorepo's only Storybook
 packages/view-api       the plugin contract (host interface, FlowMdViewPlugin,
                         FlowMdHostProvider / useFlowMd)
 packages/view-kanban    the <Kanban> plugin       ┐
@@ -155,9 +157,11 @@ wraps each MDX block, so a plugin never imports the app or talks to the
 server directly. See `packages/view-api/README.md` for the authoring guide.
 
 Styling is per-component CSS Modules over a small global base (theme
-variables + shared utilities). Components have Storybook stories
-(`pnpm --filter @flow-md/app storybook`) and portable-story tests that
-render every story in CI.
+variables + shared utilities). Reusable components live in `@flow-md/ui`,
+which owns the monorepo's single Storybook
+(`pnpm --filter @flow-md/ui storybook`) — it globs sibling packages, so the
+view plugins keep their stories next to their components. Portable-story
+tests render every story in CI.
 
 The markdown pipeline is react-markdown + remark-gfm plus two tiny remark
 plugins: one turns `[[target]]` spans into `wiki:` links, one stamps each

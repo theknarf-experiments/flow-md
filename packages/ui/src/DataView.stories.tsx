@@ -15,9 +15,14 @@ const RESULT = {
   ] as Array<Array<string | number>>,
 }
 
+// The write-through store lives in the app, so DataView takes a callback.
+// Supplying one is what makes writable columns editable (and shows the ✎).
+const onEditCell = async () => {}
+
 const meta: Meta<typeof DataView> = {
   title: 'Views/DataView',
   component: DataView,
+  args: { onEditCell },
 }
 export default meta
 type Story = StoryObj<typeof DataView>
@@ -35,4 +40,9 @@ export const EmptyResult: Story = {
 
 export const NoServerMatch: Story = {
   args: { source: 'Task(path, "open", text, _)', result: null },
+}
+
+/** Without a commit handler nothing is editable — no ✎, no click target. */
+export const ReadOnly: Story = {
+  args: { source: RESULT.source, result: RESULT, onEditCell: undefined },
 }

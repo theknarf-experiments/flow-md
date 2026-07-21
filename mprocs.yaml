@@ -3,11 +3,8 @@ procs:
     shell: node packages/cli/dist/bin.js serve docs/ --port 4747
   app:
     shell: pnpm --filter @flow-md/app dev
-  # Storybooks are listed but not started — they're slow to boot and you only
-  # want one while working on components. Select it and press `s` to start.
+  # Listed but not started — it's slow to boot and you only want it while
+  # working on components. Select it and press `s` to start.
   storybook:
     shell: pnpm --filter @flow-md/ui storybook
-    autostart: false
-  storybook:app:
-    shell: pnpm --filter @flow-md/app storybook
     autostart: false

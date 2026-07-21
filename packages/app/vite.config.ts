@@ -15,6 +15,7 @@ import { defineConfig } from 'vite'
 // them out of the esbuild prebundle, transform them during SSR/prerender,
 // and dedupe react so a plugin's hooks share the app's React instance.
 const VIEW_PACKAGES = [
+  '@flow-md/ui',
   '@flow-md/view-api',
   '@flow-md/view-kanban',
   '@flow-md/view-graph',

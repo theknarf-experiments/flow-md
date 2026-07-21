@@ -1,3 +1,5 @@
+export { DataView } from './DataView.js'
+export type { Cell, DataViewProps, QueryResult } from './DataView.js'
 export { IconButton } from './IconButton.js'
 export type { IconButtonProps } from './IconButton.js'
 export { Tab } from './Tab.js'
