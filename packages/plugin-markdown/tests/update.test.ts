@@ -410,6 +410,17 @@ describe('block ids', () => {
     })
     expect(removed.split('\n')[0]).toBe('- [Example](https://example.com/)')
   })
+
+  it('takes the line with it when the id is all that would be left', () => {
+    // Closing a tab deletes its link, and an id naming a line with nothing on
+    // it names nothing — `-  ^01HQ…` used to be left behind for every link
+    // that had been given one.
+    // What closing a tab actually deletes: lineage traces the link back to
+    // the node it came from, and that node's source is spliced out.
+    const link = facts(DOC, 'MdNode').find((r) => r[3] === 'link' && r[4] === 1)!
+    const out = deleteMarkdownFact(DOC, { rel: 'MdNode', row: link })
+    expect(out).toBe(md('- [Other](https://other.example/)'))
+  })
 })
 
 describe('indentation, which is what a list tree is made of', () => {

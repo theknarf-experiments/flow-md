@@ -389,8 +389,11 @@ function insertFrontmatter(content: string, key: string, value: string): string 
 }
 
 /** A line holding nothing but its own bullet — what's left when the only
- *  content of a list item is removed. */
-const EMPTY_ITEM = /^\s*(?:[-*+]|\d+[.)])\s*$/
+ *  content of a list item is removed. The block id counts as nothing: it
+ *  names the line, so once the line has no content left it names nothing.
+ *  Without this, closing a tab left `-  ^01KY31MZ…` behind for every link
+ *  that had been given an id. */
+const EMPTY_ITEM = /^\s*(?:[-*+]|\d+[.)])\s*(?:\^[A-Za-z0-9][\w-]*)?\s*$/
 
 /** Put `^id` at the end of a line. */
 function appendBlockId(content: string, id: string, line: number): string {

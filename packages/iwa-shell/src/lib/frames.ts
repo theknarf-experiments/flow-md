@@ -57,8 +57,8 @@ export interface FrameHandle {
   canGoForward(): Promise<boolean>
   /** Reads the guest's DOM — the web-archive primitive. */
   probe(): Promise<FrameInfo | null>
-  /** Teaches a freshly loaded guest to hand vim keys back to the shell. */
-  adopt(): Promise<void>
+  /** Teaches a freshly loaded guest which keys to hand back to the shell. */
+  adopt(claims: KeyClaim[]): Promise<void>
   /** Labels every clickable thing in view and waits for a label to be typed. */
   hint(newTab: boolean): Promise<number>
   /** Scrolls the guest by a number of px. Negative is up. */
@@ -68,17 +68,32 @@ export interface FrameHandle {
   destroy(): void
 }
 
+/** One of the shell's bindings, in a shape a guest can match a keydown against. */
+export interface KeyClaim {
+  key: string
+  ctrl?: boolean
+  meta?: boolean
+  alt?: boolean
+  shift?: boolean
+}
+
 /** Keys a guest hands back to the shell instead of handling itself.
  *
  *  A guest is a separate process with its own focus, so once you click a page
- *  the shell stops seeing keystrokes entirely — which would make the vim
- *  bindings work only until you touched anything. This script re-posts just
- *  those keys to the embedder, which replays them as ordinary keydowns.
+ *  the shell stops seeing keystrokes entirely — which would make every binding
+ *  work only until you touched anything. This script re-posts the claimed ones
+ *  to the embedder, which replays them as ordinary keydowns.
  *
- *  It stays out of the way where it should: a page's own text fields, and
- *  anything with a modifier the shell doesn't claim. */
-const FORWARD_KEYS = `(() => {
+ *  The claims are handed in rather than written here: they come from the
+ *  shell's own hotkey registry, so a binding works inside a page for the same
+ *  reason it works outside — there's one table, not a copy that drifts.
+ *
+ *  It stays out of the way where it should: a page's own text fields keep the
+ *  keys that would be typing there. */
+const forwardKeys = (claims: KeyClaim[]) => `(() => {
   const w = window
+  // Set before the install guard, so re-adopting a guest updates the table.
+  w.__flowmdClaims = ${JSON.stringify(claims)}
   if (w.__flowmdKeys) return
   w.__flowmdKeys = true
   let shell = null
@@ -88,19 +103,25 @@ const FORWARD_KEYS = `(() => {
   const claimed = (e) => {
     // Hint mode owns the keyboard while it's up, letters included.
     if (w.__flowmdHints) return false
-    if (e.ctrlKey || e.metaKey || e.altKey) return false
-    if (e.shiftKey) return e.key === 'G' || e.key === 'H' || e.key === 'L' || e.key === 'F'
-    return e.key === 'j' || e.key === 'k' || e.key === 'g' || e.key === 'f'
+    const key = (e.key || '').toLowerCase()
+    return w.__flowmdClaims.some((c) =>
+      c.key === key && !!c.ctrl === e.ctrlKey && !!c.meta === e.metaKey &&
+      !!c.alt === e.altKey && !!c.shift === e.shiftKey)
   }
   w.addEventListener(
     'keydown',
     (e) => {
       if (!shell || !claimed(e)) return
       const el = document.activeElement
-      // Typing in the page is the page's business.
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+      const typing = el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+      // Typing in the page is the page's business — but a chord is never
+      // typing, so ⌘T still opens a tab from inside a search box.
+      if (typing && !e.ctrlKey && !e.metaKey && !e.altKey) return
       e.preventDefault()
-      shell.postMessage({ flowmd: 'key', key: e.key, code: e.code, shiftKey: e.shiftKey }, '*')
+      shell.postMessage({
+        flowmd: 'key', key: e.key, code: e.code,
+        shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey,
+      }, '*')
     },
     true,
   )
@@ -401,8 +422,8 @@ export function createFrame(
       }
     },
     /** Installs the key forwarder and hands the guest a way to reach us. */
-    async adopt() {
-      await exec(FORWARD_KEYS)
+    async adopt(claims) {
+      await exec(forwardKeys(claims))
       const f = cf() as { contentWindow?: Window | null }
       f.contentWindow?.postMessage('flowmd:hello', '*')
     },

@@ -459,3 +459,84 @@ export const tabsCollection = createCollection(
     },
   }),
 )
+
+// ── History ────────────────────────────────────────────────────────────────
+//
+// Every tab opened and every tab closed, appended to a CSV in the vault. It's
+// a log rather than a view of the current tabs: the markdown already says
+// what's open, and what a history is for is what *isn't* any more.
+
+const HISTORY = 'history.csv'
+const HISTORY_QUERY = `CsvCell("${HISTORY}", row, col, value)`
+const HISTORY_COLS = ['time', 'action', 'url', 'title', 'space'] as const
+
+export interface Visit {
+  row: number
+  time: string
+  action: string
+  url: string
+  title: string
+  space: string
+}
+
+/** The log, oldest first. Cells come back one per fact, so they're gathered
+ *  back into rows here — the CSV's shape is the join key. */
+export async function history(): Promise<Visit[]> {
+  const res = await vault.run(HISTORY_QUERY)
+  if (res.error) return []
+  const byRow = new Map<number, Visit>()
+  for (const [row, col, value] of res.rows as [number, string, string][]) {
+    const n = Number(row)
+    const visit =
+      byRow.get(n) ?? { row: n, time: '', action: '', url: '', title: '', space: '' }
+    if ((HISTORY_COLS as readonly string[]).includes(col)) {
+      ;(visit as unknown as Record<string, string>)[col] = String(value ?? '')
+    }
+    byRow.set(n, visit)
+  }
+  return [...byRow.values()].sort((a, b) => a.row - b.row)
+}
+
+/** Append one event. The row index has to be known before the columns can be
+ *  written into it, so the log is read first — the same read that tells us
+ *  where the end is. */
+export async function record(
+  action: 'opened' | 'closed',
+  tab: { url: string; title?: string; space: string },
+  at: string = new Date().toISOString(),
+): Promise<void> {
+  const rows = await history()
+  const row = rows.length ? Math.max(...rows.map((v) => v.row)) + 1 : 1
+  const values: Record<string, string> = {
+    time: at,
+    action,
+    url: tab.url,
+    title: tab.title ?? '',
+    space: tab.space,
+  }
+  for (const col of HISTORY_COLS) {
+    const res = await vault.insert('CsvCell', [HISTORY, row, col, values[col] ?? ''])
+    // A vault without history.csv shouldn't take the browser down with it.
+    if (res.error) {
+      console.warn(`flow-md: history not written (${res.error})`)
+      return
+    }
+  }
+}
+
+/** The most recently closed tab that isn't open again — what ⌘⇧T reopens.
+ *  A tab closed and then reopened is no longer the last closed one, so the
+ *  log is walked backwards and the first close that has no later open of the
+ *  same url in the same space wins. */
+export async function lastClosed(): Promise<Visit | null> {
+  const rows = await history()
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const v = rows[i]!
+    if (v.action !== 'closed') continue
+    const reopened = rows
+      .slice(i + 1)
+      .some((later) => later.action === 'opened' && later.url === v.url && later.space === v.space)
+    if (!reopened) return v
+  }
+  return null
+}

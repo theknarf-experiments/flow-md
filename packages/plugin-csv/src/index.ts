@@ -39,7 +39,7 @@ export const CSV_SCHEMA: EdbDef[] = [
 ]
 
 export const CSV_WRITABLE: WritableRel[] = [
-  { rel: 'CsvCell', cols: ['value'] },
+  { rel: 'CsvCell', cols: ['value'], canInsert: true, pathAttr: 'path' },
 ]
 
 export function parseCsvFile(
@@ -104,6 +104,53 @@ export function updateCsvFact(
   return lines.join('\n')
 }
 
+/** Write a cell that isn't there yet.
+ *
+ *  A row one past the last is appended, which is how a CSV grows: a log
+ *  writes its columns one cell at a time, the first of them creating the
+ *  line. Filling a blank cell of an existing row is the same operation from
+ *  the file's point of view, so it's allowed too — but overwriting a cell
+ *  that already says something is an update, and belongs to updateFact. */
+export function insertCsvFact(content: string, fact: Fact): string {
+  if (fact.rel !== 'CsvCell') {
+    throw new Error(`relation "${fact.rel}" is not insertable by the csv plugin`)
+  }
+  const [, rowIdx, col, value] = fact.row
+  const { header, rows } = parseCsv(content)
+  const c = header.indexOf(String(col))
+  if (c < 0) throw new Error(`no column "${col}" in the header`)
+
+  // 0 is the convention for a locator the caller can't know yet: append.
+  const r = Number(rowIdx) === 0 ? rows.length : Number(rowIdx) - 1
+  if (!Number.isInteger(r) || r < 0 || r > rows.length) {
+    throw new Error(`row ${rowIdx} is out of range`)
+  }
+  const appending = r === rows.length
+  const cells = appending ? header.map(() => '') : [...rows[r]!]
+  if (!appending && (cells[c] ?? '') !== '') {
+    throw new Error(`cell (${rowIdx}, ${col}) already says "${cells[c]}"`)
+  }
+  cells[c] = String(value ?? '')
+
+  const lines = content.split('\n')
+  // Same restriction the cell rewrite carries: without one line per row,
+  // there's no line to put this on.
+  const nonEmpty = lines.filter((l, i) => l !== '' || i < lines.length - 1).length
+  if (nonEmpty !== rows.length + 1) {
+    throw new Error('cells with embedded newlines are read-only')
+  }
+  const eol = (lines[1] ?? lines[0] ?? '').endsWith('\r') ? '\r' : ''
+  const rendered = serializeRow(cells) + eol
+  if (!appending) {
+    lines[r + 1] = rendered
+    return lines.join('\n')
+  }
+  // Append before a trailing newline, so the file keeps ending in one.
+  if (lines[lines.length - 1] === '') lines.splice(lines.length - 1, 0, rendered)
+  else lines.push(rendered)
+  return lines.join('\n')
+}
+
 export const csvPlugin: Plugin = {
   name: 'csv',
   extensions: ['.csv'],
@@ -111,6 +158,7 @@ export const csvPlugin: Plugin = {
   parse: parseCsvFile,
   writable: CSV_WRITABLE,
   updateFact: updateCsvFact,
+  insertFact: insertCsvFact,
 }
 
 export { parseCsv, serializeRow, serializeCsv, serializeField } from './csv.js'

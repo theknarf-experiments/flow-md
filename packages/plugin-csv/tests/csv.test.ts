@@ -1,7 +1,7 @@
 import type { Fact } from '@flow-md/plugin-api'
 import { describe, expect, it } from 'vitest'
 import { parseCsv, serializeCsv } from '../src/csv.js'
-import { parseCsvFile, updateCsvFact } from '../src/index.js'
+import { insertCsvFact, parseCsvFile, updateCsvFact } from '../src/index.js'
 
 const SHEET = ['item,cost,note', 'milk,4,weekly', 'laptop,1200,"new, shiny"', 'pen,2,'].join('\n')
 
@@ -99,5 +99,46 @@ describe('updateCsvFact', () => {
         { rel: 'CsvCell', row: ['x.csv', 1, 'b', '3'] },
       ),
     ).toThrow(/read-only/)
+  })
+})
+
+describe('insertCsvFact', () => {
+  const cell = (row: number, col: string, value: string): Fact => ({
+    rel: 'CsvCell',
+    row: ['data/budget.csv', row, col, value],
+  })
+
+  it('appends a row when the index is one past the end', () => {
+    const out = insertCsvFact(SHEET, cell(4, 'item', 'ink'))
+    expect(out.split('\n')[4]).toBe('ink,,')
+    // The rows already there are untouched.
+    expect(out.split('\n').slice(0, 4)).toEqual(SHEET.split('\n'))
+  })
+
+  it('fills the rest of that row one cell at a time', () => {
+    let out = insertCsvFact(SHEET, cell(4, 'item', 'ink'))
+    out = insertCsvFact(out, cell(4, 'cost', '9'))
+    out = insertCsvFact(out, cell(4, 'note', 'refill, black'))
+    expect(out.split('\n')[4]).toBe('ink,9,"refill, black"')
+    expect(rows(parseCsvFile('data/budget.csv', out, 0).facts, 'CsvCell')).toContainEqual([
+      'data/budget.csv',
+      4,
+      'note',
+      'refill, black',
+    ])
+  })
+
+  it('keeps the file ending in a newline when it started with one', () => {
+    const out = insertCsvFact(`${SHEET}\n`, cell(4, 'item', 'ink'))
+    expect(out.endsWith('ink,,\n')).toBe(true)
+  })
+
+  it('refuses to overwrite a cell that already says something', () => {
+    expect(() => insertCsvFact(SHEET, cell(1, 'cost', '5'))).toThrow(/already says "4"/)
+  })
+
+  it('rejects an unknown column or an out-of-range row', () => {
+    expect(() => insertCsvFact(SHEET, cell(4, 'nope', 'x'))).toThrow(/no column/)
+    expect(() => insertCsvFact(SHEET, cell(9, 'item', 'x'))).toThrow(/out of range/)
   })
 })

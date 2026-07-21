@@ -64,7 +64,7 @@ import {
   hasTitleBar,
   windowManagementState,
 } from './lib/env.js'
-import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
+import { type FrameHandle, type KeyClaim, createFrame, normalizeUrl } from './lib/frames.js'
 import {
   type Space,
   type Tab as Row,
@@ -73,6 +73,8 @@ import {
   setDepth,
   spacesCollection,
   tabsCollection,
+  lastClosed,
+  record,
 } from './lib/db.js'
 import { type Status, vault } from './lib/vault.js'
 
@@ -114,6 +116,65 @@ const SPACE_EMOJI = ['📓', '🌐', '🧪', '🎨', '📚', '🎧', '🛠️', 
 /** The colours a space can be recoloured to — spread right round the wheel so
  *  no two are easy to confuse at a glance. */
 const HUES = [250, 285, 320, 355, 25, 90, 155, 190]
+
+/** Mac binds Mod to ⌘ and everything else to Ctrl — the same rule TanStack
+ *  displays by, resolved here because the shell knows the platform and a
+ *  guest shouldn't have to. */
+const MOD: 'meta' | 'ctrl' = /mac|iphone|ipad/i.test(navigator.platform) ? 'meta' : 'ctrl'
+
+/** One binding string — "Mod+T", "Shift+G", "J" — as a claim. */
+function parseClaim(hotkey: string): KeyClaim | null {
+  const parts = hotkey
+    .split('+')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const key = parts.pop()?.toLowerCase()
+  if (!key) return null
+  const claim: KeyClaim = { key }
+  for (const part of parts) {
+    switch (part.toLowerCase()) {
+      case 'mod':
+        claim[MOD] = true
+        break
+      case 'meta':
+      case 'cmd':
+      case 'command':
+        claim.meta = true
+        break
+      case 'ctrl':
+      case 'control':
+        claim.ctrl = true
+        break
+      case 'alt':
+      case 'option':
+        claim.alt = true
+        break
+      case 'shift':
+        claim.shift = true
+        break
+    }
+  }
+  return claim
+}
+
+/** Every documented binding, in the form guests match keydowns against.
+ *
+ *  Read as a snapshot and never subscribed to: useHotkey writes its options
+ *  back into the manager during render, so anything watching this re-renders
+ *  itself forever. Named bindings only — an undocumented one like Escape is
+ *  left to the page, which has its own uses for it. */
+function hotkeyClaims(): KeyClaim[] {
+  const named = (r: { options?: { meta?: { name?: string } } }) => !!r.options?.meta?.name
+  const chords = [...getHotkeyManager().registrations.state.values()]
+    .filter(named)
+    .map((r) => r.hotkey)
+  const steps = [...getSequenceManager().registrations.state.values()]
+    .filter(named)
+    .flatMap((r) => r.sequence)
+  return [...new Set([...chords, ...steps])]
+    .map(parseClaim)
+    .filter((c): c is KeyClaim => !!c)
+}
 
 export function App() {
   // The vault's rows *are* the state. A link added in an editor is a row that
@@ -191,7 +252,7 @@ export function App() {
   const sync = useCallback(async (id: string) => {
     const frame = frames.current.get(id)
     if (!frame) return
-    void frame.adopt()
+    void frame.adopt(hotkeyClaims())
     const info = await frame.probe()
     if (info) {
       setRuntime((r) => ({ ...r, [id]: { icon: info.icon ?? r[id]?.icon ?? null } }))
@@ -231,6 +292,7 @@ export function App() {
       const target = opts.space ?? spaceId
       if (!target) return
       void addLink(target, url, url, opts.under).then(() => {
+        void record('opened', { url, title: url, space: target })
         if (opts.activate === false) return
         const opened = tabsCollection.toArray
           .filter((t) => t.space === target && t.url === url)
@@ -256,10 +318,23 @@ export function App() {
           : m,
       )
       tabsCollection.delete(id)
+      void record('closed', { url: victim.url, title: victim.title, space: victim.space })
       log(`closed ${victim.url}`)
     },
     [log],
   )
+
+  /** ⌘⇧T: the history says where a closed tab was, so putting it back is the
+   *  same as opening it — the link goes into the space it was closed from,
+   *  which may not be the space showing now. */
+  const reopenLast = useCallback(async () => {
+    const gone = await lastClosed()
+    if (!gone) {
+      log('nothing closed to reopen')
+      return
+    }
+    openTab(gone.url, { space: gone.space || spaceId })
+  }, [openTab, spaceId, log])
 
   /** Rows in, guests out. The only place the document and the browser meet:
    *  every row gets a frame, every frame without a row is destroyed. There is
@@ -379,13 +454,26 @@ export function App() {
    *  guest has already decided these aren't meant for the page. */
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      const data = e.data as { flowmd?: string; key?: string; code?: string; shiftKey?: boolean }
+      const data = e.data as {
+        flowmd?: string
+        key?: string
+        code?: string
+        shiftKey?: boolean
+        ctrlKey?: boolean
+        metaKey?: boolean
+        altKey?: boolean
+      }
       if (data?.flowmd !== 'key' || !data.key) return
       document.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: data.key,
           code: data.code ?? '',
+          // Every modifier, or a chord arrives as its bare key and fires the
+          // wrong binding — ⌃J would read as plain j and scroll the page.
           shiftKey: !!data.shiftKey,
+          ctrlKey: !!data.ctrlKey,
+          metaKey: !!data.metaKey,
+          altKey: !!data.altKey,
           bubbles: true,
         }),
       )
@@ -441,6 +529,7 @@ export function App() {
   useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim('Jump to the top'))
   useHotkey('Shift+H', () => activeFrame?.back(), vim('Back'))
   useHotkey('Shift+L', () => activeFrame?.forward(), vim('Forward'))
+  useHotkey('Mod+Shift+T', () => void reopenLast(), tabs_('Reopen the last closed tab'))
   useHotkey('F', () => void activeFrame?.hint(false), vim('Hint a link'))
   useHotkey('Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
 
