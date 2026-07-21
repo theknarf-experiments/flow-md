@@ -1,0 +1,43 @@
+.grid {
+  display: grid;
+  gap: 4px;
+  app-region: no-drag;
+}
+
+.tile {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  cursor: default;
+  padding: 0;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.tile:hover {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.tile.active {
+  background: color-mix(in srgb, currentColor 28%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: contain;
+}
+
+/* Fallback when a guest has no favicon yet — its initial, which is close to
+   what most favicons are anyway. */
+.letter {
+  font-size: 0.95rem;
+  font-weight: 600;
+  opacity: 0.75;
+}

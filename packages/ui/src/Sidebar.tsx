@@ -32,6 +32,17 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className={styles.sectionLabel}>{children}</div>
 }
 
+/** A space's name, with its emoji — the friendlier heading Arc uses in place
+ *  of a tiny uppercase caption. */
+export function SpaceHeader({ emoji, children }: { emoji?: string; children: ReactNode }) {
+  return (
+    <div className={styles.spaceHeader}>
+      {emoji && <span aria-hidden="true">{emoji}</span>}
+      <span>{children}</span>
+    </div>
+  )
+}
+
 /** Pushes what follows to the far end of a flex row/column. */
 export function Spacer() {
   return <span className={styles.spacer} />

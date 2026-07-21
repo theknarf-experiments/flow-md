@@ -37,6 +37,7 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1.0' },
       { title: 'flow-md' },
     ],
+    links: [{ rel: 'icon', href: '/favicon.png', type: 'image/png' }],
     // Sets <html data-theme> before first paint — the palette in index.css
     // keys off it, so the shell can't flash the wrong theme.
     scripts: [{ children: themeInitScript }],

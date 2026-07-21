@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf dist .vite .tanstack"
+    "clean": "rm -rf dist .vite .tanstack",
+    "icon": "node scripts/make-favicon.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.3",

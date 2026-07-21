@@ -7,9 +7,9 @@
   background:
     linear-gradient(
       160deg,
-      hsl(var(--hue) 62% 32%) 0%,
-      hsl(calc(var(--hue) + 38) 54% 20%) 55%,
-      hsl(calc(var(--hue) + 60) 48% 14%) 100%
+      hsl(var(--hue) 34% 34%) 0%,
+      hsl(calc(var(--hue) + 30) 30% 24%) 55%,
+      hsl(calc(var(--hue) + 50) 26% 17%) 100%
     );
   transition: background 400ms ease;
 }
@@ -47,7 +47,9 @@
 .card {
   position: relative;
   height: 100%;
-  border-radius: 11px;
+  /* Arc keeps this tight — a large radius reads as a floating panel rather
+     than the window's content area. */
+  border-radius: 6px;
   overflow: hidden;
   background: #fff;
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);

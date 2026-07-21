@@ -2,33 +2,45 @@
   app-region: no-drag;
   display: flex;
   align-items: center;
-  gap: 0.2rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  justify-content: center;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
 
 .space {
-  flex: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
   border: 0;
   border-radius: 8px;
   background: none;
   color: inherit;
-  opacity: 0.55;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.72rem;
-  padding: 0.3rem 0.2rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: default;
+  padding: 0;
+  opacity: 0.45;
+  transition: opacity 120ms ease, background 120ms ease;
 }
 
-.space:hover {
-  background: color-mix(in srgb, currentColor 12%, transparent);
-  opacity: 1;
-}
+.space:hover { opacity: 0.85; background: color-mix(in srgb, currentColor 12%, transparent); }
 
 .space.active {
-  background: color-mix(in srgb, currentColor 20%, transparent);
   opacity: 1;
+  background: color-mix(in srgb, currentColor 18%, transparent);
 }
+
+.emoji {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+/* A space with no emoji is just a dot — it still reads as a switchable
+   position in the rail. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.space.active .dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent); }

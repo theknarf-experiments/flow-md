@@ -1,0 +1,50 @@
+.wrap {
+  position: relative;
+  display: inline-grid;
+}
+
+.tip {
+  position: absolute;
+  z-index: 40;
+  padding: 0.2rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(20, 20, 24, 0.94);
+  color: #f0f0f0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  /* Short delay so sweeping across a row of controls doesn't flash every
+     label in turn. */
+  transition: opacity 110ms ease 350ms;
+}
+
+.wrap:hover .tip,
+.wrap:focus-within .tip {
+  opacity: 1;
+}
+
+.bottom {
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.top {
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.right {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.left {
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+}

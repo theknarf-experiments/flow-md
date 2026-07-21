@@ -14,19 +14,27 @@ export const Default: Story = {}
 
 export const Small: Story = { args: { size: 'sm', children: '✕' } }
 
+export const Large: Story = { args: { size: 'lg', children: '⟳' } }
+
+/** Hover to see the styled label — the native `title` takes about a second
+ *  and can't be themed. */
+export const WithTooltip: Story = {
+  args: { tooltip: 'Reload  ⌘R', children: '⟳' },
+}
+
 export const Disabled: Story = { args: { disabled: true, children: '‹' } }
 
-/** How it actually appears — a row of chrome controls. */
+/** How the shell actually uses them: four navigation controls, sized to be
+ *  readable at rest rather than only on hover. */
 export const Toolbar: Story = {
   render: () => (
-    <div style={{ display: 'flex', gap: '0.15rem', alignItems: 'center' }}>
-      <IconButton title="toggle sidebar">▏</IconButton>
-      <IconButton title="back" disabled>
+    <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+      <IconButton tooltip="Hide sidebar  ⌘S">▏</IconButton>
+      <IconButton tooltip="Back" disabled>
         ‹
       </IconButton>
-      <IconButton title="forward">›</IconButton>
-      <IconButton title="reload">⟳</IconButton>
-      <IconButton title="capture">⤓</IconButton>
+      <IconButton tooltip="Forward">›</IconButton>
+      <IconButton tooltip="Reload">⟳</IconButton>
     </div>
   ),
 }

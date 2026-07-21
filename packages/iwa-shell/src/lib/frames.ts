@@ -12,7 +12,40 @@ export interface FrameInfo {
   title: string
   url: string
   bytes: number
+  /** The guest's favicon as a data: URL, or null while it's still being
+   *  fetched. Not the plain href: an IWA's CSP allows `img-src … https: data:`
+   *  but not `http:`, so a localhost guest's icon would be blocked. Fetching
+   *  it inside the guest and inlining it sidesteps that for every scheme. */
+  icon: string | null
 }
+
+// executeScript returns the completion value but does *not* resolve promises
+// (an async IIFE comes back as {}), so this can't await the fetch. Instead it
+// starts the fetch on first call, caches the result on the guest's window,
+// and returns it on a later call.
+const PROBE = `(() => {
+  const w = window
+  if (w.__flowmdIcon === undefined) {
+    w.__flowmdIcon = null
+    const link = document.querySelector('link[rel~="icon"]')
+    const href = link ? link.href : location.origin + '/favicon.ico'
+    fetch(href)
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('no icon'))))
+      .then((b) => {
+        if (b.size > 200000) throw new Error('icon too large')
+        const fr = new FileReader()
+        fr.onload = () => { w.__flowmdIcon = String(fr.result) }
+        fr.readAsDataURL(b)
+      })
+      .catch(() => { w.__flowmdIcon = '' })
+  }
+  return JSON.stringify({
+    title: document.title,
+    url: location.href,
+    bytes: document.documentElement.outerHTML.length,
+    icon: w.__flowmdIcon || null,
+  })
+})()`
 
 export interface FrameHandle {
   readonly el: HTMLElement
@@ -85,9 +118,7 @@ export function createFrame(
       const f = cf()
       if (typeof f.executeScript !== 'function') return null
       try {
-        const res = (await f.executeScript({
-          code: 'JSON.stringify({title:document.title,url:location.href,bytes:document.documentElement.outerHTML.length})',
-        })) as unknown
+        const res = (await f.executeScript({ code: PROBE })) as unknown
         const raw = Array.isArray(res) ? res[0] : res
         return JSON.parse(String(raw)) as FrameInfo
       } catch {

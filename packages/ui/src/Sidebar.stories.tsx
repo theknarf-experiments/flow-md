@@ -31,9 +31,9 @@ export default meta
 type Story = StoryObj<typeof Sidebar>
 
 const SPACES = [
-  { id: 'vault', name: 'Vault' },
-  { id: 'web', name: 'Web' },
-  { id: 'scratch', name: 'Scratch' },
+  { id: 'vault', name: 'Vault', emoji: '📓' },
+  { id: 'web', name: 'Web', emoji: '🌐' },
+  { id: 'scratch', name: 'Scratch', emoji: '🧪' },
 ]
 
 /** Everything composed the way the shell assembles it. */
@@ -44,14 +44,12 @@ export const Composed: Story = {
     return (
       <Sidebar>
         <Toolbar>
-          <IconButton title="toggle sidebar">▏</IconButton>
-          <IconButton title="back" disabled>
+          <IconButton tooltip="Hide sidebar  ⌘S">▏</IconButton>
+          <IconButton tooltip="Back" disabled>
             ‹
           </IconButton>
-          <IconButton title="forward">›</IconButton>
-          <IconButton title="reload">⟳</IconButton>
-          <Spacer />
-          <IconButton title="capture">⤓</IconButton>
+          <IconButton tooltip="Forward">›</IconButton>
+          <IconButton tooltip="Reload">⟳</IconButton>
         </Toolbar>
         <AddressPill value="localhost:4748/note/board.mdx" title="edit address" />
         <SectionLabel>Pinned</SectionLabel>

@@ -21,10 +21,12 @@ import {
   type PaletteItem,
   IconButton,
   LogPanel,
+  PinnedGrid,
   SectionLabel,
   Sidebar,
   SpaceRail,
   SidebarButton,
+  SpaceHeader,
   Spacer,
   Tab as TabRow,
   Toolbar,
@@ -36,7 +38,6 @@ import {
   controlledFrame,
   cspSelfTest,
   hasTitleBar,
-  requestWindowManagement,
   windowManagementState,
 } from './lib/env.js'
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
@@ -51,6 +52,7 @@ const TRAFFIC_LIGHTS = 76
 interface Space {
   id: string
   name: string
+  emoji: string
   /** Base hue for the gradient; each space feels distinct, as in Arc. */
   hue: number
   /** Guests are partitioned per space, so spaces are real containers:
@@ -59,9 +61,9 @@ interface Space {
 }
 
 const SPACES: Space[] = [
-  { id: 'vault', name: 'Vault', hue: 250, partition: 'persist:vault' },
-  { id: 'web', name: 'Web', hue: 190, partition: 'persist:web' },
-  { id: 'scratch', name: 'Scratch', hue: 320, partition: 'persist:scratch' },
+  { id: 'vault', name: 'Vault', emoji: '📓', hue: 250, partition: 'persist:vault' },
+  { id: 'web', name: 'Web', emoji: '🌐', hue: 190, partition: 'persist:web' },
+  { id: 'scratch', name: 'Scratch', emoji: '🧪', hue: 320, partition: 'persist:scratch' },
 ]
 
 interface Tab {
@@ -70,6 +72,8 @@ interface Tab {
   title: string
   url: string
   pinned: boolean
+  /** Inlined favicon; null until the guest has fetched it. */
+  icon: string | null
 }
 
 export function App() {
@@ -86,8 +90,6 @@ export function App() {
   })
   const [lines, setLines] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
-  /** Shown only while Chrome still draws a title bar we could get rid of. */
-  const [offerUnframe, setOfferUnframe] = useState(false)
   /** Frameless window: macOS draws the traffic lights straight over our
    *  content, and env(titlebar-area-height) stays 0 because there's no
    *  window-controls overlay to report — so reserve the space ourselves.
@@ -101,6 +103,8 @@ export function App() {
   /** Creating guests is an imperative side effect, and StrictMode invokes
    *  effects twice in dev — without this we boot two of every tab. */
   const booted = useRef(false)
+  /** Tabs whose favicon we've already given a second chance. */
+  const iconRetried = useRef(new Set<number>())
 
   const space = SPACES.find((s) => s.id === spaceId) ?? SPACES[0]!
   const activeId = activeBySpace[spaceId] ?? null
@@ -120,8 +124,18 @@ export function App() {
     const info = await frame.probe()
     if (info) {
       setTabs((ts) =>
-        ts.map((t) => (t.id === id ? { ...t, title: info.title || info.url, url: info.url } : t)),
+        ts.map((t) =>
+          t.id === id
+            ? { ...t, title: info.title || info.url, url: info.url, icon: info.icon ?? t.icon }
+            : t,
+        ),
       )
+      // The guest fetches its favicon asynchronously and executeScript can't
+      // await it, so look again shortly — once, not in a loop.
+      if (!info.icon && !iconRetried.current.has(id)) {
+        iconRetried.current.add(id)
+        setTimeout(() => void sync(id), 900)
+      }
     }
     setNav({ back: await frame.canGoBack(), forward: await frame.canGoForward() })
   }, [])
@@ -137,7 +151,10 @@ export function App() {
         void sync(id)
       })
       frames.current.set(id, frame)
-      setTabs((ts) => [...ts, { id, spaceId: target, title: url, url, pinned: !!opts.pinned }])
+      setTabs((ts) => [
+        ...ts,
+        { id, spaceId: target, title: url, url, pinned: !!opts.pinned, icon: null },
+      ])
       if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
       log(`tab ${id} → ${url}`)
     },
@@ -187,7 +204,6 @@ export function App() {
     openTab('https://example.com', { space: 'web', activate: false })
     void windowManagementState().then((state) => {
       log(`window-management: ${state} · title bar: ${hasTitleBar()}`)
-      setOfferUnframe(hasTitleBar() && state !== 'granted' && state !== 'unsupported')
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -334,6 +350,7 @@ export function App() {
     <TabRow
       key={tab.id}
       label={tab.title}
+      icon={tab.icon}
       title={tab.url}
       active={tab.id === activeId}
       pinned={tab.pinned}
@@ -355,38 +372,21 @@ export function App() {
 
       <Sidebar open={sidebar} className={styles.sidebar}>
         <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
-          <IconButton title="toggle sidebar (⌘S)" onClick={() => setSidebar((s) => !s)}>
+          <IconButton tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
             ▏
           </IconButton>
-          <IconButton disabled={!nav.back} title="back" onClick={() => activeFrame?.back()}>
+          <IconButton tooltip="Back" disabled={!nav.back} onClick={() => activeFrame?.back()}>
             ‹
           </IconButton>
           <IconButton
+            tooltip="Forward"
             disabled={!nav.forward}
-            title="forward"
             onClick={() => activeFrame?.forward()}
           >
             ›
           </IconButton>
-          <IconButton title="reload" onClick={() => activeFrame?.reload()}>
+          <IconButton tooltip="Reload" onClick={() => activeFrame?.reload()}>
             ⟳
-          </IconButton>
-          <Spacer />
-          {offerUnframe && (
-            <IconButton
-              title="Remove the title bar — grants window management, then reopen the window"
-              onClick={() => {
-                void requestWindowManagement().then((ok) => {
-                  log(ok ? 'window-management granted — reopen to go unframed' : 'permission denied')
-                  setOfferUnframe(!ok)
-                })
-              }}
-            >
-              ⤢
-            </IconButton>
-          )}
-          <IconButton title="capture page (archive test)" onClick={() => void capture()}>
-            ⤓
           </IconButton>
         </Toolbar>
 
@@ -397,13 +397,17 @@ export function App() {
         />
 
         {pinned.length > 0 && (
-          <>
-            <SectionLabel>Pinned</SectionLabel>
-            <div className={styles.tabList}>{pinned.map(renderTab)}</div>
-          </>
+          <PinnedGrid
+            items={pinned.map((t) => ({ id: t.id, label: t.title, icon: t.icon, title: t.url }))}
+            activeId={activeId}
+            onSelect={(id) => setActiveBySpace((m) => ({ ...m, [spaceId]: Number(id) }))}
+            onUnpin={(id) =>
+              setTabs((ts) => ts.map((t) => (t.id === Number(id) ? { ...t, pinned: false } : t)))
+            }
+          />
         )}
 
-        <SectionLabel>{space.name}</SectionLabel>
+        <SpaceHeader emoji={space.emoji}>{space.name}</SpaceHeader>
         <div className={styles.tabList}>
           {loose.map(renderTab)}
           <SidebarButton onClick={() => setCommand({ open: true, value: '', newTab: true })}>
@@ -417,6 +421,7 @@ export function App() {
           spaces={SPACES.map((s) => ({
             id: s.id,
             name: s.name,
+            emoji: s.emoji,
             title: `${s.name} — separate container (${s.partition})`,
           }))}
           activeId={spaceId}

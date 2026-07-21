@@ -1,31 +1,27 @@
 .button {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: none;
   color: inherit;
-  opacity: 0.68;
+  /* Readable at rest, not just on hover — these are primary navigation. */
+  opacity: 0.82;
   font: inherit;
-  font-size: 0.95rem;
   cursor: pointer;
   app-region: no-drag;
 }
 
 .button:hover:not(:disabled) {
-  background: color-mix(in srgb, currentColor 16%, transparent);
+  background: color-mix(in srgb, currentColor 18%, transparent);
   opacity: 1;
 }
 
 .button:disabled {
-  opacity: 0.28;
+  opacity: 0.3;
   cursor: default;
 }
 
-.sm {
-  width: 20px;
-  height: 20px;
-  font-size: 0.78rem;
-}
+.sm { width: 20px; height: 20px; font-size: 0.78rem; }
+.md { width: 30px; height: 30px; font-size: 1.05rem; }
+.lg { width: 34px; height: 34px; font-size: 1.2rem; }

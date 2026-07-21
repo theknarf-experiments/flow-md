@@ -19,9 +19,11 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 | --- | --- |
 | `Sidebar` | fixed-width collapsible chrome column (+ `Toolbar`, `SectionLabel`, `SidebarButton`, `Spacer`) |
 | `Tab` | a tab row: label, optional pin toggle and close |
-| `SpaceRail` | the segmented row of spaces along a sidebar's bottom |
+| `SpaceRail` | spaces as dots along a sidebar's bottom, emoji optional |
 | `AddressPill` | reads as an address field, behaves as a button |
 | `IconButton` | square icon-sized button used across toolbars |
+| `Tooltip` | styled hover label, placeable on any side |
+| `PinnedGrid` | pinned tabs as favicon tiles |
 | `CommandPalette` | modal input, with or without a result list |
 | `LogPanel` | fixed-corner scrolling log with tone colours |
 | `Banner` | a strip of bad news, optionally pinned to the top |
@@ -47,6 +49,10 @@ were on, so this is their union with the differences as flags
 every mutation calls `onChange` with the next table and the caller decides
 what that means — re-serialize a markdown block, save a `.csv`. Both call
 sites are now ~35 lines.
+
+**`Tooltip` is not an accessible name.** It's a hover affordance and isn't
+announced, so icon-only controls still need `aria-label` — `PinnedGrid` tiles
+and `SpaceRail` dots carry both, since neither has any visible text.
 
 **`DataView` takes an `onEditCell` callback** rather than importing the app's
 write-through store — omit it and the table is read-only, which is what keeps

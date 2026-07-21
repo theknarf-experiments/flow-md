@@ -21,9 +21,9 @@ type Story = StoryObj<typeof SpaceRail>
 export const Default: Story = {
   args: {
     spaces: [
-      { id: 'vault', name: 'Vault', title: 'Vault — separate container' },
-      { id: 'web', name: 'Web' },
-      { id: 'scratch', name: 'Scratch' },
+      { id: 'vault', name: 'Vault', emoji: '📓', title: 'Vault — separate container' },
+      { id: 'web', name: 'Web', emoji: '🌐' },
+      { id: 'scratch', name: 'Scratch', emoji: '🧪' },
     ],
     activeId: 'vault',
     onSelect: () => {},
@@ -36,9 +36,9 @@ export const Interactive: Story = {
     return (
       <SpaceRail
         spaces={[
-          { id: 'vault', name: 'Vault' },
-          { id: 'web', name: 'Web' },
-          { id: 'scratch', name: 'Scratch' },
+          { id: 'vault', name: 'Vault', emoji: '📓' },
+          { id: 'web', name: 'Web', emoji: '🌐' },
+          { id: 'scratch', name: 'Scratch', emoji: '🧪' },
         ]}
         activeId={id}
         onSelect={setId}
@@ -47,16 +47,16 @@ export const Interactive: Story = {
   },
 }
 
-/** Long names truncate rather than widening the sidebar. */
-export const ManySpaces: Story = {
+/** Emoji are optional — a space without one falls back to a plain dot. */
+export const MixedEmoji: Story = {
   args: {
     spaces: [
-      { id: '1', name: 'Vault' },
+      { id: '1', name: 'Vault', emoji: '📓' },
       { id: '2', name: 'Web' },
-      { id: '3', name: 'Scratch' },
+      { id: '3', name: 'Scratch', emoji: '🧪' },
       { id: '4', name: 'Research notes' },
     ],
-    activeId: '3',
+    activeId: '2',
     onSelect: () => {},
   },
 }
