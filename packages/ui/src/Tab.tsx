@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect, useRef } from 'react'
+import { type CSSProperties, type MouseEvent, useEffect, useRef } from 'react'
 import styles from './Tab.module.css'
 
 export interface TabProps {
@@ -15,6 +15,8 @@ export interface TabProps {
   onClose?: () => void
   /** Drag props from useReorder — spread onto the row. */
   drag?: Record<string, unknown>
+  /** How deep in the tree, when the list is one. */
+  depth?: number
   /** Right-click affordance — the shell hangs rename/copy/move/close off it. */
   onContextMenu?: (e: MouseEvent<HTMLElement>) => void
   /** Swaps the label for an input. Commit with Enter or by clicking away,
@@ -29,7 +31,8 @@ export interface TabProps {
  *  a <button> inside a <button> is invalid HTML and React will warn. */
 export function Tab(props: TabProps) {
   const { label, icon, title, active, pinned, onSelect, onTogglePin, onClose } = props
-  const { onContextMenu, editing, onRename, onCancelRename, drag } = props
+  const { onContextMenu, editing, onRename, onCancelRename, drag, depth } = props
+  const indent = depth ? ({ '--depth': depth } as CSSProperties) : undefined
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -75,6 +78,7 @@ export function Tab(props: TabProps) {
       onClick={onSelect}
       onContextMenu={onContextMenu}
       title={title ?? label}
+      style={indent}
       {...drag}
     >
       {glyph}

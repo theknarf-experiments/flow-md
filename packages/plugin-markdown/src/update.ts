@@ -78,6 +78,12 @@ const SYNTAX: Record<string, RelSyntax> = {
     deletable: true,
     pathAttr: 'path',
   },
+  MdIndent: {
+    // Not deletable and not insertable: a line's indentation exists exactly
+    // when the line does.
+    cols: ['spaces'],
+    pathAttr: 'path',
+  },
   MdBlockId: {
     cols: ['id'],
     // Appended to a line rather than written on one of its own — that's what

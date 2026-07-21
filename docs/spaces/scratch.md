@@ -8,4 +8,5 @@ hue: 320
 
 # Scratch
 
-Somewhere to put a tab you don't want to keep.
+Somewhere to put a tab you don't want to keep. Nothing here is precious —
+delete the file and the space goes with it.

@@ -73,6 +73,13 @@ export const MARKDOWN_SCHEMA: EdbDef[] = [
     attrs: [['path', 'string'], ['key', 'string'], ['num', 'float']],
   },
   {
+    // How far a list item is indented, in spaces. Markdown nesting *is*
+    // indentation, so this is where a list's tree shape is written down —
+    // and, being a span of its own, it's a tree you can edit.
+    name: 'MdIndent',
+    attrs: [['path', 'string'], ['line', 'number'], ['spaces', 'number']],
+  },
+  {
     // `^an-id` at the end of a line: the convention for naming a block so
     // something outside the file can refer to it. Positions move whenever
     // the file is edited; a name doesn't.

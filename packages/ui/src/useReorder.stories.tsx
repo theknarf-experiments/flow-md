@@ -8,33 +8,43 @@ export default meta
 
 type Story = StoryObj
 
-/** Drag a row onto another to move it there. Which half of the target you're
- *  over decides whether it lands above or below — dropping on the lower half
- *  of the last row is the only way to reach the end of a list. */
+/** Drag a row onto another to move it there.
+ *
+ *  Which half of the target you're over decides whether it lands above or
+ *  below — dropping on the lower half of the last row is the only way to
+ *  reach the end of a list. How far *right* you are decides how deep: drag
+ *  towards the middle of a row to make it a child of the one above. */
 export const Reordering: Story = {
   render: () => {
     const [rows, setRows] = useState([
-      { id: 'a', label: 'Example Domain' },
-      { id: 'b', label: 'Controlled Frame' },
-      { id: 'c', label: 'Hacker News' },
-      { id: 'd', label: 'MDN' },
+      { id: 'a', label: 'Example Domain', depth: 0 },
+      { id: 'b', label: 'Controlled Frame', depth: 1 },
+      { id: 'c', label: 'Hacker News', depth: 0 },
+      { id: 'd', label: 'MDN', depth: 0 },
     ])
     const reorder = useReorder<string>(
-      (id, before) => {
+      (id, { before, depth }) => {
         setRows((current) => {
           const moving = current.find((r) => r.id === id)
           if (!moving) return current
           const rest = current.filter((r) => r.id !== id)
           const at = before ? rest.findIndex((r) => r.id === before) : rest.length
-          return [...rest.slice(0, at), moving, ...rest.slice(at)]
+          return [...rest.slice(0, at), { ...moving, depth }, ...rest.slice(at)]
         })
       },
       rows.map((r) => r.id),
+      { depthOf: (id) => rows.find((r) => r.id === id)?.depth ?? 0 },
     )
     return (
       <div style={{ width: 240, color: 'white' }}>
         {rows.map((row) => (
-          <Tab key={row.id} label={row.label} drag={reorder.row(row.id)} onClose={() => {}} />
+          <Tab
+            key={row.id}
+            label={row.label}
+            depth={row.depth}
+            drag={reorder.row(row.id)}
+            onClose={() => {}}
+          />
         ))}
       </div>
     )

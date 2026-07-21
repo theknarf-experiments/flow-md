@@ -86,6 +86,14 @@ const mdxProcessor = unified()
 const checkboxMark = (value: Cell): string =>
   value === 'closed' || value === 'true' ? 'x' : ' '
 
+const indent = (value: Cell): string => {
+  const n = Number(value)
+  if (!Number.isInteger(n) || n < 0 || n > 40) {
+    throw new Error('indentation must be 0–40 spaces')
+  }
+  return ' '.repeat(n)
+}
+
 const hashes = (value: Cell): string => {
   const n = Number(value)
   if (!Number.isInteger(n) || n < 1 || n > 6) {
@@ -112,6 +120,9 @@ export function renderScalar(value: Cell): string {
 /** `^an-id` at the end of a line, after a space. Line-level rather than
  *  inline: a block id names the block it closes, not the words beside it. */
 const BLOCK_ID = /\s\^([A-Za-z0-9][\w-]*)\s*$/
+
+/** A list item's marker, and the indentation that decides what it's under. */
+const LIST_LINE = /^([ \t]*)(?:[-*+]|\d+[.)])\s/
 
 const WIKILINK = /\[\[([^\]]+)\]\]/g
 // A tag starts at a word boundary, begins with a letter, and may nest (a/b).
@@ -218,6 +229,16 @@ function emitBlockIds(
 ): void {
   let at = 0
   content.split('\n').forEach((text, i) => {
+    const item = text.match(LIST_LINE)
+    if (item) {
+      emit('MdIndent', [path, i + 1, item[1]!.length], {
+        // Rewriting the indent is how a list item is moved in or out — the
+        // span is the whitespace itself, which is empty at the top level.
+        cols: [null, null, encoded([at, at + item[1]!.length], indent)],
+        del: null,
+      })
+    }
+
     const m = text.match(BLOCK_ID)
     if (m?.index !== undefined) {
       const start = at + m.index

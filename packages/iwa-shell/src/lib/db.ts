@@ -49,6 +49,9 @@ export interface Tab {
   id: string
   /** The `^id` written after the link, when there is one. */
   block: string | null
+  /** How deep the tab sits, from how far its line is indented. Two spaces to
+   *  a level, which is what markdown lists use. */
+  depth: number
   space: string
   url: string
   title: string
@@ -87,6 +90,12 @@ const TAB_QUERY = [
  *  outer join: asking for links *and* their id in one would hide every link
  *  that hasn't got one yet. */
 const BLOCK_QUERY = 'Frontmatter(path, "type", "space"), MdBlockId(path, block, line)'
+
+/** How far each line is indented — which is the tree. */
+const INDENT_QUERY = 'Frontmatter(path, "type", "space"), MdIndent(path, line, spaces)'
+
+/** Markdown's own step, and the one the sidebar draws. */
+export const INDENT_STEP = 2
 
 const frontmatterOf = (space: string) =>
   `Frontmatter(${JSON.stringify(space)}, key, value)`
@@ -136,13 +145,21 @@ async function loadSpaces(): Promise<Space[]> {
 }
 
 async function loadTabs(): Promise<Tab[]> {
-  const [rows, blocks, spaces] = await Promise.all([
+  const [rows, blocks, indents, spaces] = await Promise.all([
     vault.run(TAB_QUERY),
     vault.run(BLOCK_QUERY),
+    vault.run(INDENT_QUERY),
     loadSpaces(),
   ])
   if (rows.error) throw new Error(rows.error)
   if (blocks.error) throw new Error(blocks.error)
+  if (indents.error) throw new Error(indents.error)
+  const indentOf = new Map(
+    (indents.rows as [string, number, number][]).map(([path, line, spaces_]) => [
+      `${path}\n${line}`,
+      spaces_,
+    ]),
+  )
   const pinned = new Map(spaces.map((s) => [s.id, s.pinned]))
   // A block id belongs to the line it closes.
   const blockOf = new Map(
@@ -169,6 +186,7 @@ async function loadTabs(): Promise<Tab[]> {
     .map(([space, node, parent, type, line, start, end, kind, url, title]) => ({
       block: blockOf.get(`${space}\n${line}`)!,
       id: `${space}\n${blockOf.get(`${space}\n${line}`)!}`,
+      depth: Math.floor((indentOf.get(`${space}\n${line}`) ?? 0) / INDENT_STEP),
       space,
       url,
       title,
@@ -273,7 +291,17 @@ const blockQuery = (space: string) =>
  *  the tab would come back as a different tab and reload the page it was
  *  showing. The line numbers are re-read in between, since taking a line out
  *  renumbers everything under it. */
-export async function moveLink(tab: Tab, before: Tab | null): Promise<void> {
+/** Move a tab in or out of the level it sits at, by rewriting the
+ *  indentation of its line. Markdown nesting is indentation, so this is the
+ *  whole of it. */
+export async function setDepth(tab: Tab, depth: number): Promise<void> {
+  const spaces = Math.max(0, depth) * INDENT_STEP
+  if (spaces === tab.depth * INDENT_STEP) return
+  await vault.update(INDENT_QUERY, [tab.space, tab.line, tab.depth * INDENT_STEP], 'spaces', spaces)
+  await tabsCollection.utils.refetch()
+}
+
+export async function moveLink(tab: Tab, before: Tab | null, depth?: number): Promise<void> {
   const id = tab.block ?? ulid()
   if (tab.block) {
     await vault.delete(blockQuery(tab.space), [tab.block, tab.line], 'MdBlockId')
@@ -302,6 +330,12 @@ export async function moveLink(tab: Tab, before: Tab | null): Promise<void> {
     .map((r) => Number(r[4]))
   const target = line === 0 ? Math.max(...landed) : line
   await vault.insert('MdBlockId', [tab.space, id, target])
+  // The line was written at the left margin; put it back at the level the
+  // drop asked for.
+  const want = (depth ?? tab.depth) * INDENT_STEP
+  if (want > 0) {
+    await vault.update(INDENT_QUERY, [tab.space, target, 0], 'spaces', want)
+  }
   await tabsCollection.utils.refetch()
 }
 

@@ -411,3 +411,50 @@ describe('block ids', () => {
     expect(removed.split('\n')[0]).toBe('- [Example](https://example.com/)')
   })
 })
+
+describe('indentation, which is what a list tree is made of', () => {
+  const TREE = md(
+    '- [Parent](https://parent.example/)',
+    '  - [Child](https://child.example/)',
+    '- [Sibling](https://sibling.example/)',
+  )
+
+  it('reads how far each item is indented', () => {
+    expect(facts(TREE, 'MdIndent')).toEqual([
+      ['n.md', 1, 0],
+      ['n.md', 2, 2],
+      ['n.md', 3, 0],
+    ])
+  })
+
+  it('nests an item by indenting it', () => {
+    const out = updateMarkdownFact(
+      TREE,
+      { rel: 'MdIndent', row: ['n.md', 3, 0] },
+      { rel: 'MdIndent', row: ['n.md', 3, 2] },
+    )
+    expect(out.split('\n')[2]).toBe('  - [Sibling](https://sibling.example/)')
+    // And the tree really did change: three items, one of them now a child.
+    const nodes = facts(out, 'MdNode').filter((r) => r[3] === 'listItem')
+    expect(nodes).toHaveLength(3)
+  })
+
+  it('lifts one back out', () => {
+    const out = updateMarkdownFact(
+      TREE,
+      { rel: 'MdIndent', row: ['n.md', 2, 2] },
+      { rel: 'MdIndent', row: ['n.md', 2, 0] },
+    )
+    expect(out.split('\n')[1]).toBe('- [Child](https://child.example/)')
+  })
+
+  it('refuses an indent that isn\'t whitespace', () => {
+    expect(() =>
+      updateMarkdownFact(
+        TREE,
+        { rel: 'MdIndent', row: ['n.md', 1, 0] },
+        { rel: 'MdIndent', row: ['n.md', 1, -2] },
+      ),
+    ).toThrow(/0–40 spaces/)
+  })
+})

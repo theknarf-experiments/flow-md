@@ -1,17 +1,17 @@
 import { type DragEvent, useCallback, useState } from 'react'
 
+export interface Drop<T> {
+  /** The row it should sit before, or null for last. */
+  before: T | null
+  /** How deep, when the list is a tree. Taken from how far right the cursor
+   *  was: an outliner's gesture, and the only one that can express "make this
+   *  a child" without a second control. */
+  depth: number
+}
+
 export interface ReorderHandlers<T extends string | number> {
   /** Props for a row: makes it draggable and a drop target. */
-  row: (id: T) => {
-    draggable: true
-    onDragStart: (e: DragEvent) => void
-    onDragOver: (e: DragEvent) => void
-    onDragLeave: () => void
-    onDrop: (e: DragEvent) => void
-    onDragEnd: () => void
-    'data-dragging'?: boolean
-    'data-drop'?: 'before' | 'after'
-  }
+  row: (id: T) => Record<string, unknown>
   /** The row being dragged, or null. */
   dragging: T | null
 }
@@ -26,11 +26,19 @@ export interface ReorderHandlers<T extends string | number> {
  *  or after it, which is the difference between "move to the end" and "move
  *  to the last position" — and the only way to reach the far end of a list. */
 export function useReorder<T extends string | number>(
-  onMove: (id: T, before: T | null) => void,
+  onMove: (id: T, drop: Drop<T>) => void,
   order: readonly T[],
+  options: {
+    /** Pixels of indent per level, for reading depth off the cursor. */
+    step?: number
+    /** Depth of a row, so a drop can't be more than one level deeper than
+     *  what it lands under. */
+    depthOf?: (id: T) => number
+  } = {},
 ): ReorderHandlers<T> {
+  const { step = 14, depthOf } = options
   const [dragging, setDragging] = useState<T | null>(null)
-  const [over, setOver] = useState<{ id: T; after: boolean } | null>(null)
+  const [over, setOver] = useState<{ id: T; after: boolean; depth: number } | null>(null)
 
   const row = useCallback(
     (id: T) => {
@@ -49,7 +57,12 @@ export function useReorder<T extends string | number>(
           e.preventDefault()
           e.dataTransfer.dropEffect = 'move'
           const box = e.currentTarget.getBoundingClientRect()
-          setOver({ id, after: e.clientY > box.top + box.height / 2 })
+          const after = e.clientY > box.top + box.height / 2
+          // How far right the cursor is, in levels — capped at one deeper
+          // than the row it's landing under, since a list can't skip a level.
+          const asked = Math.max(0, Math.round((e.clientX - box.left) / step))
+          const under = depthOf?.(id) ?? 0
+          setOver({ id, after, depth: Math.min(asked, under + (after ? 1 : 0)) })
         },
         onDragLeave: () => setOver((o) => (o?.id === id ? null : o)),
         onDrop: (e: DragEvent) => {
@@ -64,7 +77,7 @@ export function useReorder<T extends string | number>(
           const at = order.indexOf(target.id)
           const before = target.after ? (order[at + 1] ?? null) : target.id
           if (before === moved) return
-          onMove(moved, before)
+          onMove(moved, { before, depth: target.depth })
         },
         onDragEnd: () => {
           setDragging(null)
@@ -72,9 +85,12 @@ export function useReorder<T extends string | number>(
         },
         ...(dragging === id ? { 'data-dragging': true } : {}),
         ...(isOver ? { 'data-drop': over.after ? ('after' as const) : ('before' as const) } : {}),
+        // The line is drawn where the row would land, not at the left edge —
+        // that's what shows you which level you're dropping into.
+        ...(isOver ? { style: { '--drop-indent': `${over.depth * step}px` } } : {}),
       }
     },
-    [dragging, over, order, onMove],
+    [dragging, over, order, onMove, step, depthOf],
   )
 
   return { row, dragging }

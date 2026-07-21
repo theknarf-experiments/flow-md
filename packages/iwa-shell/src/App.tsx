@@ -69,6 +69,7 @@ import {
   type Tab as Row,
   addLink,
   moveLink,
+  setDepth,
   spacesCollection,
   tabsCollection,
 } from './lib/db.js'
@@ -707,7 +708,7 @@ export function App() {
   /** Dragging a tab moves its link in the file, which is what puts the tabs
    *  in that order in the first place. */
   const reorder = useReorder<string>(
-    (id, before) => {
+    (id, { before, depth }) => {
       const moved = tabsCollection.get(id)
       if (!moved) return
       // The list is every space's tabs end to end, so the row after the last
@@ -715,9 +716,16 @@ export function App() {
       // mean writing into another file at a line that isn't there — so past
       // the end of its own space means last.
       const target = before ? tabsCollection.get(before) : undefined
-      void moveLink(moved, target?.space === moved.space ? target : null)
+      const sibling = target?.space === moved.space ? target : null
+      // Same place, different level: that's an indent, not a move.
+      if (!sibling && moved.id === tabs.filter((t) => t.space === moved.space).at(-1)?.id) {
+        void setDepth(moved, depth)
+        return
+      }
+      void moveLink(moved, sibling, depth)
     },
     tabs.map((t) => t.id),
+    { depthOf: (id) => tabsCollection.get(id)?.depth ?? 0 },
   )
 
   const renderTab = (tab: Row, activeInSpace: string | null) => (
@@ -735,6 +743,7 @@ export function App() {
       onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))}
       onTogglePin={() => togglePin(tab)}
       onClose={() => closeTab(tab.id)}
+      depth={tab.depth}
       drag={reorder.row(tab.id)}
     />
   )
