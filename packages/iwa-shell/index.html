@@ -3,29 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>flow-md IWA shell</title>
+    <title>flow-md shell</title>
     <link rel="manifest" href="/.well-known/manifest.webmanifest" />
-    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="banner" hidden></div>
-
-    <header id="bar">
-      <strong>flow-md shell</strong>
-      <input id="url" type="text" placeholder="https://… or /probe.html" spellcheck="false" />
-      <button id="add" type="button">add frame</button>
-      <button id="capture" type="button" title="executeScript into every frame">capture all</button>
-      <button id="inspect" type="button" title="log the real API surface">inspect API</button>
-      <button id="reset" type="button">reset view</button>
-      <span id="zoom"></span>
-    </header>
-
-    <main id="viewport">
-      <div id="canvas"></div>
-    </main>
-
-    <aside id="log" aria-label="log"></aside>
-
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

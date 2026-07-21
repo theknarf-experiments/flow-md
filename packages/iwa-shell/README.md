@@ -1,44 +1,61 @@
-# IWA shell prototype
+# IWA shell
 
-A throwaway Isolated Web App whose only job is to answer, with evidence,
-whether **Controlled Frame** is a viable primitive for a canvas-browser built
-on flow-md — before we commit to it.
+An Isolated Web App that is **a browser wrapper whose tabs we own**. Chrome
+gives us one app window; the tab strip, address bar, navigation and tab
+lifecycle are all ours, because every tab is a `<controlledframe>` we create
+and control.
+
+flow-md itself is just a tab — an ordinary page served by the local process —
+so **nothing about the app has to change**. MDX with live components,
+`@mdx-js/mdx`'s runtime `evaluate()`, and everything else a normal web page
+can do keep working, because the IWA's strict CSP applies to *this document
+only*, never to guests.
+
+A React SPA (Vite + CSS Modules), matching the main app's conventions.
 
 ## Running it
 
-Two terminals:
-
 ```bash
-pnpm --filter @flow-md/iwa-shell dev          # dev server on :5193
-cargo run --manifest-path packages/iwa-launcher/Cargo.toml
+pnpm --filter @flow-md/iwa-shell dev                        # shell on :5193
+cargo run --release --manifest-path packages/iwa-launcher/Cargo.toml
 ```
 
-The launcher starts a *fresh* Chrome process against a dedicated profile
-(`~/.flow-md/iwa-profile`) with IWA dev mode enabled and installs the shell
-from the dev server. A fresh process matters: IWA flags are only read at
-browser startup, so reusing a running Chrome silently drops them.
+The launcher starts a fresh Chrome against a dedicated profile with IWA dev
+mode enabled, installs the shell on first run, and opens it as an app window.
+See `packages/iwa-launcher`.
 
-Installing does not launch it. Open `chrome://web-app-internals` in that
-profile to find the app under **Installed Dev Mode IWAs**, or launch it from
-`chrome://apps`.
+The default tabs are `http://localhost:4748` (flow-md) and `example.com`, so
+have `flow-md serve` and the app running for the first to load.
 
-Opened in a normal tab the shell still runs, but falls back to `<iframe>` and
-shows a banner saying so.
+Opened in a normal browser tab the shell still runs, but falls back to
+`<iframe>` and shows a banner saying so.
+
+## Architecture
+
+React owns the chrome; guests live in `src/lib/frames.ts`, deliberately
+**outside** React's reconciliation. Two reasons:
+
+- `partition` must be set *before* `src`, or it silently doesn't apply.
+- A guest must never be unmounted and remounted by a re-render — that throws
+  away the loaded page.
+
+Inactive tabs stay loaded and are hidden with `visibility`, not `display`, so
+switching is instant and page state survives.
 
 ## What it verifies
 
-All confirmed on **stable Chrome 150 / macOS** — notably *not* ChromeOS, and
-without an enterprise policy:
+All on **stable Chrome 150 / macOS** — not ChromeOS, no enterprise policy:
 
 | Question | Result |
 | --- | --- |
 | Is Controlled Frame available off ChromeOS? | **Yes** — `HTMLControlledFrameElement`, 25 members |
-| Do live pages survive a CSS-transformed canvas? | **Yes** — pan/zoom over real sites |
-| Can we script guests (the archive story)? | **Yes** — `executeScript` returned `{title,url,bytes}` from `example.com` |
-| Does `partition="persist:…"` persist? | **Yes** — probe counter went `#1` → `#2` across loads |
-| Is runtime codegen blocked? | **Yes** — `new Function` and `AsyncFunction` both throw `EvalError` |
+| Do arbitrary third-party sites load? | **Yes** — including ones that refuse framing |
+| Does flow-md run as a guest, MDX and all? | **Yes** — components render; no app changes |
+| Can we script guests (the archive story)? | **Yes** — `executeScript` returns `{title,url,bytes}` |
+| Does `partition="persist:…"` persist? | **Yes** — probe counter survived relaunches |
+| Is runtime codegen blocked *in the shell*? | **Yes** — `new Function`/`AsyncFunction` throw `EvalError` |
 
-The API surface Chrome actually exposes:
+The API Chrome exposes on a Controlled Frame:
 
 ```
 addContentScripts, back, canGoBack, canGoForward, captureVisibleRegion,
@@ -48,25 +65,23 @@ removeContentScripts, setAudioMuted, setClientHintsUABrandEnabled,
 setUserAgentOverride, setZoom, setZoomMode, stop
 ```
 
-`captureVisibleRegion` + `executeScript` + `insertCSS` is most of a web-archiver.
+`captureVisibleRegion` + `executeScript` + `insertCSS` is most of a
+web-archiver already.
 
-## Two constraints worth remembering
+## Sharp edges worth remembering
+
+**No `@vitejs/plugin-react`.** It injects an *inline* Fast Refresh preamble,
+and an IWA's `script-src 'self'` blocks inline script — the app then dies on a
+missing `$RefreshReg$`. Vite's esbuild compiles `.tsx` from tsconfig's
+`jsx: react-jsx` anyway, so we only give up Fast Refresh (HMR still reloads).
 
 **A guest cannot load the IWA's own origin.** `src` must be http/https/data,
 so a relative `/probe.html` resolves against `isolated-app://` and silently
-leaves the frame on `about:blank`. The probe therefore points at an absolute
-`http://localhost:5193/...`.
+leaves the frame on `about:blank`. Use absolute `http://` URLs.
 
-**Runtime codegen really is blocked**, by the enforced CSP:
+**StrictMode double-invokes effects**, and creating guests is an imperative
+side effect — the boot effect is ref-guarded or you get two of every tab.
 
-```
-script-src 'self' 'wasm-unsafe-eval'; require-trusted-types-for 'script'; …
-```
-
-`innerHTML` and inline `<script>` are blocked by Trusted Types too. This is
-what breaks `@mdx-js/mdx`'s `evaluate()`, and it's why removing runtime MDX
-compilation is a prerequisite for shipping flow-md as an IWA.
-
-Beware when testing this: **DevTools/CDP evaluation is exempt from CSP**, so
-probing eval through `page.evaluate()` reports a false "allowed". The
-`cspSelfTest()` in `src/main.ts` runs from real page script for that reason.
+**CSP testing is easy to get wrong.** DevTools and CDP `Runtime.evaluate` are
+exempt from CSP and report a false "allowed" for eval. `cspSelfTest()` in
+`src/lib/env.ts` runs from real page script for that reason.

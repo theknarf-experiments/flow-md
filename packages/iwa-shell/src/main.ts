@@ -1,31 +1,34 @@
-// IWA shell prototype.
+// The IWA shell: a browser wrapper whose tabs we own.
 //
-// This exists to answer three questions before we commit to Controlled Frame
-// as the canvas-browser primitive:
+// Chrome gives us one app window; everything inside it — the tab strip, the
+// address bar, navigation, lifecycle — is ours, because each tab is a
+// <controlledframe> we create and control. flow-md itself is just a tab: an
+// ordinary page served by the local dev/serve process, so it keeps runtime
+// MDX evaluation and everything else a normal web page can do. The strict
+// IWA CSP applies only to *this* document, not to guests.
 //
-//   1. Do live pages survive a CSS-transformed canvas (pan/zoom)? This is the
-//      thing Electron's supported WebContentsView *cannot* do, since those
-//      views aren't DOM and are positioned from the main process.
-//   2. Can we inject script into a guest and read its DOM back out? That's
-//      the whole web-archive story — capture a page, write it into the vault,
-//      then query it with Datalog.
-//   3. Does partition="persist:…" keep guest storage across relaunches? That
-//      backs per-space containers.
+// Tabs stay loaded when inactive (visibility, not display) so switching is
+// instant and page state survives.
 //
-// Everything is plain TS with no runtime codegen, because an IWA's CSP is
-// `script-src 'self' 'wasm-unsafe-eval'` — no eval, no new Function. The
-// prototype has to obey the rules the real app will live under.
+// This shell contains no runtime codegen, because an IWA enforces
+// `script-src 'self' 'wasm-unsafe-eval'` — see cspSelfTest().
 
 import type { ControlledFrame } from './controlled-frame.js'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 
-const viewport = $<HTMLDivElement>('viewport')
-const canvas = $<HTMLDivElement>('canvas')
-const logEl = $<HTMLDivElement>('log')
 const banner = $<HTMLDivElement>('banner')
-const zoomEl = $<HTMLSpanElement>('zoom')
+const tabstrip = $<HTMLDivElement>('tabstrip')
+const content = $<HTMLElement>('content')
+const logEl = $<HTMLDivElement>('log')
 const urlInput = $<HTMLInputElement>('url')
+const backBtn = $<HTMLButtonElement>('back')
+const fwdBtn = $<HTMLButtonElement>('fwd')
+
+/** Shared partition: tabs behave like one browser profile (logins persist).
+ *  Per-space containers would just be a different persist: name. */
+const PARTITION = 'persist:flow-md'
+const HOME = 'http://localhost:4748/'
 
 function log(msg: string, kind: 'ok' | 'err' | '' = '') {
   const line = document.createElement('div')
@@ -36,203 +39,28 @@ function log(msg: string, kind: 'ok' | 'err' | '' = '') {
 
 // ---------------------------------------------------------------- detection
 
-/** Is <controlledframe> actually available, or are we in a plain tab? */
 function detectControlledFrame(): { available: boolean; detail: string } {
   const el = document.createElement('controlledframe')
   const ctor = el.constructor?.name ?? 'unknown'
   if (el instanceof HTMLUnknownElement) {
     return { available: false, detail: `unknown element (${ctor})` }
   }
-  const hasApi = typeof (el as ControlledFrame).executeScript === 'function'
-  return {
-    available: true,
-    detail: `${ctor}${hasApi ? ' with executeScript' : ' (no executeScript yet)'}`,
-  }
+  return { available: true, detail: ctor }
 }
 
 const cf = detectControlledFrame()
-const isolated = window.crossOriginIsolated
-const isIwa = location.protocol === 'isolated-app:'
-
 if (!cf.available) {
   banner.hidden = false
   banner.textContent =
     `<controlledframe> unavailable — ${cf.detail}\n` +
-    `origin: ${location.origin} · crossOriginIsolated: ${isolated}\n` +
-    `Falling back to <iframe> so the canvas is still explorable.\n` +
-    `For the real thing run: cargo run --manifest-path packages/iwa-launcher/Cargo.toml`
+    `Falling back to <iframe>; most sites will refuse to load.\n` +
+    `Run: cargo run --release --manifest-path packages/iwa-launcher/Cargo.toml`
 }
-log(`controlledframe: ${cf.available ? 'available' : 'MISSING'} — ${cf.detail}`, cf.available ? 'ok' : 'err')
-log(`origin ${location.origin} · isolated-app: ${isIwa} · crossOriginIsolated: ${isolated}`)
+log(`controlledframe: ${cf.available ? cf.detail : 'MISSING'}`, cf.available ? 'ok' : 'err')
+log(`origin ${location.origin} · crossOriginIsolated: ${window.crossOriginIsolated}`)
 
-// ------------------------------------------------------------------- canvas
-
-let panX = 40
-let panY = 40
-let scale = 1
-
-function applyTransform() {
-  canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`
-  zoomEl.textContent = `${Math.round(scale * 100)}%`
-}
-
-viewport.addEventListener(
-  'wheel',
-  (e) => {
-    e.preventDefault()
-    const rect = viewport.getBoundingClientRect()
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    // Zoom about the cursor: keep the canvas point under the pointer fixed.
-    const next = Math.min(3, Math.max(0.2, scale * Math.exp(-e.deltaY * 0.0015)))
-    panX = mx - ((mx - panX) / scale) * next
-    panY = my - ((my - panY) / scale) * next
-    scale = next
-    applyTransform()
-  },
-  { passive: false },
-)
-
-// Pan from the background only, so drags inside a guest page still reach it.
-viewport.addEventListener('pointerdown', (e) => {
-  if (e.target !== viewport) return
-  const startX = e.clientX - panX
-  const startY = e.clientY - panY
-  viewport.classList.add('panning')
-  const move = (ev: PointerEvent) => {
-    panX = ev.clientX - startX
-    panY = ev.clientY - startY
-    applyTransform()
-  }
-  const up = () => {
-    viewport.classList.remove('panning')
-    window.removeEventListener('pointermove', move)
-    window.removeEventListener('pointerup', up)
-  }
-  window.addEventListener('pointermove', move)
-  window.addEventListener('pointerup', up)
-})
-
-$<HTMLButtonElement>('reset').addEventListener('click', () => {
-  panX = 40
-  panY = 40
-  scale = 1
-  applyTransform()
-})
-
-// -------------------------------------------------------------------- cards
-
-interface Card {
-  el: HTMLDivElement
-  frame: ControlledFrame | HTMLIFrameElement
-  url: string
-}
-
-const cards: Card[] = []
-let nextX = 0
-
-function addCard(url: string, partition = 'persist:flow-md-space') {
-  const el = document.createElement('div')
-  el.className = 'card'
-  el.style.left = `${nextX}px`
-  el.style.top = `${(cards.length % 2) * 60}px`
-  nextX += 520
-
-  const header = document.createElement('header')
-  const title = document.createElement('span')
-  title.className = 'title'
-  title.textContent = url
-  const reload = document.createElement('button')
-  reload.textContent = '⟳'
-  const close = document.createElement('button')
-  close.textContent = '✕'
-  header.append(title, reload, close)
-
-  let frame: ControlledFrame | HTMLIFrameElement
-  if (cf.available) {
-    const f = document.createElement('controlledframe') as ControlledFrame
-    // Partition must be set before src for it to take effect.
-    f.setAttribute('partition', partition)
-    f.setAttribute('src', url)
-    frame = f
-  } else {
-    const f = document.createElement('iframe')
-    f.src = url
-    f.setAttribute('sandbox', 'allow-scripts allow-same-origin')
-    frame = f
-  }
-
-  el.append(header, frame as unknown as Node)
-  canvas.append(el)
-  const card: Card = { el, frame, url }
-  cards.push(card)
-
-  reload.addEventListener('click', () => {
-    const f = frame as ControlledFrame
-    if (typeof f.reload === 'function') f.reload()
-    else (frame as HTMLIFrameElement).src = url
-  })
-  close.addEventListener('click', () => {
-    el.remove()
-    cards.splice(cards.indexOf(card), 1)
-  })
-
-  // Drag a card by its header — in canvas space, so it tracks under zoom.
-  header.addEventListener('pointerdown', (e) => {
-    if (e.target !== header && e.target !== title) return
-    const ox = e.clientX / scale - el.offsetLeft
-    const oy = e.clientY / scale - el.offsetTop
-    const move = (ev: PointerEvent) => {
-      el.style.left = `${ev.clientX / scale - ox}px`
-      el.style.top = `${ev.clientY / scale - oy}px`
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  })
-
-  for (const ev of ['loadstop', 'loadcommit', 'loadabort', 'load'] as const) {
-    frame.addEventListener(ev, () => log(`${ev}: ${url}`))
-  }
-
-  log(`added ${cf.available ? 'controlledframe' : 'iframe'} → ${url}`)
-  return card
-}
-
-// --------------------------------------------------------- capture / probing
-
-/** The archive smoke test: run script in the guest, read its DOM back. */
-async function captureAll() {
-  if (cards.length === 0) return log('nothing to capture', 'err')
-  for (const card of cards) {
-    const f = card.frame as ControlledFrame
-    if (typeof f.executeScript !== 'function') {
-      log(`capture ${card.url}: executeScript unavailable (iframe fallback?)`, 'err')
-      continue
-    }
-    try {
-      const result = await f.executeScript({
-        code: 'JSON.stringify({ title: document.title, url: location.href, bytes: document.documentElement.outerHTML.length })',
-      })
-      log(`capture ${card.url} → ${JSON.stringify(result)}`, 'ok')
-    } catch (err) {
-      log(`capture ${card.url} failed: ${err instanceof Error ? err.message : String(err)}`, 'err')
-    }
-  }
-}
-
-/** Does the CSP actually stop runtime codegen?
- *
- *  This has to run from real page script. Probing it through DevTools or CDP
- *  gives a false positive, because console/`Runtime.evaluate` execution is
- *  deliberately exempt from CSP — it reports eval as allowed when the page
- *  itself cannot use it.
- *
- *  `AsyncFunction` is the one that decides flow-md's fate: @mdx-js/mdx's
- *  evaluate() builds the compiled module with it. */
+/** Proof the CSP really blocks runtime codegen. Must run from page script:
+ *  DevTools/CDP evaluation is exempt from CSP and reports a false "allowed". */
 function cspSelfTest() {
   const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor
   const check = (label: string, fn: () => unknown) => {
@@ -243,47 +71,222 @@ function cspSelfTest() {
     }
   }
   check('new Function', () => new Function('return 41+1')())
-  check('AsyncFunction (what MDX uses)', () => typeof new AsyncFunction('return 1'))
-  check('setTimeout("string")', () => {
-    // Legacy string form is also codegen.
-    ;(setTimeout as unknown as (s: string, n: number) => number)('void 0', 0)
-    return 'scheduled'
+  check('AsyncFunction', () => typeof new AsyncFunction('return 1'))
+}
+
+// --------------------------------------------------------------------- tabs
+
+interface Tab {
+  id: number
+  frame: ControlledFrame | HTMLIFrameElement
+  el: HTMLDivElement
+  label: HTMLSpanElement
+  url: string
+  title: string
+}
+
+const tabs: Tab[] = []
+let active: Tab | null = null
+let seq = 0
+
+const isCF = (f: Tab['frame']): f is ControlledFrame => cf.available
+
+function normalizeUrl(input: string): string {
+  const s = input.trim()
+  if (!s) return HOME
+  if (/^https?:\/\//i.test(s)) return s
+  // Looks like a host or path → http; otherwise treat as a search.
+  if (/^[\w.-]+(:\d+)?(\/|$)/.test(s)) return `http://${s}`
+  return `https://duckduckgo.com/?q=${encodeURIComponent(s)}`
+}
+
+function newTab(url = HOME, activate = true): Tab {
+  const id = ++seq
+
+  let frame: ControlledFrame | HTMLIFrameElement
+  if (cf.available) {
+    const f = document.createElement('controlledframe') as ControlledFrame
+    // partition must be set before src to take effect
+    f.setAttribute('partition', PARTITION)
+    f.setAttribute('src', url)
+    frame = f
+  } else {
+    const f = document.createElement('iframe')
+    f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms')
+    f.src = url
+    frame = f
+  }
+  content.append(frame as unknown as Node)
+
+  const el = document.createElement('div')
+  el.className = 'tab'
+  const label = document.createElement('span')
+  label.className = 'label'
+  label.textContent = url
+  const close = document.createElement('button')
+  close.className = 'x'
+  close.textContent = '✕'
+  close.title = 'close tab'
+  el.append(label, close)
+  tabstrip.append(el)
+
+  const tab: Tab = { id, frame, el, label, url, title: url }
+  tabs.push(tab)
+
+  el.addEventListener('click', (e) => {
+    if (e.target === close) return
+    setActive(tab)
   })
+  close.addEventListener('click', (e) => {
+    e.stopPropagation()
+    closeTab(tab)
+  })
+
+  // Controlled Frame fires webview-style lifecycle events.
+  frame.addEventListener('loadcommit', () => {
+    void refreshTab(tab)
+    if (tab === active) syncToolbar()
+  })
+  frame.addEventListener('loadstop', () => {
+    void refreshTab(tab)
+    if (tab === active) syncToolbar()
+  })
+  frame.addEventListener('load', () => void refreshTab(tab))
+
+  if (activate) setActive(tab)
+  log(`tab ${id}: ${url}`)
+  return tab
 }
 
-/** The API is young and moving; list what this build actually exposes. */
-function inspectApi() {
-  const el = document.createElement('controlledframe') as ControlledFrame
-  const proto = Object.getPrototypeOf(el)
-  const names = proto ? Object.getOwnPropertyNames(proto) : []
-  log(`constructor: ${el.constructor?.name}`)
-  log(`members (${names.length}): ${names.sort().join(', ')}`)
+/** Pull the guest's real URL/title back out. There's no title event we can
+ *  rely on, so we ask the page — which doubles as an executeScript check. */
+async function refreshTab(tab: Tab) {
+  const f = tab.frame as ControlledFrame
+  if (typeof f.executeScript !== 'function') {
+    tab.label.textContent = tab.url
+    return
+  }
+  try {
+    const res = (await f.executeScript({
+      code: 'JSON.stringify({t: document.title, u: location.href})',
+    })) as unknown[]
+    const raw = Array.isArray(res) ? res[0] : res
+    const { t, u } = JSON.parse(String(raw)) as { t: string; u: string }
+    tab.title = t || u
+    tab.url = u
+    tab.label.textContent = tab.title
+    tab.el.title = u
+  } catch {
+    // Cross-origin guests can refuse; fall back to what we navigated to.
+    tab.label.textContent = tab.title
+  }
 }
 
-// --------------------------------------------------------------------- wire
+function setActive(tab: Tab) {
+  active = tab
+  for (const t of tabs) {
+    t.el.classList.toggle('active', t === tab)
+    ;(t.frame as HTMLElement).classList.toggle('active', t === tab)
+  }
+  syncToolbar()
+}
 
-$<HTMLButtonElement>('add').addEventListener('click', () => {
-  const url = urlInput.value.trim()
-  if (!url) return
-  addCard(url)
-  urlInput.value = ''
-})
+function closeTab(tab: Tab) {
+  const i = tabs.indexOf(tab)
+  if (i < 0) return
+  tab.el.remove()
+  ;(tab.frame as unknown as ChildNode).remove()
+  tabs.splice(i, 1)
+  if (active === tab) {
+    const next = tabs[i] ?? tabs[i - 1] ?? null
+    if (next) setActive(next)
+    else newTab()
+  }
+  log(`closed tab ${tab.id}`)
+}
+
+async function syncToolbar() {
+  if (!active) return
+  if (document.activeElement !== urlInput) urlInput.value = active.url
+  const f = active.frame as ControlledFrame
+  const can = async (fn?: () => Promise<boolean> | boolean) => {
+    try {
+      return typeof fn === 'function' ? await fn() : false
+    } catch {
+      return false
+    }
+  }
+  backBtn.disabled = !(await can((f as unknown as { canGoBack?: () => boolean }).canGoBack?.bind(f)))
+  fwdBtn.disabled = !(await can(
+    (f as unknown as { canGoForward?: () => boolean }).canGoForward?.bind(f),
+  ))
+}
+
+function navigate(url: string) {
+  if (!active) return
+  const target = normalizeUrl(url)
+  active.url = target
+  active.title = target
+  active.label.textContent = target
+  if (cf.available) (active.frame as ControlledFrame).src = target
+  else (active.frame as HTMLIFrameElement).src = target
+  log(`navigate → ${target}`)
+}
+
+// ------------------------------------------------------------------- wiring
+
 urlInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') $<HTMLButtonElement>('add').click()
+  if (e.key === 'Enter') {
+    navigate(urlInput.value)
+    urlInput.blur()
+  }
 })
-$<HTMLButtonElement>('capture').addEventListener('click', () => void captureAll())
-$<HTMLButtonElement>('inspect').addEventListener('click', inspectApi)
+$<HTMLButtonElement>('newtab').addEventListener('click', () => newTab())
+backBtn.addEventListener('click', () => (active?.frame as ControlledFrame)?.back?.())
+fwdBtn.addEventListener('click', () => (active?.frame as ControlledFrame)?.forward?.())
+$<HTMLButtonElement>('reload').addEventListener('click', () => {
+  const f = active?.frame as ControlledFrame | undefined
+  if (typeof f?.reload === 'function') f.reload()
+  else if (active) navigate(active.url)
+})
+$<HTMLButtonElement>('logtoggle').addEventListener('click', () => {
+  logEl.hidden = !logEl.hidden
+})
+
+/** The archive smoke test: read the active guest's DOM out. */
+$<HTMLButtonElement>('capture').addEventListener('click', async () => {
+  if (!active) return
+  const f = active.frame as ControlledFrame
+  if (typeof f.executeScript !== 'function') return log('executeScript unavailable', 'err')
+  logEl.hidden = false
+  try {
+    const res = await f.executeScript({
+      code: 'JSON.stringify({title: document.title, url: location.href, bytes: document.documentElement.outerHTML.length})',
+    })
+    log(`capture → ${JSON.stringify(res)}`, 'ok')
+  } catch (e) {
+    log(`capture failed: ${e instanceof Error ? e.message : String(e)}`, 'err')
+  }
+})
+
+// Mod+T / Mod+W, like a browser.
+window.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey)) return
+  if (e.key === 't') {
+    e.preventDefault()
+    newTab()
+  } else if (e.key === 'w') {
+    e.preventDefault()
+    if (active) closeTab(active)
+  } else if (e.key === 'l') {
+    e.preventDefault()
+    urlInput.focus()
+    urlInput.select()
+  }
+})
 
 cspSelfTest()
-applyTransform()
-
-// Two starting frames: the partition probe, and a real site (does
-// third-party content behave under CSS transforms?).
-//
-// The probe uses an absolute http:// URL on purpose. A Controlled Frame's
-// src must be http/https/data — the IWA's own `isolated-app:` origin is not
-// loadable into a guest, so a relative "/probe.html" silently resolves
-// against isolated-app:// and leaves the frame on about:blank.
-const PROBE = cf.available ? 'http://localhost:5193/probe.html' : '/probe.html'
-addCard(PROBE)
-addCard('https://example.com')
+// flow-md is just a tab — an ordinary page, so MDX/eval work as they always
+// have. The second tab proves arbitrary third-party sites load too.
+newTab(HOME)
+newTab('https://example.com', false)
