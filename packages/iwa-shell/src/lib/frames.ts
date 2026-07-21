@@ -59,6 +59,8 @@ export interface FrameHandle {
   probe(): Promise<FrameInfo | null>
   /** Teaches a freshly loaded guest to hand vim keys back to the shell. */
   adopt(): Promise<void>
+  /** Labels every clickable thing in view and waits for a label to be typed. */
+  hint(newTab: boolean): Promise<number>
   /** Scrolls the guest by a number of px. Negative is up. */
   scrollBy(dy: number): void
   scrollToEdge(edge: 'top' | 'end'): void
@@ -84,9 +86,11 @@ const FORWARD_KEYS = `(() => {
     if (e.data === 'flowmd:hello' && e.source) shell = e.source
   })
   const claimed = (e) => {
+    // Hint mode owns the keyboard while it's up, letters included.
+    if (w.__flowmdHints) return false
     if (e.ctrlKey || e.metaKey || e.altKey) return false
-    if (e.shiftKey) return e.key === 'G' || e.key === 'H' || e.key === 'L'
-    return e.key === 'j' || e.key === 'k' || e.key === 'g'
+    if (e.shiftKey) return e.key === 'G' || e.key === 'H' || e.key === 'L' || e.key === 'F'
+    return e.key === 'j' || e.key === 'k' || e.key === 'g' || e.key === 'f'
   }
   w.addEventListener(
     'keydown',
@@ -100,6 +104,138 @@ const FORWARD_KEYS = `(() => {
     },
     true,
   )
+})()`
+
+/** Vimium's `f`: label every clickable thing in view, then type a label.
+ *
+ *  The whole interaction runs inside the guest. Hints have to be drawn there
+ *  anyway — only the guest knows where its links are, and labels in its own
+ *  DOM stay glued to the page — and putting the keystroke handling there too
+ *  means there's one implementation rather than one per focus state.
+ *
+ *  Opening in a new tab is a meta-click, which the guest reports as a
+ *  `newwindow` and the shell writes into the space as a child of this tab.
+ *  Same path as ⌘-clicking by hand, so hinted tabs land in the tree too. */
+const hintScript = (newTab: boolean) => `(() => {
+  const w = window
+  // Home-row first, and no key that a page is likely to want back.
+  const KEYS = 'sadfjklewcmpgh'
+  if (w.__flowmdHintsCancel) w.__flowmdHintsCancel()
+
+  const SEL = [
+    'a[href]', 'button', 'select', 'textarea', 'summary', 'label',
+    'input:not([type=hidden]):not([disabled])',
+    '[role=button]', '[role=link]', '[role=tab]', '[role=checkbox]',
+    '[onclick]', '[contenteditable=""]', '[contenteditable=true]',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',')
+
+  const vw = innerWidth, vh = innerHeight
+  const targets = []
+  for (const el of document.querySelectorAll(SEL)) {
+    const r = el.getBoundingClientRect()
+    // On screen, and big enough to mean anything.
+    if (r.width < 3 || r.height < 3) continue
+    if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) continue
+    const st = getComputedStyle(el)
+    if (st.visibility === 'hidden' || st.display === 'none' || +st.opacity === 0) continue
+    targets.push({ el: el, r: r })
+  }
+  if (!targets.length) return 0
+  // Reading order, so the shortest labels sit where the eye already is.
+  targets.sort((a, b) => a.r.top - b.r.top || a.r.left - b.r.left)
+
+  // Uniform-length labels in base-KEYS: no label is a prefix of another, so
+  // a complete label is unambiguous the moment it's typed.
+  let len = 1
+  while (Math.pow(KEYS.length, len) < targets.length) len++
+  const label = (i) => {
+    let s = ''
+    for (let d = 0; d < len; d++) {
+      s = KEYS[i % KEYS.length] + s
+      i = Math.floor(i / KEYS.length)
+    }
+    return s
+  }
+
+  // A shadow root so the page's CSS can't restyle the hints or vice versa.
+  const host = document.createElement('div')
+  host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none'
+  const root = host.attachShadow({ mode: 'open' })
+  root.innerHTML = '<style>' +
+    // Sits astride the top-left corner rather than over the text: a hint that
+    // hides the first two letters of the link it labels is a hint you can't read.
+    '.h{position:fixed;transform:translate(-5px,-72%);padding:1px 4px;border-radius:5px;' +
+    'font:700 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.5px;' +
+    'color:#3a2a00;background:linear-gradient(#ffe27a,#f7c948);border:1px solid #c99a10;' +
+    'box-shadow:0 1px 3px rgba(0,0,0,.45);white-space:nowrap}' +
+    '.h.off{display:none}.h .u{opacity:.35}</style>'
+  document.documentElement.append(host)
+
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i]
+    t.key = label(i)
+    const tag = document.createElement('div')
+    tag.className = 'h'
+    tag.textContent = t.key.toUpperCase()
+    tag.style.left = Math.max(0, t.r.left) + 'px'
+    // Enough room for the chip to sit above the corner without clipping.
+    tag.style.top = Math.max(11, t.r.top) + 'px'
+    root.append(tag)
+    t.tag = tag
+  }
+
+  let typed = ''
+  const cancel = () => {
+    w.__flowmdHints = false
+    w.__flowmdHintsCancel = null
+    host.remove()
+    removeEventListener('keydown', onKey, true)
+    removeEventListener('scroll', cancel, true)
+  }
+  const activate = (t) => {
+    const el = t.el
+    cancel()
+    // A field wants the caret, not a click.
+    if (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) {
+      el.focus()
+      return
+    }
+    el.dispatchEvent(new MouseEvent('click', {
+      bubbles: true, cancelable: true, view: w, metaKey: ${newTab},
+    }))
+  }
+  const onKey = (e) => {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    if (e.key === 'Escape') return cancel()
+    if (e.key === 'Backspace') typed = typed.slice(0, -1)
+    else {
+      const ch = e.key.toLowerCase()
+      // Anything outside the alphabet means the hint was a mistake.
+      if (ch.length !== 1 || KEYS.indexOf(ch) < 0) return cancel()
+      typed += ch
+    }
+    let live = 0, only = null
+    for (const t of targets) {
+      const hit = t.key.indexOf(typed) === 0
+      t.tag.classList.toggle('off', !hit)
+      if (!hit) continue
+      live++
+      only = t
+      // Grey out what's already been typed, so what's left to type stands out.
+      t.tag.innerHTML = '<span class="u">' + t.key.slice(0, typed.length).toUpperCase() +
+        '</span>' + t.key.slice(typed.length).toUpperCase()
+    }
+    if (!live) return cancel()
+    if (live === 1 && only.key === typed) activate(only)
+  }
+  w.__flowmdHints = true
+  w.__flowmdHintsCancel = cancel
+  addEventListener('keydown', onKey, true)
+  addEventListener('scroll', cancel, true)
+  return targets.length
 })()`
 
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
@@ -195,6 +331,20 @@ export function createFrame(
       await exec(FORWARD_KEYS)
       const f = cf() as { contentWindow?: Window | null }
       f.contentWindow?.postMessage('flowmd:hello', '*')
+    },
+    /** The hints are the guest's, and so is the typing that follows — which
+     *  only reaches them if the guest has the keyboard. Pressing `f` from the
+     *  chrome therefore hands focus over on the way in. */
+    async hint(newTab) {
+      const f = cf()
+      if (typeof f.executeScript !== 'function') return 0
+      try {
+        const res = (await f.executeScript({ code: hintScript(newTab) })) as unknown
+        el.focus()
+        return Number(Array.isArray(res) ? res[0] : res) || 0
+      } catch {
+        return 0
+      }
     },
     /** Scrolling happens inside the guest, so it has to be scripted in.
      *  `scrollingElement` rather than `window`: a page whose scroller is a

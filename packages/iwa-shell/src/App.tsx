@@ -441,6 +441,8 @@ export function App() {
   useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim('Jump to the top'))
   useHotkey('Shift+H', () => activeFrame?.back(), vim('Back'))
   useHotkey('Shift+L', () => activeFrame?.forward(), vim('Forward'))
+  useHotkey('F', () => void activeFrame?.hint(false), vim('Hint a link'))
+  useHotkey('Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
 
   /** The cheatsheet reads the hotkey manager rather than a table written
    *  alongside it: a binding that changes, or one someone forgets to
