@@ -49,6 +49,10 @@ const PROBE = `(() => {
 
 export interface FrameHandle {
   readonly el: HTMLElement
+  /** The container this guest was built against. A partition can't be changed
+   *  once `src` is set, so moving a space to another profile means building
+   *  the guest again — this is what the shell compares to notice. */
+  readonly partition: string
   navigate(url: string): void
   reload(): void
   back(): void
@@ -439,6 +443,7 @@ export function createFrame(
 
   return {
     el,
+    partition,
     navigate(next) {
       if (controlledFrame.available) cf().src = next
       else (el as HTMLIFrameElement).src = next

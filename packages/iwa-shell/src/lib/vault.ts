@@ -212,6 +212,16 @@ export const vault = {
     return mutate('/insert', { rel, row })
   },
 
+  /** Write a file whole, creating it if absent — the way a per-profile
+   *  history file first comes into being, with just its header. */
+  save(path: string, content: string): Promise<{ error: string | null }> {
+    return json('/file', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path, content }),
+    })
+  },
+
   /** Edit one cell of a query result — the vault traces it back to the file. */
   update(
     query: string,

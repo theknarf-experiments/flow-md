@@ -52,8 +52,13 @@ export interface Space {
   emoji: string
   hue: number
   pinned: string[]
-  /** Guests are partitioned per space, so spaces are real containers:
-   *  separate cookies, storage and logins. Named after the file. */
+  /** The profile this space browses in — its container of cookies, storage
+   *  and logins. Spaces sharing a profile share that container; a space with
+   *  no `profile:` in its frontmatter is in "default". */
+  profile: string
+  /** The Controlled Frame partition, derived from the profile. Two spaces in
+   *  the same profile get the same partition, which is what makes them share
+   *  a login. */
   partition: string
   /** `order:` in the frontmatter, or +Infinity. A collection is a keyed map
    *  with no order of its own, so the rail sorts by this rather than by the
@@ -150,6 +155,37 @@ export const queryClient = new QueryClient({
   },
 })
 
+export const DEFAULT_PROFILE = 'default'
+
+/** The partition string for a profile. Guests carrying the same partition
+ *  share a cookie jar and storage; a different one is a different browser as
+ *  far as the web can tell. Sanitised because a partition name is a token,
+ *  not free text. */
+export function partitionFor(profile: string): string {
+  const token = (profile || DEFAULT_PROFILE).replace(/[^\w]/g, '-')
+  return `persist:profile-${token}`
+}
+
+/** Every profile there is: the ones the spaces are using, and always at least
+ *  one.
+ *
+ *  There's no separate registry. A profile is a name and the container that
+ *  name selects, and the spaces already say which name they browse in — so a
+ *  profile exists exactly as long as a space is in it. That keeps one source
+ *  of truth (the vault) rather than a list that could disagree with it.
+ *
+ *  `extra` is for a name that's just been made and hasn't been assigned yet,
+ *  so the menu can show it during that round trip. */
+export function profilesOf(spaces: Space[], extra: string[] = []): string[] {
+  const names = new Set<string>([...spaces.map((s) => s.profile), ...extra])
+  names.delete('')
+  // Deleting the last one doesn't leave a browser with nowhere to browse.
+  if (names.size === 0) names.add(DEFAULT_PROFILE)
+  return [...names].sort((a, b) =>
+    a === DEFAULT_PROFILE ? -1 : b === DEFAULT_PROFILE ? 1 : a.localeCompare(b),
+  )
+}
+
 async function loadSpaces(): Promise<Space[]> {
   const rows = await rowsOf(SPACE_QUERY)
 
@@ -167,7 +203,8 @@ async function loadSpaces(): Promise<Space[]> {
       emoji: keys.get('emoji')?.[0] ?? '•',
       hue: Number(keys.get('hue')?.[0] ?? 250),
       pinned: keys.get('pinned') ?? [],
-      partition: `persist:${path.replace(/[^\w]/g, '-')}`,
+      profile: keys.get('profile')?.[0] ?? DEFAULT_PROFILE,
+      partition: partitionFor(keys.get('profile')?.[0] ?? DEFAULT_PROFILE),
       order: Number(keys.get('order')?.[0] ?? Number.POSITIVE_INFINITY),
     }))
     // Query results are a set; the rail is a row. `order:` in the frontmatter
@@ -465,10 +502,21 @@ export const tabsCollection = createCollection(
 // Every tab opened and every tab closed, appended to a CSV in the vault. It's
 // a log rather than a view of the current tabs: the markdown already says
 // what's open, and what a history is for is what *isn't* any more.
+//
+// One file per profile, because a profile is a separate browser and a browser
+// keeps its own history. The default profile's file is plain `history.csv` —
+// the name it had before profiles existed — and every other profile gets
+// `history-<name>.csv`.
 
-const HISTORY = 'history.csv'
-const HISTORY_QUERY = `CsvCell("${HISTORY}", row, col, value)`
 const HISTORY_COLS = ['time', 'action', 'url', 'title', 'space'] as const
+const HISTORY_HEADER = `${HISTORY_COLS.join(',')}\n`
+
+/** The history file for a profile. The default keeps the bare name so an
+ *  existing history.csv is still its log. */
+export function historyFile(profile: string): string {
+  if (!profile || profile === DEFAULT_PROFILE) return 'history.csv'
+  return `history-${profile.replace(/[^\w]/g, '-')}.csv`
+}
 
 export interface Visit {
   row: number
@@ -479,10 +527,11 @@ export interface Visit {
   space: string
 }
 
-/** The log, oldest first. Cells come back one per fact, so they're gathered
- *  back into rows here — the CSV's shape is the join key. */
-export async function history(): Promise<Visit[]> {
-  const res = await vault.run(HISTORY_QUERY)
+/** The log for a profile, oldest first. Cells come back one per fact, so
+ *  they're gathered back into rows here — the CSV's shape is the join key. */
+export async function history(profile: string): Promise<Visit[]> {
+  const file = historyFile(profile)
+  const res = await vault.run(`CsvCell(${JSON.stringify(file)}, row, col, value)`)
   if (res.error) return []
   const byRow = new Map<number, Visit>()
   for (const [row, col, value] of res.rows as [number, string, string][]) {
@@ -497,15 +546,20 @@ export async function history(): Promise<Visit[]> {
   return [...byRow.values()].sort((a, b) => a.row - b.row)
 }
 
-/** Append one event. The row index has to be known before the columns can be
- *  written into it, so the log is read first — the same read that tells us
- *  where the end is. */
+/** Append one event to a profile's log. The row index has to be known before
+ *  the columns can be written into it, so the log is read first — the same
+ *  read that tells us where the end is. A profile browsing for the first time
+ *  has no file yet, so an empty log means write the header before appending. */
 export async function record(
   action: 'opened' | 'closed',
-  tab: { url: string; title?: string; space: string },
+  tab: { url: string; title?: string; space: string; profile: string },
   at: string = new Date().toISOString(),
 ): Promise<void> {
-  const rows = await history()
+  const file = historyFile(tab.profile)
+  const rows = await history(tab.profile)
+  // Empty means at most a header (a non-empty log returns rows), so writing
+  // the header is either creating the file or rewriting the same bytes.
+  if (rows.length === 0) await vault.save(file, HISTORY_HEADER).catch(() => undefined)
   const row = rows.length ? Math.max(...rows.map((v) => v.row)) + 1 : 1
   const values: Record<string, string> = {
     time: at,
@@ -515,8 +569,8 @@ export async function record(
     space: tab.space,
   }
   for (const col of HISTORY_COLS) {
-    const res = await vault.insert('CsvCell', [HISTORY, row, col, values[col] ?? ''])
-    // A vault without history.csv shouldn't take the browser down with it.
+    const res = await vault.insert('CsvCell', [file, row, col, values[col] ?? ''])
+    // A vault that won't take the write shouldn't take the browser down.
     if (res.error) {
       console.warn(`flow-md: history not written (${res.error})`)
       return
@@ -524,12 +578,12 @@ export async function record(
   }
 }
 
-/** The most recently closed tab that isn't open again — what ⌘⇧T reopens.
- *  A tab closed and then reopened is no longer the last closed one, so the
- *  log is walked backwards and the first close that has no later open of the
- *  same url in the same space wins. */
-export async function lastClosed(): Promise<Visit | null> {
-  const rows = await history()
+/** The most recently closed tab in a profile that isn't open again — what ⌘⇧T
+ *  reopens. A tab closed and then reopened is no longer the last closed one,
+ *  so the log is walked backwards and the first close that has no later open
+ *  of the same url in the same space wins. */
+export async function lastClosed(profile: string): Promise<Visit | null> {
+  const rows = await history(profile)
   for (let i = rows.length - 1; i >= 0; i--) {
     const v = rows[i]!
     if (v.action !== 'closed') continue
@@ -539,4 +593,42 @@ export async function lastClosed(): Promise<Visit | null> {
     if (!reopened) return v
   }
   return null
+}
+
+/** Move a space to a different profile — a change to its frontmatter, and so
+ *  to which container its guests browse in. Creating the profile *is* using
+ *  it: a profile with no space is just a name, and the name lands here. */
+export async function setProfile(space: string, profile: string): Promise<void> {
+  const res = await vault.run(`Frontmatter(${JSON.stringify(space)}, "profile", value)`)
+  const current = (res.rows as [string][])[0]?.[0]
+  if (current === profile) return
+  // Same shape the space collection's own frontmatter edits use: the row is
+  // the (key, value) pair the query returns, and the value column changes.
+  if (current === undefined) await vault.insert('Frontmatter', [space, 'profile', profile])
+  else await vault.update(frontmatterOf(space), ['profile', current], 'value', profile)
+  await spacesCollection.utils.refetch()
+}
+
+/** Rename a profile: every space in it moves to the new name. The container
+ *  follows the name, so this also renames the cookie jar — the pages inside
+ *  stay logged in because the partition string is derived, not stored. */
+export async function renameProfile(
+  spaces: Space[],
+  from: string,
+  to: string,
+): Promise<void> {
+  if (!to || from === to) return
+  for (const space of spaces.filter((s) => s.profile === from)) {
+    await setProfile(space.id, to)
+  }
+}
+
+/** Delete a profile by emptying it: its spaces move somewhere else, and a
+ *  profile with no spaces is no profile. They go to whichever profile is left,
+ *  or to a fresh "default" — spaces always need one to browse in. */
+export async function deleteProfile(spaces: Space[], name: string): Promise<void> {
+  const survivor = profilesOf(spaces).find((p) => p !== name) ?? DEFAULT_PROFILE
+  for (const space of spaces.filter((s) => s.profile === name)) {
+    await setProfile(space.id, survivor)
+  }
 }

@@ -186,3 +186,29 @@
     width 160ms ease,
     height 160ms ease;
 }
+
+/* ------------------------------------------------------------- profiles */
+
+.profileForm {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.profileInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 7px;
+  padding: 0.35rem 0.5rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+}
+
+.profileHint {
+  margin: 0.5rem 0 0;
+  opacity: 0.6;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}

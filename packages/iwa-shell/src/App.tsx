@@ -82,8 +82,12 @@ import {
   setDepth,
   spacesCollection,
   tabsCollection,
+  DEFAULT_PROFILE,
   lastClosed,
+  profilesOf,
+  partitionFor,
   record,
+  setProfile,
 } from './lib/db.js'
 import { type Keymap, useKeymap } from './lib/keymap.js'
 import { type Status, vault } from './lib/vault.js'
@@ -265,6 +269,11 @@ export function App() {
    *  when they come back with nothing. */
   const [status, setStatus] = useState<Status>('connecting')
   const [renaming, setRenaming] = useState<string | null>(null)
+  /** Naming a new profile for a space. A profile comes into being by being
+   *  used, so the prompt carries the space that will be the first one in it. */
+  const [profilePrompt, setProfilePrompt] = useState<{ space: string; value: string } | null>(
+    null,
+  )
   const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
   const spaceMenu = useContextMenu<string>()
@@ -295,6 +304,7 @@ export function App() {
   /** Tabs whose favicon we've already given a second chance. */
   const iconRetried = useRef(new Set<string>())
 
+  const profiles = useMemo(() => profilesOf(spaces), [spaces])
   const space = spaces.find((s) => s.id === spaceId) ?? spaces[0]
   const spaceTabs = tabs.filter((t) => t.space === space?.id)
   const activeId = activeBySpace[spaceId] ?? spaceTabs[0]?.id ?? null
@@ -407,8 +417,9 @@ export function App() {
     (url: string, opts: { space?: string; activate?: boolean; under?: Row } = {}) => {
       const target = opts.space ?? spaceId
       if (!target) return
+      const profile = spaces.find((sp) => sp.id === target)?.profile ?? DEFAULT_PROFILE
       void addLink(target, url, url, opts.under).then(() => {
-        void record('opened', { url, title: url, space: target })
+        void record('opened', { url, title: url, space: target, profile })
         if (opts.activate === false) return
         const opened = tabsCollection.toArray
           .filter((t) => t.space === target && t.url === url)
@@ -418,7 +429,7 @@ export function App() {
       })
       log(`tab → ${url}`)
     },
-    [spaceId, log],
+    [spaceId, spaces, log],
   )
 
   const closeTab = useCallback(
@@ -434,23 +445,30 @@ export function App() {
           : m,
       )
       tabsCollection.delete(id)
-      void record('closed', { url: victim.url, title: victim.title, space: victim.space })
+      void record('closed', {
+        url: victim.url,
+        title: victim.title,
+        space: victim.space,
+        profile: spaces.find((sp) => sp.id === victim.space)?.profile ?? DEFAULT_PROFILE,
+      })
       log(`closed ${victim.url}`)
     },
-    [log],
+    [spaces, log],
   )
 
   /** ⌘⇧T: the history says where a closed tab was, so putting it back is the
    *  same as opening it — the link goes into the space it was closed from,
    *  which may not be the space showing now. */
   const reopenLast = useCallback(async () => {
-    const gone = await lastClosed()
+    // The history you're looking at is the one belonging to this space's
+    // profile — a different profile is a different browser with its own past.
+    const gone = await lastClosed(space?.profile ?? DEFAULT_PROFILE)
     if (!gone) {
       log('nothing closed to reopen')
       return
     }
     openTab(gone.url, { space: gone.space || spaceId })
-  }, [openTab, spaceId, log])
+  }, [openTab, spaceId, space, log])
 
   /** Rows in, guests out. The only place the document and the browser meet:
    *  every row gets a frame, every frame without a row is destroyed. There is
@@ -461,9 +479,17 @@ export function App() {
     const wanted = new Map(tabs.map((t) => [t.id, t]))
 
     for (const [id, row] of wanted) {
-      if (frames.current.has(id)) continue
       const owner = spaces.find((s) => s.id === row.space)
       if (!owner) continue
+      const built = frames.current.get(id)
+      if (built) {
+        // A space that moved to another profile browses in another container,
+        // and a partition is fixed at creation — so the guest is rebuilt. That
+        // is the point: the new profile shouldn't inherit the old one's login.
+        if (built.partition === owner.partition) continue
+        built.destroy()
+        frames.current.delete(id)
+      }
       const frame = createFrame(
         row.url,
         owner.partition,
@@ -833,7 +859,8 @@ export function App() {
       emoji,
       hue,
       pinned: [],
-      partition: `persist:${id.replace(/[^\w]/g, '-')}`,
+      profile: DEFAULT_PROFILE,
+      partition: partitionFor(DEFAULT_PROFILE),
       // New spaces go at the end of the rail.
       order: spaces.length + 1,
     })
@@ -1200,6 +1227,36 @@ export function App() {
             onSelect={(emoji) => reiconSpace(spaceMenu.anchor?.target ?? '', emoji)}
           />
           <ContextMenuSeparator />
+          {/* Which container this space browses in. Switching is a frontmatter
+              edit, so the guests are rebuilt against the new partition — a
+              different profile is a different set of logins. */}
+          <ContextMenuLabel>Profile</ContextMenuLabel>
+          {profiles.map((name) => (
+            <ContextMenuItem
+              key={name}
+              onSelect={() => {
+                void setProfile(spaceMenu.anchor?.target ?? '', name)
+                spaceMenu.close()
+              }}
+            >
+              <span aria-hidden="true">
+                {spaces.find((sp) => sp.id === spaceMenu.anchor?.target)?.profile === name
+                  ? '●'
+                  : '○'}
+              </span>
+              {name}
+            </ContextMenuItem>
+          ))}
+          <ContextMenuItem
+            onSelect={() => {
+              const target = spaceMenu.anchor?.target ?? ''
+              spaceMenu.close()
+              setProfilePrompt({ space: target, value: '' })
+            }}
+          >
+            New profile…
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuLabel>Colour</ContextMenuLabel>
           <HueSwatches
             hues={HUES}
@@ -1282,6 +1339,43 @@ export function App() {
           </ContextMenuItem>
         </ContextMenu>
       )}
+
+      {/* Naming a profile. A sheet rather than a prompt() — the shell disables
+          the native dialogs along with the native menu. */}
+      <Sheet
+        open={!!profilePrompt}
+        title="New profile"
+        onClose={() => setProfilePrompt(null)}
+      >
+        <SheetSection title="Name">
+          <form
+            className={styles.profileForm}
+            onSubmit={(e) => {
+              e.preventDefault()
+              const name = profilePrompt?.value.trim()
+              if (name && profilePrompt) void setProfile(profilePrompt.space, name)
+              setProfilePrompt(null)
+            }}
+          >
+            <input
+              className={styles.profileInput}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- the sheet exists to be typed in
+              autoFocus
+              value={profilePrompt?.value ?? ''}
+              placeholder="work"
+              aria-label="Profile name"
+              onChange={(e) =>
+                setProfilePrompt((p) => (p ? { ...p, value: e.target.value } : p))
+              }
+            />
+            <SidebarButton type="submit">Create and switch</SidebarButton>
+          </form>
+          <p className={styles.profileHint}>
+            A profile is its own set of cookies and logins, with its own history
+            file. This space moves into it; other spaces keep theirs.
+          </p>
+        </SheetSection>
+      </Sheet>
 
       <Sheet open={settings} title="Settings" onClose={() => setSettings(false)}>
         <SheetSection title="Keyboard shortcuts">
