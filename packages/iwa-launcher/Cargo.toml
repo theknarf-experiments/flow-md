@@ -9,9 +9,11 @@ description = "Launches Chrome with Isolated Web App dev mode enabled and instal
 name = "iwa-launcher"
 path = "src/main.rs"
 
-# Deliberately dependency-free: the launcher is a thin process spawner, and
-# zero deps means it builds offline in a couple of seconds.
+# Just the one: editing Chrome's Local State by hand to flip a flag needs a
+# real JSON parser, and string-splicing someone else's config is how you
+# corrupt a profile.
 [dependencies]
+serde_json = "1.0.151"
 
 [profile.release]
 opt-level = "z"

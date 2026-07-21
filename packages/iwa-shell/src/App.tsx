@@ -16,7 +16,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
-import { controlledFrame, cspSelfTest } from './lib/env.js'
+import {
+  controlledFrame,
+  cspSelfTest,
+  hasTitleBar,
+  requestWindowManagement,
+  windowManagementState,
+} from './lib/env.js'
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
 
 const HOME = 'http://localhost:4748/'
@@ -59,6 +65,8 @@ export function App() {
   })
   const [lines, setLines] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
+  /** Shown only while Chrome still draws a title bar we could get rid of. */
+  const [offerUnframe, setOfferUnframe] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
@@ -143,6 +151,10 @@ export function App() {
     )
     openTab(HOME, { space: 'vault', pinned: true })
     openTab('https://example.com', { space: 'web', activate: false })
+    void windowManagementState().then((state) => {
+      log(`window-management: ${state} · title bar: ${hasTitleBar()}`)
+      setOfferUnframe(hasTitleBar() && state !== 'granted' && state !== 'unsupported')
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -286,6 +298,21 @@ export function App() {
             ⟳
           </button>
           <span className={styles.spacer} />
+          {offerUnframe && (
+            <button
+              type="button"
+              className={styles.iconButton}
+              title="Remove the title bar — grants window management, then reopen the window"
+              onClick={() => {
+                void requestWindowManagement().then((ok) => {
+                  log(ok ? 'window-management granted — reopen to go unframed' : 'permission denied')
+                  setOfferUnframe(!ok)
+                })
+              }}
+            >
+              ⤢
+            </button>
+          )}
           <button
             type="button"
             className={styles.iconButton}

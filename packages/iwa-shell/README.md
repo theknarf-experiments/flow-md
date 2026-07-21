@@ -18,6 +18,23 @@ command bar.
 | ⌘S | toggle sidebar |
 | ⌘W | close tab |
 
+## Removing Chrome's title bar (unframed)
+
+Four things must line up, and they're **order-dependent**:
+
+1. `"unframed"` in the manifest's `display_override`
+2. Chrome's `enable-unframed-iwa` flag, enabled **per profile** — the
+   launcher writes it into the profile's `Local State` for you
+3. the `window-management` permission **granted** — the shell offers a ⤢
+   button for this, since a grant needs a user gesture
+4. the app **(re)installed after 2** — Chrome resolves the display mode at
+   install time, so flipping the flag afterwards changes nothing on its own
+
+The launcher handles 1, 2 and 4 (it forces a reinstall when it has just
+enabled the flag). You click ⤢ once, then reopen the window.
+
+Verified: `innerHeight === outerHeight`, sidebar drawn from y=0.
+
 flow-md itself is just a tab — an ordinary page served by the local process —
 so **nothing about the app has to change**. MDX with live components,
 `@mdx-js/mdx`'s runtime `evaluate()`, and everything else a normal web page

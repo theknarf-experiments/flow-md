@@ -23,7 +23,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-const FEATURES: &str = "IsolatedWebApps,IsolatedWebAppDevMode,ControlledFrame";
+/// WebAppBorderless is what lets the shell drop Chrome's title bar and draw
+/// its own chrome (it also needs the window-management permission granted,
+/// and a fresh window — a reload isn't enough). Unknown feature names are
+/// ignored by Chrome, so listing them is safe on builds that lack them.
+const FEATURES: &str =
+    "IsolatedWebApps,IsolatedWebAppDevMode,ControlledFrame,WebAppBorderless";
 const DEFAULT_URL: &str = "http://localhost:5193";
 const SERVER_TIMEOUT: Duration = Duration::from_secs(20);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(60);
@@ -221,6 +226,68 @@ fn wait_for_new_id(profile: &Path, before: &[String]) -> Option<String> {
     None
 }
 
+// ------------------------------------------------------------- unframed IWA
+//
+// Dropping Chrome's title bar so the shell can draw its own chrome needs four
+// things lined up, and they're order-dependent:
+//
+//   1. "unframed" in the manifest's display_override        (packages/iwa-shell)
+//   2. Chrome's enable-unframed-iwa flag, per profile       (here)
+//   3. the window-management permission granted             (the shell asks)
+//   4. the app (re)installed *after* 2 — Chrome resolves the display mode at
+//      install time, so flipping the flag later changes nothing
+//
+// We own this profile outright, so we set the flag ourselves rather than
+// making anyone click through chrome://flags.
+
+const UNFRAMED_FLAG: &str = "enable-unframed-iwa@1";
+
+/// Ensure the unframed flag is enabled. Returns true if we just changed it,
+/// which means anything already installed needs reinstalling (see 4 above).
+/// Must run while the browser is stopped, or Chrome will overwrite us.
+fn ensure_unframed_flag(profile: &Path) -> bool {
+    let path = profile.join("Local State");
+    let mut root: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let labs = root
+        .as_object_mut()
+        .and_then(|o| {
+            o.entry("browser")
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+        })
+        .map(|b| {
+            b.entry("enabled_labs_experiments")
+                .or_insert_with(|| serde_json::json!([]))
+        });
+    let Some(labs) = labs else { return false };
+    let Some(list) = labs.as_array_mut() else { return false };
+
+    // Chrome normalises to "name@index"; a bare name gets dropped on startup.
+    if list.iter().any(|v| v.as_str() == Some(UNFRAMED_FLAG)) {
+        return false;
+    }
+    list.retain(|v| !v.as_str().is_some_and(|s| s.starts_with("enable-unframed-iwa")));
+    list.push(serde_json::json!(UNFRAMED_FLAG));
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::write(&path, root.to_string()) {
+        Ok(()) => {
+            println!("flag    : enabled {UNFRAMED_FLAG}");
+            true
+        }
+        Err(e) => {
+            eprintln!("warning: could not enable {UNFRAMED_FLAG}: {e}");
+            false
+        }
+    }
+}
+
 // ------------------------------------------------------------ app launching
 //
 // Opening an installed IWA turned out to be the fiddly part. Neither
@@ -374,8 +441,19 @@ fn main() {
         wait_for_server(&args.url);
     }
 
+    // Must happen before the browser starts, and before any install: Chrome
+    // bakes the display mode in at install time.
+    let flag_changed = ensure_unframed_flag(&profile);
+    if flag_changed && find_installed_app(&profile).is_some() {
+        println!("(unframed flag just enabled — reinstalling so it takes effect)");
+    }
+
     let known = installed_ids(&profile);
-    let mut app = if args.reinstall { None } else { find_installed_app(&profile) };
+    let mut app = if args.reinstall || flag_changed {
+        None
+    } else {
+        find_installed_app(&profile)
+    };
 
     // ---- install phase (first run, or --reinstall) ----
     if app.is_none() {
