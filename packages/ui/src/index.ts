@@ -23,6 +23,13 @@ export { SpaceRail } from './SpaceRail.js'
 export type { SpaceRailItem, SpaceRailProps } from './SpaceRail.js'
 export { Tab } from './Tab.js'
 export { Tooltip } from './Tooltip.js'
+export {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ReloadIcon,
+  SidebarIcon,
+  type IconProps,
+} from './icons.js'
 export { SwipeDeck } from './SwipeDeck.js'
 export type { SwipeDeckProps } from './SwipeDeck.js'
 export type { TooltipPlacement, TooltipProps } from './Tooltip.js'

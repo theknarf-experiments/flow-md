@@ -19,11 +19,15 @@ import {
   Banner,
   CommandPalette,
   type PaletteItem,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   IconButton,
   LogPanel,
   PinnedGrid,
   SectionLabel,
   Sidebar,
+  ReloadIcon,
+  SidebarIcon,
   SpaceRail,
   SidebarButton,
   SpaceHeader,
@@ -427,21 +431,27 @@ export function App() {
 
       <Sidebar open={sidebar} className={styles.sidebar}>
         <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
-          <IconButton tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
-            ▏
-          </IconButton>
-          <IconButton tooltip="Back" disabled={!nav.back} onClick={() => activeFrame?.back()}>
-            ‹
+          <IconButton size="lg" tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
+            <SidebarIcon />
           </IconButton>
           <IconButton
+            size="lg"
+            tooltip="Back"
+            disabled={!nav.back}
+            onClick={() => activeFrame?.back()}
+          >
+            <ChevronLeftIcon />
+          </IconButton>
+          <IconButton
+            size="lg"
             tooltip="Forward"
             disabled={!nav.forward}
             onClick={() => activeFrame?.forward()}
           >
-            ›
+            <ChevronRightIcon />
           </IconButton>
-          <IconButton tooltip="Reload" onClick={() => activeFrame?.reload()}>
-            ⟳
+          <IconButton size="lg" tooltip="Reload" onClick={() => activeFrame?.reload()}>
+            <ReloadIcon />
           </IconButton>
         </Toolbar>
 
