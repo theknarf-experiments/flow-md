@@ -5,13 +5,12 @@
 // Only the searching lives here. Rendering, keyboard nav and dismissal come
 // from @flow-md/ui's CommandPalette, which the shell uses too.
 
-import { type PaletteItem, CommandPalette as Palette } from '@flow-md/ui'
+import { type PaletteItem, CommandPalette as Palette, fuzzyFilter } from '@flow-md/ui'
 import { fileIcon } from '@flow-md/view-filetree'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { notesCollection } from '../lib/db.js'
-import { fuzzyFilter } from '../lib/fuzzy.js'
 
 export interface PaletteCommand {
   label: string

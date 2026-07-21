@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fuzzyFilter, fuzzyScore } from '../src/lib/fuzzy.js'
+import { fuzzyFilter, fuzzyScore } from '../src/fuzzy.js'
 
 describe('fuzzyScore', () => {
   it('matches subsequences case-insensitively', () => {

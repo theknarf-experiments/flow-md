@@ -17,6 +17,7 @@
 import {
   AddressPill,
   CommandPalette,
+  type PaletteItem,
   IconButton,
   LogPanel,
   SectionLabel,
@@ -24,6 +25,7 @@ import {
   SpaceRail,
   Spacer,
   Tab as TabRow,
+  fuzzyFilter,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
@@ -220,6 +222,86 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [active?.url, activeId, closeTab])
 
+  /** The shell's ⌘T/⌘L results — the same searchable palette the app uses,
+   *  just over tabs and shell commands instead of vault notes. Typing a URL
+   *  offers it as the top entry, so free-text entry survives. */
+  const paletteItems = useMemo<PaletteItem[]>(() => {
+    const q = command.value.trim()
+    const items: PaletteItem[] = []
+
+    // Only offer navigation when the text actually looks like somewhere to
+    // go. normalizeUrl() will happily turn "side" into http://side, which is
+    // noise next to a command called "Toggle sidebar".
+    const navigable =
+      /^[a-z]+:\/\//i.test(q) ||
+      /^localhost(:\d+)?([/?#]|$)/i.test(q) ||
+      /^[\w-]+(\.[\w-]+)+(:\d+)?([/?#]|$)/.test(q) ||
+      q.startsWith('/')
+
+    const navigate = (value: string): PaletteItem => ({
+      key: 'open',
+      icon: navigable ? '↵' : '🔍',
+      label: navigable
+        ? `${command.newTab ? 'Open' : 'Go to'} ${normalizeUrl(value, HOME)}`
+        : `Search the web for “${value}”`,
+      run: () => {
+        go(value, command.newTab)
+        setCommand((c) => ({ ...c, open: false }))
+      },
+    })
+
+    if (q && navigable) items.push(navigate(q))
+
+    const tabItems: PaletteItem[] = tabs.map((t) => {
+      const space = SPACES.find((sp) => sp.id === t.spaceId)
+      return {
+        key: `tab:${t.id}`,
+        icon: '▤',
+        label: t.title,
+        detail: space?.name,
+        run: () => {
+          setSpaceId(t.spaceId)
+          setActiveBySpace((m) => ({ ...m, [t.spaceId]: t.id }))
+          setCommand((c) => ({ ...c, open: false }))
+        },
+      }
+    })
+
+    const commandItems: PaletteItem[] = [
+      { key: 'cmd:newtab', icon: '⌘', label: 'New tab', run: () => openTab(HOME) },
+      {
+        key: 'cmd:sidebar',
+        icon: '⌘',
+        label: 'Toggle sidebar',
+        run: () => setSidebar((v) => !v),
+      },
+      { key: 'cmd:log', icon: '⌘', label: 'Toggle log', run: () => setShowLog((v) => !v) },
+      { key: 'cmd:capture', icon: '⌘', label: 'Capture page', run: () => void capture() },
+      ...SPACES.map((sp) => ({
+        key: `cmd:space:${sp.id}`,
+        icon: '◧',
+        label: `Go to ${sp.name}`,
+        run: () => setSpaceId(sp.id),
+      })),
+    ].map((item) => ({
+      ...item,
+      run: () => {
+        item.run()
+        setCommand((c) => ({ ...c, open: false }))
+      },
+    }))
+
+    return [
+      ...items,
+      ...fuzzyFilter(commandItems, q, (i) => i.label, 6),
+      ...fuzzyFilter(tabItems, q, (i) => i.label, 8),
+      // A web search is the fallback, so it sorts last.
+      ...(q && !navigable ? [navigate(q)] : []),
+    ]
+    // `capture` is recreated per render but only reads refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [command.value, command.newTab, tabs, go, openTab])
+
   const capture = async () => {
     if (!activeFrame) return
     setShowLog(true)
@@ -332,8 +414,11 @@ export function App() {
       <CommandPalette
         open={command.open}
         query={command.value}
-        placeholder={command.newTab ? 'Search or enter address…' : 'Edit address…'}
-        hint={`${command.newTab ? 'Opens in a new tab' : 'Navigates this tab'} · Esc to dismiss`}
+        items={paletteItems}
+        placeholder={
+          command.newTab ? 'Search tabs, commands, or enter an address…' : 'Edit address…'
+        }
+        emptyLabel="type an address to navigate"
         onQueryChange={(value) => setCommand((c) => ({ ...c, value }))}
         onSubmit={(value) => {
           go(value, command.newTab)

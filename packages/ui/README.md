@@ -28,13 +28,14 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 
 Two components carry a deliberate design note:
 
-**`CommandPalette` is both palettes.** The app's ⌘K (files, content, commands)
-and the shell's address bar only ever differed in whether results were passed,
-so they're one component: pass `items` for a searchable list, omit them and
-Enter calls `onSubmit` with the raw text. What to search and how to rank stays
-with the caller; the component owns the interaction — keyboard nav, dismissal,
+**`CommandPalette` is every palette.** The app's ⌘K (notes, content,
+commands) and the shell's ⌘T/⌘L (tabs, commands, addresses) are the same
+component searching different things — and the same `fuzzyFilter`, exported
+here, ranks both, so a match feels identical in either surface. Callers pass
+`items`; the component owns the interaction — keyboard nav, dismissal,
 scroll-into-view, and routing wheel events to the list so the page behind
-can't scroll.
+can't scroll. Omitting `items` leaves a bare input whose Enter calls
+`onSubmit`.
 
 **`DataView` takes an `onEditCell` callback** rather than importing the app's
 write-through store — omit it and the table is read-only, which is what keeps
