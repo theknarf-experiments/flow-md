@@ -1,6 +1,34 @@
 # Tool versions for `mise install`. Pnpm is intentionally NOT pinned here
 # — corepack reads the `packageManager` field in `package.json` instead,
 # which keeps the pnpm version under one canonical source of truth.
+#
+# Rust isn't pinned either: the only Rust here is the IWA launcher, and
+# pinning would shadow whatever rustup toolchain you already have. Any
+# recent stable cargo builds it (it has no dependencies).
 
 [tools]
 node = "24.15.0"
+
+# --------------------------------------------------------------- IWA tasks
+#
+# The launcher opens the shell as an Isolated Web App in a dedicated Chrome
+# profile. It needs the shell's dev server up first, so the usual flow is
+# `mise run iwa:shell` in one terminal and `mise run iwa` in another.
+
+[tasks."iwa:build"]
+description = "Build the IWA launcher (release)"
+dir = "packages/iwa-launcher"
+run = "cargo build --release"
+# Relative to `dir` above — repo-root-relative paths make mise look under
+# packages/iwa-launcher/packages/... and warn about a missing output.
+sources = ["src/**/*.rs", "Cargo.toml"]
+outputs = ["target/release/iwa-launcher"]
+
+[tasks."iwa:shell"]
+description = "Run the IWA shell dev server (:5193)"
+run = "pnpm --filter @flow-md/iwa-shell dev"
+
+[tasks.iwa]
+description = "Build and launch the IWA shell in Chrome"
+depends = ["iwa:build"]
+run = "./packages/iwa-launcher/target/release/iwa-launcher"

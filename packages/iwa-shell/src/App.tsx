@@ -161,7 +161,7 @@ export function App() {
         <div className={styles.banner}>
           {`<controlledframe> unavailable — ${controlledFrame.detail}\n` +
             'Falling back to <iframe>; most sites will refuse to load.\n' +
-            'Run: cargo run --release --manifest-path packages/iwa-launcher/Cargo.toml'}
+            'Run: mise run iwa'}
         </div>
       )}
 

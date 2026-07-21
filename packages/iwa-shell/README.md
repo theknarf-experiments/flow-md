@@ -15,10 +15,16 @@ A React SPA (Vite + CSS Modules), matching the main app's conventions.
 
 ## Running it
 
+Two terminals:
+
 ```bash
-pnpm --filter @flow-md/iwa-shell dev                        # shell on :5193
-cargo run --release --manifest-path packages/iwa-launcher/Cargo.toml
+mise run iwa:shell   # the shell's dev server on :5193
+mise run iwa         # build the launcher and open the app in Chrome
 ```
+
+Extra browser flags pass straight through, e.g.
+`mise run iwa -- -- --remote-debugging-port=9222` (the first `--` ends
+mise's args, the second the launcher's).
 
 The launcher starts a fresh Chrome against a dedicated profile with IWA dev
 mode enabled, installs the shell on first run, and opens it as an app window.
