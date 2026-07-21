@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import styles from './PinnedGrid.module.css'
 import { Tooltip } from './Tooltip.js'
 
@@ -16,12 +17,15 @@ export interface PinnedGridProps {
   columns?: number
   onSelect: (id: string | number) => void
   onUnpin?: (id: string | number) => void
+  /** Right-click affordance. A pinned tab has left the tab list, so without
+   *  this its menu — unpin included — has nowhere to be opened from. */
+  onContextMenu?: (e: MouseEvent<HTMLElement>, id: string | number) => void
 }
 
 /** Pinned tabs as a grid of tiles rather than rows — the shape Arc uses, and
  *  the reason a pinned set stays glanceable as it grows. */
 export function PinnedGrid(props: PinnedGridProps) {
-  const { items, activeId, columns = 4, onSelect, onUnpin } = props
+  const { items, activeId, columns = 4, onSelect, onUnpin, onContextMenu } = props
   if (items.length === 0) return null
   return (
     <div
@@ -41,6 +45,7 @@ export function PinnedGrid(props: PinnedGridProps) {
             // Middle-click unpins, the way middle-click closes a tab.
             if (e.button === 1) onUnpin?.(item.id)
           }}
+          onContextMenu={(e) => onContextMenu?.(e, item.id)}
         >
           {item.icon ? (
             // eslint-disable-next-line jsx-a11y/alt-text -- title carries the name

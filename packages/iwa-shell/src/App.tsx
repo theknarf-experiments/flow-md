@@ -1195,6 +1195,7 @@ export function App() {
                       const tab = tabsCollection.get(String(id))
                       if (tab) togglePin(tab)
                     }}
+                    onContextMenu={(e, id) => tabMenu.open(e, String(id))}
                   />
                 )}
 

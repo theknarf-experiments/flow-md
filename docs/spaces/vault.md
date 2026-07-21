@@ -5,8 +5,7 @@ name: Vault
 emoji: 📓
 hue: 250
 pinned:
-  - http://localhost:4748/
-  - http://localhost:4748/note/history.csv
+- http://localhost:4748/
 ---
 
 # Vault
