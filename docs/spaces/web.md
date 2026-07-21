@@ -10,5 +10,3 @@ hue: 190
 
 - [Example Domain](https://example.com/)
 - [Controlled Frame](https://wicg.github.io/controlled-frame/)
-- [Controlled Frame](https://wicg.github.io/controlled-frame/)
-- [Controlled Frame](https://wicg.github.io/controlled-frame/)

@@ -63,7 +63,12 @@ import {
   windowManagementState,
 } from './lib/env.js'
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
-import { type Space as VaultSpace, spacesCollection, tabsCollection } from './lib/db.js'
+import {
+  type Space,
+  type Tab as Row,
+  spacesCollection,
+  tabsCollection,
+} from './lib/db.js'
 import { vault } from './lib/vault.js'
 
 const HOME = 'http://localhost:4748/'
@@ -91,55 +96,11 @@ declare module '@tanstack/hotkeys' {
  *  where the well ends. */
 const TRAFFIC_WELL = { left: 10, width: 74 }
 
-interface Space {
-  /** The markdown file this space *is* — also its identity. */
-  id: string
-  name: string
-  emoji: string
-  /** Base hue for the gradient; each space feels distinct, as in Arc. */
-  hue: number
-  /** Guests are partitioned per space, so spaces are real containers:
-   *  separate cookies, storage and logins. */
-  partition: string
-  /** Urls listed under `pinned:` in the file's frontmatter. */
-  pinned: string[]
-  /** Position in the rail — `order:` in the frontmatter. */
-  order: number
-}
-
-/** What the shell shows before the vault answers, and what it falls back to
- *  when there isn't one — the browser still works without a vault, it just
- *  has nowhere to write its spaces down. */
-const OFFLINE_SPACES: Space[] = [
-  {
-    id: '',
-    name: 'Browser',
-    emoji: '🌐',
-    hue: 250,
-    partition: 'persist:offline',
-    pinned: [],
-    order: 0,
-  },
-]
-
-interface Tab {
-  id: number
-  spaceId: string
-  title: string
-  url: string
-  pinned: boolean
-  /** Set by "Rename tab" — stops the guest's own <title> overwriting it. */
-  renamed?: boolean
-  /** The url as the space's file spells it, which is what identifies the
-   *  link to edit. The tab's own url moves with every redirect; this follows
-   *  it deliberately, one write at a time. */
-  vaultUrl?: string
-  /** And what the file calls it. Kept so the two sides can tell whose change
-   *  it was: if the page's title moved, write it down; if the file's label
-   *  moved, the person editing the file meant it. */
-  vaultText?: string
-  /** Inlined favicon; null until the guest has fetched it. */
-  icon: string | null
+/** What the browser knows about a tab that the file doesn't: its favicon.
+ *  Everything else — which tabs exist, where they point, what they're
+ *  called, whether they're pinned — is a row. */
+interface Runtime {
+  icon?: string | null
 }
 
 /** Emoji offered to new spaces, in order, and in the space menu. */
@@ -150,37 +111,35 @@ const SPACE_EMOJI = ['📓', '🌐', '🧪', '🎨', '📚', '🎧', '🛠️', 
 const HUES = [250, 285, 320, 355, 25, 90, 155, 190]
 
 export function App() {
-  const [tabs, setTabs] = useState<Tab[]>([])
-  // The vault's own rows. These *are* the state — a link deleted in an
-  // editor is a row that vanishes here, and the browser follows.
-  const { data: vaultSpaces } = useLiveQuery((q) => q.from({ space: spacesCollection }))
-  const { data: vaultTabs } = useLiveQuery((q) => q.from({ tab: tabsCollection }))
-  const [spaces, setSpaces] = useState<Space[]>(OFFLINE_SPACES)
-  /** The same list, readable without waiting for a render. Boot loads the
-   *  spaces and opens their tabs in one pass, and a tab needs its space's
-   *  partition *now* — a guest's container is fixed when it's created, so
-   *  reading a stale list would put every tab in the wrong one. */
-  const spacesRef = useRef(spaces)
-  spacesRef.current = spaces
-  /** True once the vault has answered — writes are pointless before that. */
-  const [backed, setBacked] = useState(false)
-  /** The same, for callbacks that outlive a render: a guest's lifecycle
-   *  handler is created once, when nothing is backed yet. */
-  const backedRef = useRef(false)
-  /** Tabs, readable from the reconcile loop without making it a dependency —
-   *  it runs on a timer and would otherwise be torn down on every keystroke
-   *  that changes a title. */
-  const tabsRef = useRef<Tab[]>([])
-  /** Which vault rows already have a guest, by space and url. */
-  const openedRef = useRef(new Set<string>())
+  // The vault's rows *are* the state. A link added in an editor is a row that
+  // appears; a row that appears is a tab that opens. TanStack DB does the
+  // syncing — polling, optimistic writes, rollback — so nothing here tracks
+  // what it already knows.
+  const { data: spaceRows } = useLiveQuery((q) => q.from({ space: spacesCollection }))
+  const { data: tabRows } = useLiveQuery((q) => q.from({ tab: tabsCollection }))
+
+  // A collection is a keyed map; a rail and a tab list are ordered.
+  const spaces = useMemo(
+    () =>
+      [...(spaceRows as Space[])].sort(
+        (a, b) => a.order - b.order || a.name.localeCompare(b.name),
+      ),
+    [spaceRows],
+  )
+  const tabs = useMemo(
+    () => [...(tabRows as Row[])].sort((a, b) => a.line - b.line),
+    [tabRows],
+  )
+
+  const [runtime, setRuntime] = useState<Record<string, Runtime>>({})
   const [renaming, setRenaming] = useState<string | null>(null)
-  const [renamingTab, setRenamingTab] = useState<number | null>(null)
+  const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
   const spaceMenu = useContextMenu<string>()
-  const tabMenu = useContextMenu<number>()
-  const [spaceId, setSpaceId] = useState(OFFLINE_SPACES[0]!.id)
+  const tabMenu = useContextMenu<string>()
+  const [spaceId, setSpaceId] = useState('')
   /** Active tab per space, so switching spaces restores where you were. */
-  const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
+  const [activeBySpace, setActiveBySpace] = useState<Record<string, string | null>>({})
   const [nav, setNav] = useState({ back: false, forward: false })
   const [sidebar, setSidebar] = useState(true)
   const [command, setCommand] = useState<{ open: boolean; value: string; newTab: boolean }>({
@@ -199,70 +158,39 @@ export function App() {
 
   const cardRef = useRef<HTMLDivElement>(null)
   const shellRef = useRef<HTMLDivElement>(null)
-  const frames = useRef(new Map<number, FrameHandle>())
-  const seq = useRef(0)
-  /** Creating guests is an imperative side effect, and StrictMode invokes
-   *  effects twice in dev — without this we boot two of every tab. */
-  const booted = useRef(false)
+  /** One guest per row, keyed the same way the rows are. */
+  const frames = useRef(new Map<string, FrameHandle>())
   /** Tabs whose favicon we've already given a second chance. */
-  const iconRetried = useRef(new Set<number>())
+  const iconRetried = useRef(new Set<string>())
 
-  const space = spaces.find((s) => s.id === spaceId) ?? spaces[0]!
-  tabsRef.current = tabs
-  const activeId = activeBySpace[spaceId] ?? null
+  const space = spaces.find((s) => s.id === spaceId) ?? spaces[0]
+  const spaceTabs = tabs.filter((t) => t.space === space?.id)
+  const activeId = activeBySpace[spaceId] ?? spaceTabs[0]?.id ?? null
   const active = tabs.find((t) => t.id === activeId) ?? null
-  const activeFrame = activeId !== null ? frames.current.get(activeId) : undefined
+  const activeFrame = activeId ? frames.current.get(activeId) : undefined
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
-
-  /** Pull the guest's real title/url back out after it navigates. */
-  const sync = useCallback(async (id: number) => {
+  /** Read the guest: its favicon, whether it can go back, and its title —
+   *  which is the one thing the browser knows that the file doesn't, so it's
+   *  written down. Where the guest navigated to is deliberately not: a link
+   *  in a document is a bookmark, not a cursor. */
+  const sync = useCallback(async (id: string) => {
     const frame = frames.current.get(id)
     if (!frame) return
     void frame.adopt()
     const info = await frame.probe()
     if (info) {
-      // A tab that has gone somewhere else is a link that has gone somewhere
-      // else. Rewriting it keeps the file a description of what's open rather
-      // than of what was opened.
-      setTabs((ts) => {
-        const tab = ts.find((t) => t.id === id)
-        if (tab?.vaultUrl && backedRef.current) {
-          const from = tab.vaultUrl
-          const title = info.title || info.url
-          const movedTo = tab.vaultUrl === info.url ? null : info.url
-          const renamedTo = tab.renamed || tab.vaultText === title ? null : title
-          if (movedTo || renamedTo) {
-            const row = tabsCollection.toArray.find((t) => t.space === tab.spaceId && t.url === from)
-            if (row) {
-              tabsCollection.update(row.id, (draft) => {
-                if (movedTo) draft.url = movedTo
-                if (renamedTo) draft.title = renamedTo
-              })
-            }
-          }
-        }
-        return ts
-      })
-      setTabs((ts) =>
-        ts.map((t) =>
-          t.id === id
-            ? {
-                ...t,
-                title: t.renamed ? t.title : info.title || info.url,
-                url: info.url,
-                icon: info.icon ?? t.icon,
-                ...(t.vaultUrl
-                  ? {
-                      vaultUrl: info.url,
-                      ...(t.renamed ? {} : { vaultText: info.title || info.url }),
-                    }
-                  : {}),
-              }
-            : t,
-        ),
-      )
+      setRuntime((r) => ({ ...r, [id]: { icon: info.icon ?? r[id]?.icon ?? null } }))
+      const row = tabsCollection.get(id)
+      const title = info.title || info.url
+      if (row && row.title !== title && row.title === row.url) {
+        // Only when the file is still showing the bare url: a label somebody
+        // wrote is theirs, not ours to replace.
+        tabsCollection.update(id, (draft) => {
+          draft.title = title
+        })
+      }
       // The guest fetches its favicon asynchronously and executeScript can't
       // await it, so look again shortly — once, not in a loop.
       if (!info.icon && !iconRetried.current.has(id)) {
@@ -273,93 +201,70 @@ export function App() {
     setNav({ back: await frame.canGoBack(), forward: await frame.canGoForward() })
   }, [])
 
-  const openTab = useCallback(
-    (
-      url: string,
-      opts: {
-        space?: string
-        pinned?: boolean
-        activate?: boolean
-        title?: string
-        /** Already a line in the file — don't write it back again. */
-        fromVault?: boolean
-      } = {},
-    ) => {
-      const container = cardRef.current
-      if (!container) return undefined
-      const target = opts.space ?? spaceId
-      const known = spacesRef.current
-      const space = known.find((s) => s.id === target) ?? known[0]!
-      const id = ++seq.current
-      const frame = createFrame(url, space.partition, container, styles.frameActive!, () => {
-        void sync(id)
-      })
+  /** Rows in, guests out. The only place the document and the browser meet:
+   *  every row gets a frame, every frame without a row is destroyed. There is
+   *  nothing to reconcile because there is nothing else keeping score. */
+  useEffect(() => {
+    const container = cardRef.current
+    if (!container) return
+    const wanted = new Map(tabs.map((t) => [t.id, t]))
+
+    for (const [id, row] of wanted) {
+      if (frames.current.has(id)) continue
+      const owner = spaces.find((s) => s.id === row.space)
+      if (!owner) continue
+      const frame = createFrame(
+        row.url,
+        owner.partition,
+        container,
+        styles.frameActive!,
+        () => void sync(id),
+      )
       frames.current.set(id, frame)
-      const title = opts.title ?? url
-      setTabs((ts) => [
-        ...ts,
-        {
-          id,
-          spaceId: target,
-          title,
-          url,
-          pinned: !!opts.pinned,
-          icon: null,
-          ...(opts.title ? { renamed: true } : {}),
-          ...(space.id ? { vaultUrl: url, vaultText: title } : {}),
-        },
-      ])
-      if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
-      // Opening a tab writes a link into the space's file. That's the whole
-      // trick: the tab list is the document.
-      if (!opts.fromVault && backed && space.id) {
-        // 0 is "append"; the vault reparses and the row comes back with its
-        // real line, which is why this is an insert and not a local push.
-        tabsCollection.insert({
-          id: `${space.id}\n${url}`,
-          space: space.id,
-          url,
-          title,
-          line: 0,
-          pinned: false,
-        })
+    }
+
+    for (const [id, frame] of frames.current) {
+      if (wanted.has(id)) continue
+      frame.destroy()
+      frames.current.delete(id)
+      iconRetried.current.delete(id)
+    }
+  }, [tabs, spaces, sync])
+
+  /** Opening a tab is writing a link. The row appears optimistically, the
+   *  effect above gives it a guest, and the vault gets the edit. */
+  const openTab = useCallback(
+    (url: string, opts: { space?: string; activate?: boolean } = {}) => {
+      const target = opts.space ?? spaceId
+      if (!target) return undefined
+      const id = `${target}\n${url}`
+      if (!tabsCollection.has(id)) {
+        // Line 0 means append; the reparse gives it its real one.
+        tabsCollection.insert({ id, space: target, url, title: url, line: 0, pinned: false })
       }
-      log(`tab ${id} → ${url}`)
+      if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
+      log(`tab → ${url}`)
       return id
     },
-    [spaceId, spaces, backed, log, sync],
+    [spaceId, log],
   )
 
   const closeTab = useCallback(
-    (id: number, opts: { fromVault?: boolean } = {}) => {
-      frames.current.get(id)?.destroy()
-      frames.current.delete(id)
-      setTabs((ts) => {
-        const victim = ts.find((t) => t.id === id)
-        const next = ts.filter((t) => t.id !== id)
-        // Closing a tab takes its line out of the file. The line number is
-        // whatever the file says now, so it's looked up rather than
-        // remembered — the file may have been edited since.
-        if (victim && backed && !opts.fromVault && victim.spaceId && victim.vaultUrl) {
-          openedRef.current.delete(`${victim.spaceId}\n${victim.vaultUrl}`)
-          const row = tabsCollection.toArray.find(
-            (t) => t.space === victim.spaceId && t.url === victim.vaultUrl,
-          )
-          if (row) tabsCollection.delete(row.id)
-        }
-        if (victim) {
-          const siblings = next.filter((t) => t.spaceId === victim.spaceId)
-          setActiveBySpace((m) =>
-            m[victim.spaceId] === id
-              ? { ...m, [victim.spaceId]: siblings[siblings.length - 1]?.id ?? null }
-              : m,
-          )
-        }
-        return next
-      })
-      log(`closed tab ${id}`)
+    (id: string) => {
+      const victim = tabsCollection.get(id)
+      if (!victim) return
+      const siblings = tabsCollection.toArray.filter(
+        (t) => t.space === victim.space && t.id !== id,
+      )
+      setActiveBySpace((m) =>
+        m[victim.space] === id
+          ? { ...m, [victim.space]: siblings[siblings.length - 1]?.id ?? null }
+          : m,
+      )
+      tabsCollection.delete(id)
+      log(`closed ${victim.url}`)
     },
-    [backed, log],
+    [log],
   )
 
   useEffect(() => {
@@ -369,136 +274,29 @@ export function App() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Boot: read the spaces out of the vault, and open every link each one
-  // holds. Without a vault the shell still runs — one space, nothing written
-  // down — so a browser is usable before a notebook exists.
+  // Boot: say what the environment is, and let the collections do the rest.
+  // They started polling the moment they were created.
   useEffect(() => {
-    if (booted.current) return
-    booted.current = true
     for (const line of cspSelfTest()) log(line)
     log(
       controlledFrame.available
         ? `controlledframe: ${controlledFrame.detail}`
         : `controlledframe MISSING — ${controlledFrame.detail}`,
     )
-    void (async () => {
-      if (!(await vault.available())) {
-        log('no vault — spaces are in memory only')
-        openTab(HOME, { pinned: true })
-        return
-      }
-      setBacked(true)
-      backedRef.current = true
-      log('vault: reading spaces')
-      // Nothing else to do here: the collections are already polling, and
-      // the effect below turns their rows into spaces and guests.
-    })()
     void windowManagementState().then((state) => {
       log(`window-management: ${state} · title bar: ${hasTitleBar()}`)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  /** The browser's own context menu offers nothing an app window can use —
-   *  reload, back, view-source — and it covers ours. Suppressed everywhere
-   *  except text fields, where cut/copy/paste is worth keeping. Guests draw
-   *  their own menus inside their frames; this doesn't reach them. */
+  /** Follow the vault when it names a space we aren't showing — at startup,
+   *  or when the one we were in is deleted from under us. */
   useEffect(() => {
-    const onMenu = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null
-      if (target?.closest('input, textarea, [contenteditable="true"]')) return
-      e.preventDefault()
-    }
-    document.addEventListener('contextmenu', onMenu)
-    return () => document.removeEventListener('contextmenu', onMenu)
-  }, [])
-
-  /** Turn the vault's rows into what the browser is showing.
-   *
-   *  This is the only place the two meet. The collections hold the data and
-   *  poll for changes; guests are runtime objects that can't live in a
-   *  database, so this creates one for every row that hasn't got one and
-   *  destroys the ones whose row has gone. A link deleted in an editor
-   *  closes a tab here for the same reason a link added in an editor opens
-   *  one — neither is a special case, both are just rows.
-   *
-   *  It never writes. Everything it does is a consequence of what the vault
-   *  already says. */
-  useEffect(() => {
-    if (!backed || vaultSpaces.length === 0) return
-
-    // A collection is a keyed map; the rail is a row. Sorting here rather
-    // than relying on the order rows arrived in.
-    const ordered = [...(vaultSpaces as VaultSpace[])].sort(
-      (a, b) => a.order - b.order || a.name.localeCompare(b.name),
-    )
-    spacesRef.current = ordered
-    setSpaces((current) =>
-      JSON.stringify(current) === JSON.stringify(ordered) ? current : ordered,
-    )
+    if (spaces.length === 0) return
     setSpaceId((current) =>
-      ordered.some((s) => s.id === current) ? current : (ordered[0]?.id ?? current),
+      spaces.some((s) => s.id === current) ? current : (spaces[0]?.id ?? ''),
     )
-
-    // A write of ours in flight means the rows are behind the browser, not
-    // the other way round; acting on them would undo it.
-    if (vault.busy()) return
-
-    const open = tabsRef.current.filter((t) => t.vaultUrl)
-    for (const row of vaultTabs) {
-      const key = `${row.space}\n${row.url}`
-      // Guests are created outside React, and this effect can run twice for
-      // one change (StrictMode, or a second row arriving in the same tick).
-      // The set is updated synchronously, before the state that would
-      // otherwise be the only record.
-      if (openedRef.current.has(key)) continue
-      if (open.some((t) => t.spaceId === row.space && t.vaultUrl === row.url)) {
-        openedRef.current.add(key)
-        continue
-      }
-      openedRef.current.add(key)
-      openTab(row.url, {
-        space: row.space,
-        title: row.title,
-        pinned: row.pinned,
-        activate: false,
-        fromVault: true,
-      })
-    }
-    for (const tab of open) {
-      const row = vaultTabs.find((r) => r.space === tab.spaceId && r.url === tab.vaultUrl)
-      if (!row) {
-        openedRef.current.delete(`${tab.spaceId}\n${tab.vaultUrl}`)
-        closeTab(tab.id, { fromVault: true })
-        continue
-      }
-      // A label somebody rewrote in the file. Marked as renamed so the page's
-      // own title doesn't immediately undo it.
-      if (row.title !== tab.vaultText || row.pinned !== tab.pinned) {
-        setTabs((ts) =>
-          ts.map((t) =>
-            t.id === tab.id
-              ? {
-                  ...t,
-                  pinned: row.pinned,
-                  ...(row.title === tab.vaultText
-                    ? {}
-                    : { title: row.title, vaultText: row.title, renamed: true }),
-                }
-              : t,
-          ),
-        )
-      }
-    }
-  }, [backed, vaultSpaces, vaultTabs, openTab, closeTab])
-
-  // A space with tabs but no active one (opened in the background, or its
-  // active tab was closed) should show its first tab rather than a blank card.
-  useEffect(() => {
-    if (activeBySpace[spaceId] != null) return
-    const first = tabs.find((t) => t.spaceId === spaceId)
-    if (first) setActiveBySpace((m) => ({ ...m, [spaceId]: first.id }))
-  }, [spaceId, tabs, activeBySpace])
+  }, [spaces])
 
   // Only the active tab of the active space is visible.
   useEffect(() => {
@@ -509,11 +307,12 @@ export function App() {
   const go = useCallback(
     (value: string, asNewTab: boolean) => {
       const url = normalizeUrl(value, HOME)
-      if (asNewTab || !activeFrame || activeId === null) {
+      if (asNewTab || !activeFrame || !activeId) {
         openTab(url)
       } else {
+        // Navigating an open tab moves the guest, not the link: the file says
+        // where the tab started, and that's what makes it a bookmark.
         activeFrame.navigate(url)
-        setTabs((ts) => ts.map((t) => (t.id === activeId ? { ...t, url } : t)))
         log(`navigate → ${url}`)
       }
     },
@@ -524,7 +323,7 @@ export function App() {
    *  sidebar shows them. */
   const stepTab = useCallback(
     (delta: number) => {
-      const inSpace = tabs.filter((t) => t.spaceId === spaceId)
+      const inSpace = tabs.filter((t) => t.space === spaceId)
       const order = [...inSpace.filter((t) => t.pinned), ...inSpace.filter((t) => !t.pinned)]
       if (order.length === 0) return
       const i = order.findIndex((t) => t.id === activeId)
@@ -667,15 +466,15 @@ export function App() {
     if (q && navigable) items.push(navigate(q))
 
     const tabItems: PaletteItem[] = tabs.map((t) => {
-      const space = spaces.find((sp) => sp.id === t.spaceId)
+      const space = spaces.find((sp) => sp.id === t.space)
       return {
         key: `tab:${t.id}`,
         icon: '▤',
         label: t.title,
         detail: space?.name,
         run: () => {
-          setSpaceId(t.spaceId)
-          setActiveBySpace((m) => ({ ...m, [t.spaceId]: t.id }))
+          setSpaceId(t.space)
+          setActiveBySpace((m) => ({ ...m, [t.space]: t.id }))
           setCommand((c) => ({ ...c, open: false }))
         },
       }
@@ -728,16 +527,6 @@ export function App() {
     const hue = (spaces.length * 67 + 250) % 360
     const id = `spaces/space-${n}-${Math.random().toString(36).slice(2, 7)}.md`
 
-    if (!backed) {
-      setSpaces((ss) => [
-        ...ss,
-        { id, name, emoji, hue, partition: `persist:${n}`, pinned: [], order: n },
-      ])
-      setSpaceId(id)
-      openTab(HOME, { space: id })
-      return
-    }
-
     spacesCollection.insert({
       id,
       name,
@@ -750,24 +539,16 @@ export function App() {
     })
     setSpaceId(id)
     log(`space ${name} → ${id}`)
-  }, [spaces, backed, openTab, log])
+  }, [spaces, log])
 
-  /** The space's own metadata lives in its frontmatter, so each of these is a
-   *  YAML edit. The local state moves first — a rename shouldn't wait on a
-   *  file write to show up. */
-  const editSpace = useCallback(
-    (id: string, key: 'name' | 'emoji' | 'hue', value: string | number) => {
-      // Locally first so the rename shows at once, then through the
-      // collection, which posts the frontmatter edit and refetches. When
-      // there's no vault the local change is all there is.
-      setSpaces((ss) => ss.map((s) => (s.id === id ? { ...s, [key]: value } : s)))
-      if (!backed) return
-      spacesCollection.update(id, (draft) => {
-        Object.assign(draft, { [key]: value })
-      })
-    },
-    [spaces, backed, log],
-  )
+  /** A space's metadata lives in its frontmatter, so each of these is a YAML
+   *  edit. The collection applies it locally at once and posts it; if the
+   *  write fails it rolls back on its own. */
+  const editSpace = useCallback((id: string, key: 'name' | 'emoji' | 'hue', value: string | number) => {
+    spacesCollection.update(id, (draft) => {
+      Object.assign(draft, { [key]: value })
+    })
+  }, [])
 
   const renameSpace = useCallback(
     (id: string, name: string) => {
@@ -787,31 +568,26 @@ export function App() {
     [editSpace],
   )
 
-  /** Deleting a space takes its tabs with it — they live nowhere else, and
-   *  their guests would otherwise stay loaded and invisible. */
+  /** Deleting a space deletes the file it is. Its tabs are lines in that
+   *  file, so they go with it — nothing here has to close them. */
   const deleteSpace = useCallback(
     (id: string) => {
-      setSpaces((ss) => {
-        if (ss.length < 2) return ss
-        const remaining = ss.filter((s) => s.id !== id)
-        setSpaceId((current) => {
-          if (current !== id) return current
-          const i = ss.findIndex((s) => s.id === id)
-          return (remaining[i] ?? remaining[remaining.length - 1] ?? ss[0]!).id
-        })
-        return remaining
-      })
-      for (const tab of tabs.filter((t) => t.spaceId === id)) closeTab(tab.id)
-      // Deleting a space deletes the file it is. File is a system relation,
-      // so the vault unlinks it.
-      if (backed && id) spacesCollection.delete(id)
+      if (spaces.length < 2) return
+      const i = spaces.findIndex((s) => s.id === id)
+      const remaining = spaces.filter((s) => s.id !== id)
+      setSpaceId((current) =>
+        current === id ? (remaining[i] ?? remaining[remaining.length - 1])?.id ?? '' : current,
+      )
+      spacesCollection.delete(id)
       log(`space ${id} deleted`)
     },
-    [tabs, closeTab, log],
+    [spaces, log],
   )
 
-  const renameTab = useCallback((id: number, title: string) => {
-    setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, title, renamed: true } : t)))
+  const renameTab = useCallback((id: string, title: string) => {
+    tabsCollection.update(id, (draft) => {
+      draft.title = title
+    })
     setRenamingTab(null)
   }, [])
 
@@ -843,19 +619,22 @@ export function App() {
    *  spaces means rebuilding it in the other one. The page reloads; there's no
    *  way to carry a live document across a partition boundary. */
   const moveTab = useCallback(
-    (id: number, target: string) => {
-      const tab = tabs.find((t) => t.id === id)
-      if (!tab || tab.spaceId === target) return
-      closeTab(id)
-      const moved = openTab(tab.url, { space: target, pinned: tab.pinned, activate: false })
-      if (moved !== undefined && tab.renamed) {
-        setTabs((ts) =>
-          ts.map((t) => (t.id === moved ? { ...t, title: tab.title, renamed: true } : t)),
-        )
-      }
-      log(`tab ${id} → ${target}`)
+    (id: string, target: string) => {
+      const tab = tabsCollection.get(id)
+      if (!tab || tab.space === target) return
+      // Two edits to two files: the link leaves one and joins the other.
+      tabsCollection.delete(id)
+      tabsCollection.insert({
+        id: `${target}\n${tab.url}`,
+        space: target,
+        url: tab.url,
+        title: tab.title,
+        line: 0,
+        pinned: false,
+      })
+      log(`tab → ${target}`)
     },
-    [tabs, closeTab, openTab, log],
+    [log],
   )
 
   /** Swipe over the sidebar to slide between spaces; <SwipeDeck> does the
@@ -890,9 +669,10 @@ export function App() {
   // Switching space by any other route — the palette, a new space — still has
   // to land on the right tint.
   useEffect(() => {
+    if (!space) return
     shellRef.current?.style.setProperty('--hue', String(space.hue))
     shellRef.current?.style.setProperty('--space-position', String(spaceIndex))
-  }, [space.hue, spaceIndex])
+  }, [space, spaceIndex])
 
   const capture = async () => {
     if (!activeFrame) return
@@ -901,11 +681,23 @@ export function App() {
     log(info ? `capture → ${JSON.stringify(info)}` : 'capture failed (no executeScript)')
   }
 
-  const renderTab = (tab: Tab, activeInSpace: number | null) => (
+  /** Pinning is a url in the space's frontmatter, so it's an edit to the
+   *  space rather than to the tab. */
+  const togglePin = (tab: Row) => {
+    const owner = spaces.find((s) => s.id === tab.space)
+    if (!owner) return
+    spacesCollection.update(owner.id, (draft) => {
+      draft.pinned = tab.pinned
+        ? draft.pinned.filter((u) => u !== tab.url)
+        : [...draft.pinned, tab.url]
+    })
+  }
+
+  const renderTab = (tab: Row, activeInSpace: string | null) => (
     <TabRow
       key={tab.id}
       label={tab.title}
-      icon={tab.icon}
+      icon={runtime[tab.id]?.icon ?? null}
       title={tab.url}
       active={tab.id === activeInSpace}
       onContextMenu={(e) => tabMenu.open(e, tab.id)}
@@ -913,10 +705,8 @@ export function App() {
       onRename={(title) => renameTab(tab.id, title)}
       onCancelRename={() => setRenamingTab(null)}
       pinned={tab.pinned}
-      onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
-      onTogglePin={() =>
-        setTabs((ts) => ts.map((t) => (t.id === tab.id ? { ...t, pinned: !t.pinned } : t)))
-      }
+      onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))}
+      onTogglePin={() => togglePin(tab)}
       onClose={() => closeTab(tab.id)}
     />
   )
@@ -983,7 +773,7 @@ export function App() {
           className={styles.deck}
         >
           {spaces.map((sp) => {
-            const spaceTabs = tabs.filter((t) => t.spaceId === sp.id)
+            const spaceTabs = tabs.filter((t) => t.space === sp.id)
             const spacePinned = spaceTabs.filter((t) => t.pinned)
             const spaceActive = activeBySpace[sp.id] ?? null
             return (
@@ -993,16 +783,15 @@ export function App() {
                     items={spacePinned.map((t) => ({
                       id: t.id,
                       label: t.title,
-                      icon: t.icon,
+                      icon: runtime[t.id]?.icon ?? null,
                       title: t.url,
                     }))}
                     activeId={spaceActive}
-                    onSelect={(id) => setActiveBySpace((m) => ({ ...m, [sp.id]: Number(id) }))}
-                    onUnpin={(id) =>
-                      setTabs((ts) =>
-                        ts.map((t) => (t.id === Number(id) ? { ...t, pinned: false } : t)),
-                      )
-                    }
+                    onSelect={(id) => setActiveBySpace((m) => ({ ...m, [sp.id]: String(id) }))}
+                    onUnpin={(id) => {
+                      const tab = tabsCollection.get(String(id))
+                      if (tab) togglePin(tab)
+                    }}
                   />
                 )}
 
@@ -1108,12 +897,12 @@ export function App() {
               <ContextMenuSeparator />
               <ContextMenuLabel>Move to space</ContextMenuLabel>
               {spaces
-                .filter((sp) => sp.id !== tabs.find((t) => t.id === tabMenu.anchor?.target)?.spaceId)
+                .filter((sp) => sp.id !== tabsCollection.get(tabMenu.anchor?.target ?? '')?.space)
                 .map((sp) => (
                   <ContextMenuItem
                     key={sp.id}
                     onSelect={() => {
-                      moveTab(tabMenu.anchor?.target ?? -1, sp.id)
+                      moveTab(tabMenu.anchor?.target ?? '', sp.id)
                       tabMenu.close()
                     }}
                   >
@@ -1127,7 +916,7 @@ export function App() {
           <ContextMenuItem
             danger
             onSelect={() => {
-              closeTab(tabMenu.anchor?.target ?? -1)
+              closeTab(tabMenu.anchor?.target ?? '')
               tabMenu.close()
             }}
           >

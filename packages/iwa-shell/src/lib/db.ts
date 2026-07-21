@@ -38,8 +38,11 @@ export interface Space {
 }
 
 export interface Tab {
-  /** `<space>\n<line>` — a link is identified by where it's written, which is
-   *  also what keeps two tabs on the same url distinct. */
+  /** `<space>\n<url>`. Keyed by target rather than by line so that editing
+   *  the file above a link doesn't change its identity — a row whose key
+   *  moved would take its guest down and load the page again. Two links to
+   *  the same url in one space are therefore one tab, which is also what a
+   *  person would expect. */
   id: string
   space: string
   url: string
@@ -95,7 +98,7 @@ async function loadTabs(): Promise<Tab[]> {
   const pinned = new Map(spaces.map((s) => [s.id, s.pinned]))
   return (rows.rows as [string, string, string, number][])
     .map(([space, url, title, line]) => ({
-      id: `${space}\n${line}`,
+      id: `${space}\n${url}`,
       space,
       url,
       title,
@@ -135,6 +138,7 @@ export const spacesCollection = createCollection(
           await vault.delete(frontmatterOf(before.id), ['pinned', url])
         }
       }
+      void spacesCollection.utils.refetch()
       void tabsCollection.utils.refetch()
     },
     onInsert: async ({ transaction }) => {
@@ -151,6 +155,7 @@ export const spacesCollection = createCollection(
           await vault.insert('Frontmatter', [space.id, key, value])
         }
       }
+      void spacesCollection.utils.refetch()
     },
     onDelete: async ({ transaction }) => {
       for (const m of transaction.mutations) {
@@ -173,10 +178,12 @@ export const tabsCollection = createCollection(
     onInsert: async ({ transaction }) => {
       for (const m of transaction.mutations) {
         const tab = m.modified as Tab
-        // Line 0 means "append"; the real line comes back from the reparse,
-        // which is also why the refetch below matters.
+        // Line 0 means "append"; the real line comes back from the reparse.
         await vault.insert('LinkLabel', [tab.space, tab.url, tab.title, 0])
       }
+      // Don't wait for the next tick: a tab that takes a second and a half to
+      // become real is a tab that looks broken.
+      void tabsCollection.utils.refetch()
     },
     onUpdate: async ({ transaction }) => {
       for (const m of transaction.mutations) {
@@ -192,12 +199,14 @@ export const tabsCollection = createCollection(
           await vault.update(query, moved, 'text', after.title)
         }
       }
+      void tabsCollection.utils.refetch()
     },
     onDelete: async ({ transaction }) => {
       for (const m of transaction.mutations) {
         const tab = m.original as Tab
         await vault.delete(tabsOf(tab.space), [tab.url, tab.title, tab.line])
       }
+      void tabsCollection.utils.refetch()
     },
   }),
 )

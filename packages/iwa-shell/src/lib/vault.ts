@@ -61,22 +61,26 @@ const READ = (id: number) => `(() => {
 })()`
 
 let bridge: Promise<Send> | null = null
+let frameFor: HTMLElement | null = null
 
 /** Load the relay once, and hand back something shaped like fetch. */
 function connect(): Promise<Send> {
   if (bridge) return bridge
-  bridge = new Promise<Send>((ready, failed) => {
+  const pending = new Promise<Send>((ready, failed) => {
     if (!controlledFrame.available) {
       failed(new Error('no <controlledframe>: the vault is only reachable from the app'))
       return
     }
-    const frame = document.createElement('controlledframe') as ControlledFrame
+    // Reuse the frame across retries; a failed attempt leaves a loaded guest
+    // behind, and appending a second one would leave the first orphaned.
+    const frame = (frameFor ??
+      (frameFor = document.createElement('controlledframe'))) as ControlledFrame
     frame.setAttribute('partition', 'persist:flowmd-vault')
     frame.setAttribute('src', `${ORIGIN}/bridge`)
     // Present, laid out, invisible: a frame that is `display: none` never
     // loads, and one outside the document has no window to script.
     frame.setAttribute('style', 'position:fixed;width:1px;height:1px;opacity:0;left:-10px')
-    document.body.append(frame)
+    if (!frame.isConnected) document.body.append(frame)
 
     let seq = 0
     const exec = async (code: string): Promise<unknown> => {
@@ -129,7 +133,15 @@ function connect(): Promise<Send> {
       if (!done) failed(new Error('vault bridge did not load'))
     })()
   })
-  return bridge
+  // A failed connection is not a permanent verdict: the vault may simply not
+  // have been running yet. Caching the rejection would leave the browser
+  // offline until it was restarted, which is what used to happen.
+  bridge = pending
+  pending.catch(() => {
+    if (bridge === pending) bridge = null
+    frameFor = null
+  })
+  return pending
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -137,19 +149,7 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(await send(path, init)) as T
 }
 
-/** Writes in flight. Polling reads the file back, so a poll that lands
- *  between "we sent a change" and "the vault wrote it" would see the old
- *  file and dutifully undo the change. */
-let writing = 0
-
-async function mutate<T>(path: string, data: unknown): Promise<T> {
-  writing++
-  try {
-    return await json<T>(path, body(data))
-  } finally {
-    writing--
-  }
-}
+const mutate = <T,>(path: string, data: unknown): Promise<T> => json<T>(path, body(data))
 
 const body = (data: unknown): RequestInit => ({
   method: 'POST',
@@ -158,9 +158,6 @@ const body = (data: unknown): RequestInit => ({
 })
 
 export const vault = {
-  /** True while one of our own writes hasn't landed yet. */
-  busy: (): boolean => writing > 0,
-
   async available(): Promise<boolean> {
     try {
       const health = await json<{ ok: boolean }>('/health')
