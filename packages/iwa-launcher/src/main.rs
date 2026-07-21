@@ -6,11 +6,10 @@
 //   1. IWA flags are only read when the browser *process* starts. Handing
 //      them to a running Chrome silently drops them, so we always use a
 //      dedicated --user-data-dir to force a separate process.
-//   2. Installing an IWA does not open it, and the isolated-app:// origin is
-//      only knowable after the install. So the first run installs, waits for
-//      Chrome to write the id to Preferences (~10s), then relaunches into
-//      `--app=isolated-app://…`. Subsequent runs skip the install entirely —
-//      which also drops Chrome's "unsupported command-line flag" banner.
+//   2. Installing an IWA does not open it, and Chrome's app id is only
+//      knowable afterwards. So the first run installs, waits for Chrome to
+//      register it (~10s), grants window-management while the browser is
+//      stopped, then reopens via --app-id. Later runs go straight there.
 //
 //   iwa-launcher                             # install if needed, then open
 //   iwa-launcher --reinstall                 # force a fresh install
@@ -23,12 +22,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-/// WebAppBorderless is what lets the shell drop Chrome's title bar and draw
-/// its own chrome (it also needs the window-management permission granted,
-/// and a fresh window — a reload isn't enough). Unknown feature names are
-/// ignored by Chrome, so listing them is safe on builds that lack them.
-const FEATURES: &str =
-    "IsolatedWebApps,IsolatedWebAppDevMode,ControlledFrame,WebAppBorderless";
+/// Enabled per profile rather than via --enable-features, because any
+/// unrecognised command-line switch makes Chrome hang a yellow "unsupported
+/// command-line flag" infobar off the top of every window — 56px of chrome we
+/// just went to some trouble to remove. Written into Local State instead,
+/// which is exactly what chrome://flags does.
+///
+/// Controlled Frame needs no flag: it's gated by the manifest's
+/// permissions_policy, not by chrome://flags.
+const FLAGS: [&str; 3] = [
+    "enable-isolated-web-apps@1",
+    "enable-isolated-web-app-dev-mode@1",
+    "enable-unframed-iwa@1",
+];
 const DEFAULT_URL: &str = "http://localhost:5193";
 const SERVER_TIMEOUT: Duration = Duration::from_secs(20);
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(60);
@@ -69,9 +75,8 @@ NOTES:
     First run installs the app, waits for Chrome to register it, then reopens
     it as an app window. Later runs go straight to the app window.
 
-    If Controlled Frame is missing, enable these at chrome://flags in the
-    launched profile: #enable-isolated-web-apps,
-    #enable-isolated-web-app-dev-mode, #enable-controlled-frame
+    Flags and the window-management permission are set in the profile for
+    you — no chrome://flags visit and no permission prompt to click.
 "
     );
     std::process::exit(2)
@@ -240,53 +245,126 @@ fn wait_for_new_id(profile: &Path, before: &[String]) -> Option<String> {
 // We own this profile outright, so we set the flag ourselves rather than
 // making anyone click through chrome://flags.
 
-const UNFRAMED_FLAG: &str = "enable-unframed-iwa@1";
-
-/// Ensure the unframed flag is enabled. Returns true if we just changed it,
-/// which means anything already installed needs reinstalling (see 4 above).
+/// Enable our flags in the profile. Returns true if anything changed, which
+/// means an already-installed app needs reinstalling (see 4 above).
 /// Must run while the browser is stopped, or Chrome will overwrite us.
-fn ensure_unframed_flag(profile: &Path) -> bool {
+fn ensure_flags(profile: &Path) -> bool {
     let path = profile.join("Local State");
     let mut root: serde_json::Value = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let labs = root
-        .as_object_mut()
-        .and_then(|o| {
-            o.entry("browser")
-                .or_insert_with(|| serde_json::json!({}))
-                .as_object_mut()
-        })
-        .map(|b| {
-            b.entry("enabled_labs_experiments")
-                .or_insert_with(|| serde_json::json!([]))
-        });
-    let Some(labs) = labs else { return false };
-    let Some(list) = labs.as_array_mut() else { return false };
+    let list = root["browser"]["enabled_labs_experiments"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut names: Vec<String> = list
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
 
-    // Chrome normalises to "name@index"; a bare name gets dropped on startup.
-    if list.iter().any(|v| v.as_str() == Some(UNFRAMED_FLAG)) {
+    let mut changed = false;
+    for flag in FLAGS {
+        if names.iter().any(|n| n == flag) {
+            continue;
+        }
+        // Chrome normalises to "name@index"; a bare name is dropped on start.
+        let stem = flag.split('@').next().unwrap_or(flag);
+        names.retain(|n| n.split('@').next() != Some(stem));
+        names.push(flag.to_string());
+        changed = true;
+    }
+    if !changed {
         return false;
     }
-    list.retain(|v| !v.as_str().is_some_and(|s| s.starts_with("enable-unframed-iwa")));
-    list.push(serde_json::json!(UNFRAMED_FLAG));
 
+    root["browser"]["enabled_labs_experiments"] = serde_json::json!(names);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     match std::fs::write(&path, root.to_string()) {
         Ok(()) => {
-            println!("flag    : enabled {UNFRAMED_FLAG}");
+            println!("flags   : enabled {}", FLAGS.join(", "));
             true
         }
         Err(e) => {
-            eprintln!("warning: could not enable {UNFRAMED_FLAG}: {e}");
+            eprintln!("warning: could not enable flags: {e}");
             false
         }
     }
 }
+
+/// Chrome timestamps content settings in microseconds since 1601-01-01.
+fn chrome_now() -> String {
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
+    (micros + 11_644_473_600_000_000).to_string()
+}
+
+/// Grant window-management to the app origin by writing the content setting
+/// straight into the profile — step 3 of the unframed recipe.
+///
+/// The alternative is making someone click a permission prompt on every fresh
+/// profile, which defeats the point of having a launcher. We own this profile
+/// outright, and the grant has to be in place *before* the window is created,
+/// so this runs while the browser is stopped between install and launch.
+///
+/// Chrome has renamed this content setting over time, so write both spellings;
+/// the one it doesn't recognise is ignored.
+fn grant_window_management(profile: &Path, app_id: &str) -> bool {
+    let path = profile.join("Default").join("Preferences");
+    let mut root: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let pattern = format!("isolated-app://{app_id}/,*");
+    let entry = serde_json::json!({ "last_modified": chrome_now(), "setting": 1 });
+    for setting in ["window_placement", "window_management"] {
+        root["profile"]["content_settings"]["exceptions"][setting][&pattern] = entry.clone();
+    }
+
+    match std::fs::write(&path, root.to_string()) {
+        Ok(()) => {
+            println!("grant   : window-management for isolated-app://{}…", &app_id[..12.min(app_id.len())]);
+            true
+        }
+        Err(e) => {
+            eprintln!("warning: could not grant window-management: {e}");
+            false
+        }
+    }
+}
+
+/// Installing a web app makes Chrome reveal the generated shim in Finder,
+/// stealing focus. There's no switch to suppress it, so shoo it away.
+///
+/// Chrome opens the window somewhat after the install registers, so a single
+/// close races it — this keeps sweeping in the background for a few seconds.
+#[cfg(target_os = "macos")]
+fn dismiss_finder_popup() {
+    std::thread::spawn(|| {
+        for _ in 0..12 {
+            let _ = Command::new("osascript")
+                .arg("-e")
+                .arg(
+                    r#"tell application "Finder"
+                         try
+                           close (every window whose name contains "Chrome Apps")
+                         end try
+                       end tell"#,
+                )
+                .output();
+            std::thread::sleep(Duration::from_millis(700));
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn dismiss_finder_popup() {}
 
 // ------------------------------------------------------------ app launching
 //
@@ -413,7 +491,6 @@ fn wait_for_server(url: &str) {
 fn base_command(chrome: &Path, profile: &Path, extra: &[String]) -> Command {
     let mut cmd = Command::new(chrome);
     cmd.arg(format!("--user-data-dir={}", profile.display()))
-        .arg(format!("--enable-features={FEATURES}"))
         .arg("--no-first-run")
         .arg("--no-default-browser-check");
     cmd.args(extra);
@@ -443,9 +520,9 @@ fn main() {
 
     // Must happen before the browser starts, and before any install: Chrome
     // bakes the display mode in at install time.
-    let flag_changed = ensure_unframed_flag(&profile);
+    let flag_changed = ensure_flags(&profile);
     if flag_changed && find_installed_app(&profile).is_some() {
-        println!("(unframed flag just enabled — reinstalling so it takes effect)");
+        println!("(flags just enabled — reinstalling so they take effect)");
     }
 
     let known = installed_ids(&profile);
@@ -477,11 +554,17 @@ fn main() {
         match wait_for_new_id(&profile, &known) {
             Some(id) => {
                 println!("installed: isolated-app://{id}");
+                // Chrome reveals the shim in Finder on install; dismiss it
+                // before it steals focus.
+                dismiss_finder_popup();
                 let _ = child.kill();
                 let _ = child.wait();
                 // Give Chrome a moment to release the profile lock, and the
                 // shim a moment to land on disk.
                 std::thread::sleep(Duration::from_millis(2000));
+                // Browser stopped: the only safe moment to edit Preferences,
+                // and it must happen before the app window is created.
+                grant_window_management(&profile, &id);
                 app = find_installed_app(&profile);
             }
             None => {

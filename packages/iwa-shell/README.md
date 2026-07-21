@@ -30,10 +30,20 @@ Four things must line up, and they're **order-dependent**:
 4. the app **(re)installed after 2** — Chrome resolves the display mode at
    install time, so flipping the flag afterwards changes nothing on its own
 
-The launcher handles 1, 2 and 4 (it forces a reinstall when it has just
-enabled the flag). You click ⤢ once, then reopen the window.
+**The launcher does all four.** It writes the flags into the profile's
+`Local State`, and grants window-management by writing the content setting
+into `Preferences` while the browser is stopped between install and launch —
+so there's nothing to click and no permission prompt. (The shell keeps a ⤢
+button as a fallback, shown only if a removable title bar is somehow still
+there.)
 
-Verified: `innerHeight === outerHeight`, sidebar drawn from y=0.
+Flags go in the profile rather than on the command line on purpose: any
+unrecognised switch makes Chrome hang a yellow "unsupported command-line
+flag" infobar off every window — 56px of chrome we just removed.
+
+Verified from a clean profile, zero clicks: `outerHeight - innerHeight == 0`
+(no title bar, no infobar), sidebar drawn from y=0. Note that passing
+`--remote-debugging-port` yourself re-adds that 56px infobar.
 
 flow-md itself is just a tab — an ordinary page served by the local process —
 so **nothing about the app has to change**. MDX with live components,
