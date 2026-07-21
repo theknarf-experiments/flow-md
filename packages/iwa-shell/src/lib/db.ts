@@ -234,8 +234,22 @@ export const tabsCollection = createCollection(
         const after = m.modified as Tab
         // The row names the node, so the vault knows which link this is even
         // when the file holds several to the same page.
+        //
+        // Target first, then label. Rewriting `[label](url)` changes how far
+        // the link reaches, and the row carries that extent — so the second
+        // edit has to say where the link is *now*.
+        //
+        // Worked out rather than read back: inside a mutation handler the
+        // collection is showing its own optimistic row, not the file, so
+        // asking it would return the values we're in the middle of writing.
+        // A url of a different length moves the end by exactly that much.
+        let row = before
+        if (before.url !== after.url) {
+          await vault.update(TAB_QUERY, rowOf(row), 'dst', after.url)
+          row = { ...row, url: after.url, end: row.end + (after.url.length - before.url.length) }
+        }
         if (before.title !== after.title) {
-          await vault.update(TAB_QUERY, rowOf(before), 'text', after.title)
+          await vault.update(TAB_QUERY, rowOf(row), 'text', after.title)
         }
       }
       void tabsCollection.utils.refetch()

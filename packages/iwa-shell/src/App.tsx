@@ -172,10 +172,14 @@ export function App() {
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
-  /** Read the guest: its favicon, whether it can go back, and its title —
-   *  which is the one thing the browser knows that the file doesn't, so it's
-   *  written down. Where the guest navigated to is deliberately not: a link
-   *  in a document is a bookmark, not a cursor. */
+  /** Read the guest and write down what it says: its favicon, whether it can
+   *  go back, where it now is and what that page calls itself.
+   *
+   *  A tab that follows a link is a link that followed it — the document is
+   *  the tab list, so the file has to say where the tab actually is. The
+   *  label follows too, but only when the file isn't already saying something
+   *  a person chose: a hand-written label survives until the tab is navigated
+   *  away from what it named. */
   const sync = useCallback(async (id: string) => {
     const frame = frames.current.get(id)
     if (!frame) return
@@ -185,9 +189,18 @@ export function App() {
       setRuntime((r) => ({ ...r, [id]: { icon: info.icon ?? r[id]?.icon ?? null } }))
       const row = tabsCollection.get(id)
       const title = info.title || info.url
-      if (row && row.title !== title && row.title === row.url) {
-        // Only when the file is still showing the bare url: a label somebody
-        // wrote is theirs, not ours to replace.
+      if (row && row.url !== info.url) {
+        // The tab went somewhere else, so the link does too, and it takes the
+        // new page's name with it. A label somebody wrote in the markdown
+        // named the page it pointed at; once the tab has left, it doesn't.
+        tabsCollection.update(id, (draft) => {
+          draft.url = info.url
+          draft.title = title
+        })
+      } else if (row && row.title === row.url && row.title !== title) {
+        // A label the browser wrote, now that the page has said its name. A
+        // label somebody typed into the markdown never matches its own url,
+        // so it is left alone.
         tabsCollection.update(id, (draft) => {
           draft.title = title
         })
