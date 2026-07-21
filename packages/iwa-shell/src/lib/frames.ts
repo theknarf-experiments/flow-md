@@ -73,7 +73,16 @@ export interface FrameHandle {
   playPause(play: boolean): void
   /** Scrolls the guest by a number of px. Negative is up. */
   scrollBy(dy: number): void
+  /** Scrolls by a fraction of the window — vim's ⌃d/⌃u, which move by half a
+   *  screen so you keep a few lines of context either side of the jump. */
+  scrollByScreens(fraction: number): void
   scrollToEdge(edge: 'top' | 'end'): void
+  /** Put the caret in the page's first real text field — Vimium's `gi`. */
+  focusInput(): void
+  /** Follow the page's own "next"/"previous" link, the way `]]` and `[[` do:
+   *  paginated things nearly always label the way onward in the same handful
+   *  of ways. */
+  followRel(direction: 'next' | 'prev'): void
   setActive(active: boolean): void
   /** Keep a playing video on screen after its tab stops being the active one,
    *  in a corner rather than filling the card. */
@@ -322,7 +331,13 @@ const GLIDE = `(() => {
   if (w.__flowmdGlide) return
   let el = null, left = 0, raf = 0, last = 0
   const frame = (now) => {
-    const dt = Math.min(48, now - last)
+    // Clamped at zero as well as at the top: a rAF timestamp is the *start*
+    // of the frame, which can precede the performance.now() taken when the
+    // glide was kicked off, making the first dt negative. That produced a
+    // backwards first move — and at the top of a page, where scrolling up
+    // can't change scrollTop, the end-of-page check below then read it as
+    // "already at the end" and killed the glide before it began.
+    const dt = Math.max(0, Math.min(48, now - last))
     last = now
     // A fixed fraction of what's left per unit time, so the speed is the same
     // whatever the frame rate: ~150ms to settle.
@@ -342,7 +357,14 @@ const GLIDE = `(() => {
   w.__flowmdGlide = (dy, scroller) => {
     el = scroller
     left += dy
-    if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame) }
+    // Always restart rather than joining a loop that may not exist any more.
+    // requestAnimationFrame doesn't fire in a hidden guest, so a glide started
+    // while the tab was in the background leaves the handle set to a callback
+    // that will never run — and every later press would then quietly
+    // accumulate into a loop that had already died.
+    if (raf) cancelAnimationFrame(raf)
+    last = performance.now()
+    raf = requestAnimationFrame(frame)
   }
 })()`
 
@@ -540,6 +562,54 @@ export function createFrame(
     },
     /** The edges jump. A glide the length of a long page is a wait, not a
      *  gesture — `gg` means "take me there", not "take me there scenically". */
+    /** A fraction of the viewport, measured inside the guest — the shell's
+     *  window is a different size to the page's. */
+    scrollByScreens(fraction) {
+      void exec(`(() => {
+        ${GLIDE}
+        const target = ${SCROLLER}
+        const page = target === (document.scrollingElement || document.documentElement)
+          ? innerHeight
+          : target.clientHeight
+        window.__flowmdGlide(page * ${fraction}, target)
+      })()`)
+    },
+    focusInput() {
+      void exec(`(() => {
+        const fields = [...document.querySelectorAll(
+          'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([disabled]),' +
+          'textarea, [contenteditable=""], [contenteditable=true]')]
+        const seen = fields.find((el) => {
+          const r = el.getBoundingClientRect()
+          return r.width > 20 && r.height > 8 && getComputedStyle(el).visibility !== 'hidden'
+        })
+        if (!seen) return
+        seen.focus()
+        if (seen.select) seen.select()
+      })()`)
+    },
+    /** Matched on the link's own words and rel attribute rather than a site
+     *  list: "next", "older", "›" and their opposites are how pagination
+     *  actually labels itself, whatever the site. */
+    followRel(direction) {
+      const words =
+        direction === 'next'
+          ? ['next', 'older', 'more', '›', '»', '→', 'newer posts']
+          : ['prev', 'previous', 'newer', '‹', '«', '←', 'older posts']
+      void exec(`(() => {
+        const words = ${JSON.stringify(words)}
+        const rel = ${JSON.stringify(direction)}
+        const byRel = document.querySelector('a[rel~="' + rel + '"], link[rel~="' + rel + '"]')
+        if (byRel && byRel.href) { location.href = byRel.href; return }
+        const links = [...document.querySelectorAll('a[href], button')]
+        const hit = links.find((a) => {
+          const text = (a.textContent || '').trim().toLowerCase()
+          if (!text || text.length > 24) return false
+          return words.some((w) => text === w || text.startsWith(w + ' ') || text.endsWith(' ' + w))
+        })
+        if (hit) hit.click()
+      })()`)
+    },
     scrollToEdge(edge) {
       void exec(`(() => {
         if (window.__flowmdGlideStop) window.__flowmdGlideStop()

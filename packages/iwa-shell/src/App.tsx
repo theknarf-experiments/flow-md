@@ -83,8 +83,10 @@ import {
   spacesCollection,
   tabsCollection,
   DEFAULT_PROFILE,
+  deleteProfile,
   lastClosed,
   profilesOf,
+  renameProfile,
   partitionFor,
   record,
   setProfile,
@@ -272,6 +274,9 @@ export function App() {
   /** Naming a new profile for a space. A profile comes into being by being
    *  used, so the prompt carries the space that will be the first one in it. */
   const [profilePrompt, setProfilePrompt] = useState<{ space: string; value: string } | null>(
+    null,
+  )
+  const [renamingProfile, setRenamingProfile] = useState<{ from: string; value: string } | null>(
     null,
   )
   const [renamingTab, setRenamingTab] = useState<string | null>(null)
@@ -725,6 +730,19 @@ export function App() {
   bindKey(keymap, 'jump-tab-7', 'Mod+7', () => jumpToTab(7), nth(7))
   bindKey(keymap, 'jump-tab-8', 'Mod+8', () => jumpToTab(8), nth(8))
   bindKey(keymap, 'jump-tab-9', 'Mod+9', () => jumpToTab(9), nth(9))
+  // Vimium's fuller vocabulary. All bare keys, so they reach a focused page
+  // through the same claim table as the rest.
+  bindKey(keymap, 'scroll-half-down', 'D', () => activeFrame?.scrollByScreens(0.5), vim('Half a screen down'))
+  bindKey(keymap, 'scroll-half-up', 'U', () => activeFrame?.scrollByScreens(-0.5), vim('Half a screen up'))
+  bindKey(keymap, 'reload', 'R', () => activeFrame?.reload(), vim('Reload'))
+  bindKey(keymap, 'close-tab-vim', 'X', () => { if (activeId !== null) closeTab(activeId) }, vim('Close the tab'))
+  bindKey(keymap, 'restore-tab-vim', 'Shift+X', () => void reopenLast(), vim('Bring back the last closed tab'))
+  bindKey(keymap, 'open', 'O', () => setCommand({ open: true, value: '', newTab: false }), vim('Open a url'))
+  bindKey(keymap, 'open-new-tab', 'Shift+O', () => setCommand({ open: true, value: '', newTab: true }), vim('Open a url in a new tab'))
+  bindSeq(keymap, 'copy-url', ['Y', 'Y'], () => { if (active) copyUrl(active.url) }, vim('Copy the url'))
+  bindSeq(keymap, 'focus-input', ['G', 'I'], () => activeFrame?.focusInput(), vim('Focus the first field'))
+  bindSeq(keymap, 'page-next', [']', ']'], () => activeFrame?.followRel('next'), vim('Follow "next"'))
+  bindSeq(keymap, 'page-prev', ['[', '['], () => activeFrame?.followRel('prev'), vim('Follow "previous"'))
   bindKey(keymap, 'hint', 'F', () => void activeFrame?.hint(false), vim('Hint a link'))
   bindKey(keymap, 'hint-new-tab', 'Shift+F', () => void activeFrame?.hint(true), vim('Hint a link into a new tab'))
 
@@ -1378,6 +1396,58 @@ export function App() {
       </Sheet>
 
       <Sheet open={settings} title="Settings" onClose={() => setSettings(false)}>
+        <SheetSection title="Profiles">
+          {/* Each row is a container: the spaces in it share cookies and a
+              history file. Deleting one moves its spaces elsewhere rather
+              than taking them with it. */}
+          <ul className={styles.profileList}>
+            {profiles.map((name) => {
+              const inProfile = spaces.filter((sp) => sp.profile === name)
+              return (
+                <li key={name} className={styles.profileRow}>
+                  <span className={styles.profileName}>{name}</span>
+                  <span className={styles.profileCount}>
+                    {inProfile.length === 1 ? '1 space' : `${inProfile.length} spaces`}
+                  </span>
+                  <SidebarButton
+                    onClick={() => setRenamingProfile({ from: name, value: name })}
+                  >
+                    Rename
+                  </SidebarButton>
+                  <SidebarButton
+                    disabled={profiles.length < 2}
+                    onClick={() => void deleteProfile(spaces, name)}
+                  >
+                    Delete
+                  </SidebarButton>
+                </li>
+              )
+            })}
+          </ul>
+          {renamingProfile && (
+            <form
+              className={styles.profileForm}
+              onSubmit={(e) => {
+                e.preventDefault()
+                const to = renamingProfile.value.trim()
+                if (to) void renameProfile(spaces, renamingProfile.from, to)
+                setRenamingProfile(null)
+              }}
+            >
+              <input
+                className={styles.profileInput}
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- opened to be typed in
+                autoFocus
+                value={renamingProfile.value}
+                aria-label={`Rename profile ${renamingProfile.from}`}
+                onChange={(e) =>
+                  setRenamingProfile((r) => (r ? { ...r, value: e.target.value } : r))
+                }
+              />
+              <SidebarButton type="submit">Rename</SidebarButton>
+            </form>
+          )}
+        </SheetSection>
         <SheetSection title="Keyboard shortcuts">
           <ShortcutList shortcuts={shortcuts} />
         </SheetSection>

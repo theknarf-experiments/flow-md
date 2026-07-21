@@ -212,3 +212,29 @@
   font-size: 0.76rem;
   line-height: 1.4;
 }
+
+.profileList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.profileRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.profileName {
+  font-weight: 600;
+}
+
+/* How many spaces would move if this one went — the thing worth knowing
+   before pressing Delete. */
+.profileCount {
+  flex: 1;
+  opacity: 0.55;
+  font-size: 0.76rem;
+}
