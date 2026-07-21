@@ -1,0 +1,33 @@
+/* The variables a consuming app is expected to define. Mirrors the shell's
+   global.css so stories look like the real thing. */
+
+:root {
+  --bg: #1a1a1a;
+  --bg-raise: #242424;
+  --fg: #dedede;
+  --fg-dim: #8a8a8a;
+  --accent: #1a8fff;
+  --danger: #d97c7c;
+  --ok: #98c379;
+  --border: #2e2e2e;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Components inherit colour from their surface, so set it on the root. */
+:root[data-surface='light'] {
+  --bg: #fcfcfc;
+  --bg-raise: #ffffff;
+  --fg: #1a1a1a;
+  --fg-dim: #6d6d7c;
+  --border: #e5e5e3;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+  color: var(--fg);
+  font: 13px/1.5 -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root[data-surface='gradient'] body { color: rgba(255, 255, 255, 0.92); }
+:root[data-surface='light'] body { color: #1a1a1a; }

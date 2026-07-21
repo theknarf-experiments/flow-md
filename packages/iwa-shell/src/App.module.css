@@ -59,25 +59,6 @@
   app-region: no-drag;
 }
 
-.iconButton {
-  app-region: no-drag;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 0.95rem;
-  cursor: pointer;
-}
-.iconButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
-  color: #fff;
-}
-.iconButton:disabled { opacity: 0.28; cursor: default; }
-
 .spacer { flex: 1; }
 
 /* The address "pill" — click to open the command bar, like Arc. */
@@ -117,53 +98,6 @@
   min-height: 0;
 }
 .tabList::-webkit-scrollbar { width: 0; }
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.34rem 0.5rem;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: rgba(255, 255, 255, 0.78);
-  font: inherit;
-  font-size: 0.8rem;
-  text-align: left;
-  cursor: default;
-  white-space: nowrap;
-}
-.tab:hover { background: rgba(255, 255, 255, 0.13); color: #fff; }
-.tab.active {
-  background: rgba(255, 255, 255, 0.24);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
-}
-
-.dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.45);
-}
-.tab.active .dot { background: #fff; }
-
-.tabLabel { flex: 1; overflow: hidden; text-overflow: ellipsis; }
-
-.tabAction {
-  flex: none;
-  border: 0;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  opacity: 0;
-  padding: 0 0.12rem;
-  border-radius: 5px;
-  font-size: 0.72rem;
-}
-.tab:hover .tabAction { opacity: 0.6; }
-.tabAction:hover { opacity: 1 !important; background: rgba(255, 255, 255, 0.2); }
 
 .newTab {
   display: flex;
@@ -244,61 +178,5 @@
 
 /* ------------------------------------------------------------ command bar */
 
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 22vh;
-  background: rgba(0, 0, 0, 0.32);
-  backdrop-filter: blur(2px);
-}
-
-.command {
-  width: min(620px, 86vw);
-  border-radius: 13px;
-  background: #26262b;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-}
-
-.commandInput {
-  width: 100%;
-  border: 0;
-  background: none;
-  color: #f2f2f2;
-  font: inherit;
-  font-size: 1rem;
-  padding: 0.95rem 1.1rem;
-  outline: none;
-}
-
-.commandHint {
-  padding: 0.4rem 1.1rem 0.7rem;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.74rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
 /* ------------------------------------------------------------------- log */
 
-.log {
-  position: fixed;
-  right: 0.6rem;
-  bottom: 0.6rem;
-  z-index: 25;
-  width: 420px;
-  max-height: 40%;
-  overflow-y: auto;
-  padding: 0.5rem 0.75rem;
-  border-radius: 10px;
-  background: rgba(12, 12, 14, 0.94);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  color: var(--fg-dim);
-}
-.log p { margin: 0; padding: 0.08rem 0; white-space: pre-wrap; word-break: break-word; }
-.ok { color: var(--ok); }
-.err { color: var(--danger); }

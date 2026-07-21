@@ -1,0 +1,60 @@
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.34rem 0.5rem;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  opacity: 0.78;
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: default;
+  white-space: nowrap;
+  app-region: no-drag;
+}
+
+.tab:hover {
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  opacity: 1;
+}
+
+.tab.active {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  opacity: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+}
+.tab.active .dot { opacity: 1; }
+
+.label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Revealed on hover so a long tab list stays quiet. */
+.action {
+  flex: none;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  padding: 0 0.12rem;
+  font-size: 0.72rem;
+}
+.tab:hover .action { opacity: 0.6; }
+.action:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+}

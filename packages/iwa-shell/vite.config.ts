@@ -12,6 +12,11 @@ import { defineConfig } from 'vite'
 // using tsconfig's `jsx: react-jsx`, so all we give up is Fast Refresh (HMR
 // still reloads), and the page stays CSP-clean in dev and prod alike.
 export default defineConfig({
+  // @flow-md/ui ships raw TS + CSS Modules (no build step), so Vite has to
+  // transform it like first-party code, and react must be deduped or the
+  // library's hooks would run against a second copy.
+  optimizeDeps: { exclude: ['@flow-md/ui'] },
+  resolve: { dedupe: ['react', 'react-dom'] },
   server: {
     port: 5193,
     strictPort: true,

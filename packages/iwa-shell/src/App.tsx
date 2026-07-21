@@ -14,6 +14,7 @@
 // React owns the chrome only; guests live in lib/frames.ts, outside
 // reconciliation, so a re-render can never throw a loaded page away.
 
+import { CommandBar, IconButton, LogPanel, Tab as TabRow } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import {
@@ -217,40 +218,18 @@ export function App() {
   }
 
   const renderTab = (tab: Tab) => (
-    <button
+    <TabRow
       key={tab.id}
-      type="button"
-      className={`${styles.tab} ${tab.id === activeId ? styles.active : ''}`}
-      onClick={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
+      label={tab.title}
       title={tab.url}
-    >
-      <span className={styles.dot} />
-      <span className={styles.tabLabel}>{tab.title}</span>
-      <span
-        role="button"
-        tabIndex={-1}
-        aria-label={tab.pinned ? 'unpin tab' : 'pin tab'}
-        className={styles.tabAction}
-        onClick={(e) => {
-          e.stopPropagation()
-          setTabs((ts) => ts.map((t) => (t.id === tab.id ? { ...t, pinned: !t.pinned } : t)))
-        }}
-      >
-        {tab.pinned ? '▼' : '▲'}
-      </span>
-      <span
-        role="button"
-        tabIndex={-1}
-        aria-label="close tab"
-        className={styles.tabAction}
-        onClick={(e) => {
-          e.stopPropagation()
-          closeTab(tab.id)
-        }}
-      >
-        ✕
-      </span>
-    </button>
+      active={tab.id === activeId}
+      pinned={tab.pinned}
+      onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
+      onTogglePin={() =>
+        setTabs((ts) => ts.map((t) => (t.id === tab.id ? { ...t, pinned: !t.pinned } : t)))
+      }
+      onClose={() => closeTab(tab.id)}
+    />
   )
 
   return (
@@ -263,45 +242,25 @@ export function App() {
 
       <aside className={`${styles.sidebar} ${sidebar ? '' : styles.collapsed}`}>
         <div className={styles.navRow}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            title="toggle sidebar (⌘S)"
-            onClick={() => setSidebar((s) => !s)}
-          >
+          <IconButton title="toggle sidebar (⌘S)" onClick={() => setSidebar((s) => !s)}>
             ▏
-          </button>
-          <button
-            type="button"
-            className={styles.iconButton}
-            disabled={!nav.back}
-            title="back"
-            onClick={() => activeFrame?.back()}
-          >
+          </IconButton>
+          <IconButton disabled={!nav.back} title="back" onClick={() => activeFrame?.back()}>
             ‹
-          </button>
-          <button
-            type="button"
-            className={styles.iconButton}
+          </IconButton>
+          <IconButton
             disabled={!nav.forward}
             title="forward"
             onClick={() => activeFrame?.forward()}
           >
             ›
-          </button>
-          <button
-            type="button"
-            className={styles.iconButton}
-            title="reload"
-            onClick={() => activeFrame?.reload()}
-          >
+          </IconButton>
+          <IconButton title="reload" onClick={() => activeFrame?.reload()}>
             ⟳
-          </button>
+          </IconButton>
           <span className={styles.spacer} />
           {offerUnframe && (
-            <button
-              type="button"
-              className={styles.iconButton}
+            <IconButton
               title="Remove the title bar — grants window management, then reopen the window"
               onClick={() => {
                 void requestWindowManagement().then((ok) => {
@@ -311,16 +270,11 @@ export function App() {
               }}
             >
               ⤢
-            </button>
+            </IconButton>
           )}
-          <button
-            type="button"
-            className={styles.iconButton}
-            title="capture page (archive test)"
-            onClick={() => void capture()}
-          >
+          <IconButton title="capture page (archive test)" onClick={() => void capture()}>
             ⤓
-          </button>
+          </IconButton>
         </div>
 
         <button
@@ -372,49 +326,26 @@ export function App() {
         <div className={styles.card} ref={cardRef} />
       </main>
 
-      {command.open && (
-        <div
-          className={styles.overlay}
-          onClick={() => setCommand((c) => ({ ...c, open: false }))}
-        >
-          {/* biome-ignore lint/a11y/noStaticElementInteractions: click-through guard */}
-          <div className={styles.command} onClick={(e) => e.stopPropagation()}>
-            <input
-              className={styles.commandInput}
-              autoFocus
-              spellCheck={false}
-              placeholder={command.newTab ? 'Search or enter address…' : 'Edit address…'}
-              value={command.value}
-              onChange={(e) => setCommand((c) => ({ ...c, value: e.target.value }))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  go(command.value, command.newTab)
-                  setCommand((c) => ({ ...c, open: false }))
-                }
-              }}
-            />
-            <div className={styles.commandHint}>
-              {command.newTab ? 'Opens in a new tab' : 'Navigates this tab'} · Esc to dismiss
-            </div>
-          </div>
-        </div>
-      )}
+      <CommandBar
+        open={command.open}
+        value={command.value}
+        placeholder={command.newTab ? 'Search or enter address…' : 'Edit address…'}
+        hint={`${command.newTab ? 'Opens in a new tab' : 'Navigates this tab'} · Esc to dismiss`}
+        onChange={(value) => setCommand((c) => ({ ...c, value }))}
+        onSubmit={(value) => {
+          go(value, command.newTab)
+          setCommand((c) => ({ ...c, open: false }))
+        }}
+        onDismiss={() => setCommand((c) => ({ ...c, open: false }))}
+      />
 
       {showLog && (
-        <aside className={styles.log} aria-label="log">
-          {lines.map((line, i) => (
-            <p
-              // Log lines are append-only and never reordered.
-              // biome-ignore lint/suspicious/noArrayIndexKey: see above
-              key={i}
-              className={
-                line.includes('blocked') ? styles.ok : line.includes('MISSING') ? styles.err : ''
-              }
-            >
-              {line}
-            </p>
-          ))}
-        </aside>
+        <LogPanel
+          lines={lines.map((text) => ({
+            text,
+            tone: text.includes('blocked') ? ('ok' as const) : text.includes('MISSING') ? ('err' as const) : undefined,
+          }))}
+        />
       )}
     </div>
   )
