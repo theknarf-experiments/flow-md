@@ -57,9 +57,50 @@ export interface FrameHandle {
   canGoForward(): Promise<boolean>
   /** Reads the guest's DOM — the web-archive primitive. */
   probe(): Promise<FrameInfo | null>
+  /** Teaches a freshly loaded guest to hand vim keys back to the shell. */
+  adopt(): Promise<void>
+  /** Scrolls the guest by a number of px. Negative is up. */
+  scrollBy(dy: number): void
+  scrollToEdge(edge: 'top' | 'end'): void
   setActive(active: boolean): void
   destroy(): void
 }
+
+/** Keys a guest hands back to the shell instead of handling itself.
+ *
+ *  A guest is a separate process with its own focus, so once you click a page
+ *  the shell stops seeing keystrokes entirely — which would make the vim
+ *  bindings work only until you touched anything. This script re-posts just
+ *  those keys to the embedder, which replays them as ordinary keydowns.
+ *
+ *  It stays out of the way where it should: a page's own text fields, and
+ *  anything with a modifier the shell doesn't claim. */
+const FORWARD_KEYS = `(() => {
+  const w = window
+  if (w.__flowmdKeys) return
+  w.__flowmdKeys = true
+  let shell = null
+  w.addEventListener('message', (e) => {
+    if (e.data === 'flowmd:hello' && e.source) shell = e.source
+  })
+  const claimed = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false
+    if (e.shiftKey) return e.key === 'G' || e.key === 'H' || e.key === 'L'
+    return e.key === 'j' || e.key === 'k' || e.key === 'g'
+  }
+  w.addEventListener(
+    'keydown',
+    (e) => {
+      if (!shell || !claimed(e)) return
+      const el = document.activeElement
+      // Typing in the page is the page's business.
+      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
+      e.preventDefault()
+      shell.postMessage({ flowmd: 'key', key: e.key, code: e.code, shiftKey: e.shiftKey }, '*')
+    },
+    true,
+  )
+})()`
 
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
 
@@ -94,6 +135,19 @@ export function createFrame(
     }
   }
 
+  /** Run a snippet inside the guest, ignoring the result. Guests can be
+   *  mid-navigation, in which case executeScript throws; nothing here is
+   *  important enough to care. */
+  const exec = async (code: string) => {
+    const f = cf()
+    if (typeof f.executeScript !== 'function') return
+    try {
+      await f.executeScript({ code })
+    } catch {
+      /* the guest wasn't ready */
+    }
+  }
+
   return {
     el,
     navigate(next) {
@@ -124,6 +178,34 @@ export function createFrame(
       } catch {
         return null
       }
+    },
+    /** Installs the key forwarder and hands the guest a way to reach us. */
+    async adopt() {
+      await exec(FORWARD_KEYS)
+      const f = cf() as { contentWindow?: Window | null }
+      f.contentWindow?.postMessage('flowmd:hello', '*')
+    },
+    /** Scrolling happens inside the guest, so it has to be scripted in.
+     *  `scrollingElement` rather than `window`: a page whose scroller is a
+     *  styled <div> — which most app-shaped pages are — ignores window.scrollBy. */
+    scrollBy(dy) {
+      void exec(`(() => {
+        const el = document.scrollingElement || document.documentElement
+        const inner = el.scrollHeight <= el.clientHeight
+          ? [...document.querySelectorAll('*')].find((n) => n.scrollHeight > n.clientHeight + 40)
+          : null
+        ;(inner || el).scrollBy({ top: ${dy}, behavior: 'instant' })
+      })()`)
+    },
+    scrollToEdge(edge) {
+      void exec(`(() => {
+        const el = document.scrollingElement || document.documentElement
+        const inner = el.scrollHeight <= el.clientHeight
+          ? [...document.querySelectorAll('*')].find((n) => n.scrollHeight > n.clientHeight + 40)
+          : null
+        const target = inner || el
+        target.scrollTo({ top: ${edge === 'top' ? '0' : 'target.scrollHeight'}, behavior: 'instant' })
+      })()`)
     },
     setActive(active) {
       el.classList.toggle(activeClass, active)

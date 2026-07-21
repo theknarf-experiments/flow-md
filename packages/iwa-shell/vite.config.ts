@@ -15,7 +15,15 @@ export default defineConfig({
   // @flow-md/ui ships raw TS + CSS Modules (no build step), so Vite has to
   // transform it like first-party code, and react must be deduped or the
   // library's hooks would run against a second copy.
-  optimizeDeps: { exclude: ['@flow-md/ui'] },
+  //
+  // react is pre-bundled explicitly as well: dedupe only governs resolution,
+  // not the dep optimizer, so a prebundled dependency that imports react (any
+  // hook library) otherwise gets its own copy of it and every hook it calls
+  // finds a null dispatcher.
+  optimizeDeps: {
+    exclude: ['@flow-md/ui'],
+    include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
+  },
   resolve: { dedupe: ['react', 'react-dom'] },
   server: {
     port: 5193,

@@ -43,6 +43,7 @@ import {
   fuzzyFilter,
   useContextMenu,
 } from '@flow-md/ui'
+import { useHotkey, useHotkeySequence } from '@tanstack/react-hotkeys'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import {
@@ -144,6 +145,7 @@ export function App() {
   const sync = useCallback(async (id: number) => {
     const frame = frames.current.get(id)
     if (!frame) return
+    void frame.adopt()
     const info = await frame.probe()
     if (info) {
       setTabs((ts) =>
@@ -279,28 +281,76 @@ export function App() {
     [activeFrame, activeId, openTab, log],
   )
 
-  // Arc-ish shortcuts: ⌘T new tab, ⌘L edit address, ⌘S sidebar, ⌘W close.
+  /** Move the selection through the current space's tabs, in the order the
+   *  sidebar shows them. */
+  const stepTab = useCallback(
+    (delta: number) => {
+      const inSpace = tabs.filter((t) => t.spaceId === spaceId)
+      const order = [...inSpace.filter((t) => t.pinned), ...inSpace.filter((t) => !t.pinned)]
+      if (order.length === 0) return
+      const i = order.findIndex((t) => t.id === activeId)
+      // From nowhere, j lands on the first tab and k on the last.
+      const next = order[i < 0 ? (delta > 0 ? 0 : order.length - 1) : (i + delta + order.length) % order.length]
+      if (next) setActiveBySpace((m) => ({ ...m, [spaceId]: next.id }))
+    },
+    [tabs, spaceId, activeId],
+  )
+
+  /** Keys a guest handed back — replayed as ordinary keydowns so they go
+   *  through the same registrations as keys pressed against the chrome. The
+   *  guest has already decided these aren't meant for the page. */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return setCommand((c) => ({ ...c, open: false }))
-      if (!(e.metaKey || e.ctrlKey)) return
-      if (e.key === 't') {
-        e.preventDefault()
-        setCommand({ open: true, value: '', newTab: true })
-      } else if (e.key === 'l') {
-        e.preventDefault()
-        setCommand({ open: true, value: active?.url ?? '', newTab: false })
-      } else if (e.key === 's') {
-        e.preventDefault()
-        setSidebar((s) => !s)
-      } else if (e.key === 'w') {
-        e.preventDefault()
-        if (activeId !== null) closeTab(activeId)
-      }
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { flowmd?: string; key?: string; code?: string; shiftKey?: boolean }
+      if (data?.flowmd !== 'key' || !data.key) return
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: data.key,
+          code: data.code ?? '',
+          shiftKey: !!data.shiftKey,
+          bubbles: true,
+        }),
+      )
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [active?.url, activeId, closeTab])
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  /** Clamped, not wrapping — the same rule the swipe follows, so ⌃H at the
+   *  first space does nothing rather than teleporting to the last. */
+  const stepSpace = useCallback(
+    (delta: number) => {
+      const i = spaces.findIndex((sp) => sp.id === spaceId)
+      const next = spaces[Math.min(spaces.length - 1, Math.max(0, i + delta))]
+      if (next) setSpaceId(next.id)
+    },
+    [spaces, spaceId],
+  )
+
+  /** Chords the shell owns. Anything vim-ish is deliberately bare-key and so
+   *  only fires while the chrome has focus — once you click into a page, its
+   *  own keystrokes are its business, and a guest is a separate process that
+   *  never reports them back. */
+  const vim = { enabled: !command.open }
+  useHotkey('Mod+T', () => setCommand({ open: true, value: '', newTab: true }))
+  useHotkey('Mod+L', () => setCommand({ open: true, value: active?.url ?? '', newTab: false }))
+  useHotkey('Mod+S', () => setSidebar((v) => !v))
+  useHotkey('Mod+W', () => {
+    if (activeId !== null) closeTab(activeId)
+  })
+  useHotkey('Escape', () => setCommand((c) => ({ ...c, open: false })))
+
+  useHotkey('Control+J', () => stepTab(1))
+  useHotkey('Control+K', () => stepTab(-1))
+  useHotkey('Control+H', () => stepSpace(-1))
+  useHotkey('Control+L', () => stepSpace(1))
+
+  useHotkey('J', () => activeFrame?.scrollBy(120), vim)
+  useHotkey('K', () => activeFrame?.scrollBy(-120), vim)
+  useHotkey('Shift+G', () => activeFrame?.scrollToEdge('end'), vim)
+  useHotkeySequence(['G', 'G'], () => activeFrame?.scrollToEdge('top'), vim)
+  useHotkey('Shift+H', () => activeFrame?.back(), vim)
+  useHotkey('Shift+L', () => activeFrame?.forward(), vim)
 
   /** The shell's ⌘T/⌘L results — the same searchable palette the app uses,
    *  just over tabs and shell commands instead of vault notes. Typing a URL

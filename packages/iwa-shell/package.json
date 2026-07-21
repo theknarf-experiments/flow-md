@@ -5,7 +5,7 @@
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "TheKnarf",
-  "description": "Isolated Web App shell prototype \u2014 validates Controlled Frame as the canvas-browser primitive",
+  "description": "Isolated Web App shell prototype — validates Controlled Frame as the canvas-browser primitive",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@flow-md/ui": "workspace:*",
+    "@tanstack/react-hotkeys": "^0.10.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   }
