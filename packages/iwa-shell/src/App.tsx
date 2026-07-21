@@ -31,7 +31,6 @@ import {
   Toolbar,
   SwipeDeck,
   fuzzyFilter,
-  useSwipeDeck,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
@@ -103,7 +102,6 @@ export function App() {
   const [unframed, setUnframed] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
-  const sidebarRef = useRef<HTMLElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
   const seq = useRef(0)
   /** Creating guests is an imperative side effect, and StrictMode invokes
@@ -359,20 +357,13 @@ export function App() {
     log(`space ${next.name} (${next.partition})`)
   }, [spaces, openTab, log])
 
-  /** Swipe anywhere over the sidebar to slide between spaces. The deck stops
-   *  at either end rather than wrapping — there is no space past the last one. */
+  /** Swipe over the sidebar to slide between spaces; <SwipeDeck> does the
+   *  gesture. It stops at either end rather than wrapping — there is no space
+   *  past the last one. */
   const spaceIndex = Math.max(
     0,
     spaces.findIndex((s) => s.id === spaceId),
   )
-  const swipe = useSwipeDeck(sidebarRef, {
-    count: spaces.length,
-    index: spaceIndex,
-    onIndex: (i) => {
-      const next = spaces[i]
-      if (next) setSpaceId(next.id)
-    },
-  })
 
   const capture = async () => {
     if (!activeFrame) return
@@ -405,7 +396,7 @@ export function App() {
         </Banner>
       )}
 
-      <Sidebar open={sidebar} className={styles.sidebar} ref={sidebarRef}>
+      <Sidebar open={sidebar} className={styles.sidebar}>
         <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
           <IconButton tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
             ▏
@@ -435,8 +426,10 @@ export function App() {
             the one you're leaving off-screen as the next arrives. */}
         <SwipeDeck
           index={spaceIndex}
-          offset={swipe.offset}
-          dragging={swipe.dragging}
+          onIndexChange={(i) => {
+            const next = spaces[i]
+            if (next) setSpaceId(next.id)
+          }}
           className={styles.deck}
         >
           {spaces.map((sp) => {

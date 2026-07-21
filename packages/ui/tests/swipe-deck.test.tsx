@@ -1,117 +1,87 @@
 // @vitest-environment jsdom
 //
-// The deck's feel lives in arithmetic — how far is far enough, and what
-// happens at the ends — so it's worth pinning down away from a real trackpad.
+// The gesture itself belongs to the browser now, so what's left to pin down
+// is the seam: scroll position in, index out, and index back in again.
 
-import { act, cleanup, render } from '@testing-library/react'
-import { useRef } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SwipeDeck } from '../src/SwipeDeck.js'
-import { useSwipeDeck } from '../src/useSwipeDeck.js'
 
 const WIDTH = 200
 
-function Deck(props: { index: number; count: number; onIndex: (i: number) => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  // jsdom lays nothing out, so clientWidth would be 0 — state the width.
-  const swipe = useSwipeDeck(ref, { ...props, width: WIDTH })
-  return (
-    <div ref={ref} data-testid="surface">
-      <SwipeDeck index={props.index} offset={swipe.offset} dragging={swipe.dragging}>
-        {Array.from({ length: props.count }, (_, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: fixture panels
-          <div key={i}>panel {i}</div>
-        ))}
-      </SwipeDeck>
-    </div>
+/** jsdom lays nothing out and never scrolls, so the viewport's geometry and
+ *  scrollTo have to be stated. */
+function mount(index: number, onIndexChange?: (i: number) => void) {
+  const utils = render(
+    <SwipeDeck index={index} onIndexChange={onIndexChange}>
+      {['a', 'b', 'c'].map((p) => (
+        <div key={p}>{p}</div>
+      ))}
+    </SwipeDeck>,
   )
+  const viewport = utils.container.firstElementChild as HTMLElement
+  Object.defineProperty(viewport, 'clientWidth', { value: WIDTH, configurable: true })
+  const scrollTo = vi.fn()
+  viewport.scrollTo = scrollTo as unknown as HTMLElement['scrollTo']
+  const settleAt = (scrollLeft: number) => {
+    viewport.scrollLeft = scrollLeft
+    viewport.dispatchEvent(new Event('scrollend'))
+  }
+  return { ...utils, viewport, scrollTo, settleAt }
 }
 
-/** One flick: a burst of wheel events, then the silence that stands in for
- *  lifting your fingers. */
-function swipe(el: Element, deltaX: number, steps = 4) {
-  act(() => {
-    for (let i = 0; i < steps; i++) {
-      el.dispatchEvent(
-        new WheelEvent('wheel', { deltaX: deltaX / steps, deltaY: 0, bubbles: true, cancelable: true }),
-      )
-    }
-  })
-}
+afterEach(cleanup)
 
-function release() {
-  act(() => {
-    vi.advanceTimersByTime(200)
-  })
-}
-
-beforeEach(() => vi.useFakeTimers())
-afterEach(() => {
-  cleanup()
-  vi.useRealTimers()
-})
-
-describe('useSwipeDeck', () => {
-  it('advances when released past halfway', () => {
-    const onIndex = vi.fn()
-    const { getByTestId } = render(<Deck index={0} count={3} onIndex={onIndex} />)
-    swipe(getByTestId('surface'), WIDTH * 0.6)
-    release()
-    expect(onIndex).toHaveBeenCalledWith(1)
+describe('SwipeDeck', () => {
+  it('reports the panel a gesture settled on', () => {
+    const onIndexChange = vi.fn()
+    const { settleAt } = mount(0, onIndexChange)
+    settleAt(WIDTH * 2)
+    expect(onIndexChange).toHaveBeenCalledWith(2)
   })
 
-  it('springs back when released short of halfway', () => {
-    const onIndex = vi.fn()
-    const { getByTestId } = render(<Deck index={0} count={3} onIndex={onIndex} />)
-    swipe(getByTestId('surface'), WIDTH * 0.3)
-    release()
-    expect(onIndex).not.toHaveBeenCalled()
+  it('takes the nearest panel when the scroll stops slightly off', () => {
+    const onIndexChange = vi.fn()
+    const { settleAt } = mount(0, onIndexChange)
+    settleAt(WIDTH * 2 - 8)
+    expect(onIndexChange).toHaveBeenCalledWith(2)
   })
 
-  it('goes back with the opposite direction', () => {
-    const onIndex = vi.fn()
-    const { getByTestId } = render(<Deck index={1} count={3} onIndex={onIndex} />)
-    swipe(getByTestId('surface'), -WIDTH * 0.8)
-    release()
-    expect(onIndex).toHaveBeenCalledWith(0)
+  it('stays quiet when the deck settles back where it started', () => {
+    const onIndexChange = vi.fn()
+    const { settleAt } = mount(1, onIndexChange)
+    settleAt(WIDTH)
+    expect(onIndexChange).not.toHaveBeenCalled()
   })
 
-  it('stops at the ends rather than wrapping', () => {
-    const onIndex = vi.fn()
-    const last = render(<Deck index={2} count={3} onIndex={onIndex} />)
-    swipe(last.getByTestId('surface'), WIDTH * 3)
-    release()
-    expect(onIndex).not.toHaveBeenCalled()
-    last.unmount()
-
-    const first = render(<Deck index={0} count={3} onIndex={onIndex} />)
-    swipe(first.getByTestId('surface'), -WIDTH * 3)
-    release()
-    expect(onIndex).not.toHaveBeenCalled()
+  it('scrolls to the panel when the index is changed from outside', () => {
+    const { scrollTo, rerender } = mount(0)
+    rerender(
+      <SwipeDeck index={2}>
+        {['a', 'b', 'c'].map((p) => (
+          <div key={p}>{p}</div>
+        ))}
+      </SwipeDeck>,
+    )
+    expect(scrollTo).toHaveBeenCalledWith({ left: WIDTH * 2, behavior: 'smooth' })
   })
 
-  it('ignores vertical scrolling, so panels stay scrollable', () => {
-    const onIndex = vi.fn()
-    const { getByTestId } = render(<Deck index={0} count={3} onIndex={onIndex} />)
-    act(() => {
-      for (let i = 0; i < 6; i++) {
-        getByTestId('surface').dispatchEvent(
-          new WheelEvent('wheel', { deltaX: 20, deltaY: 90, bubbles: true, cancelable: true }),
-        )
-      }
-    })
-    release()
-    expect(onIndex).not.toHaveBeenCalled()
+  it('does not scroll when it is already where it should be', () => {
+    const { scrollTo, viewport, rerender } = mount(0)
+    viewport.scrollLeft = WIDTH
+    rerender(
+      <SwipeDeck index={1}>
+        {['a', 'b', 'c'].map((p) => (
+          <div key={p}>{p}</div>
+        ))}
+      </SwipeDeck>,
+    )
+    expect(scrollTo).not.toHaveBeenCalled()
   })
 
-  it('follows the gesture before it ends, then settles', () => {
-    const onIndex = vi.fn()
-    const { getByTestId, container } = render(<Deck index={0} count={3} onIndex={onIndex} />)
-    swipe(getByTestId('surface'), 80)
-    const track = container.querySelector('[style*="translateX"]') as HTMLElement
-    // Mid-gesture the track has moved, and moved the way the fingers went.
-    expect(track.style.transform).toContain('-80px')
-    release()
-    expect(track.style.transform).toContain('+ 0px')
+  it('hides the panels that are off-screen from assistive tech', () => {
+    const { container } = mount(1)
+    const hidden = [...container.querySelectorAll('[aria-hidden="true"]')]
+    expect(hidden).toHaveLength(2)
   })
 })

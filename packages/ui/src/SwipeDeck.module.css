@@ -1,25 +1,30 @@
 .viewport {
-  /* The panels either side must not show through. */
-  overflow: hidden;
+  /* A real scroll container: the browser drives the gesture, so it knows when
+     the fingers lift. overflow-y must be stated — a visible cross axis would
+     silently compute to auto and give the deck a second scrollbar. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  /* Don't let an overscroll at either end turn into a browser back/forward. */
+  overscroll-behavior-x: contain;
   min-height: 0;
-  display: flex;
+  flex: 1;
 }
+.viewport::-webkit-scrollbar { height: 0; }
+.viewport:focus { outline: none; }
 
 .track {
   display: flex;
-  width: 100%;
-  align-items: flex-start;
-  will-change: transform;
-  /* Decelerating, so a release feels like the panel coasting into place. */
-  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  height: 100%;
+  align-items: stretch;
 }
-
-/* While fingers are down the track must be exactly where they put it. */
-.dragging { transition: none; }
 
 .panel {
   flex: 0 0 100%;
   min-width: 0;
+  scroll-snap-align: start;
+  /* Every panel is a snap point, so the deck can never settle between two. */
+  scroll-snap-stop: always;
   display: flex;
   flex-direction: column;
   min-height: 0;
