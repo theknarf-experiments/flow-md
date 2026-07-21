@@ -16,6 +16,7 @@
 
 import {
   AddressPill,
+  Banner,
   CommandPalette,
   type PaletteItem,
   IconButton,
@@ -327,9 +328,9 @@ export function App() {
   return (
     <div className={styles.shell} style={{ ['--hue' as string]: space.hue }}>
       {!controlledFrame.available && (
-        <div className={styles.banner}>
+        <Banner tone="error" floating>
           {`<controlledframe> unavailable — ${controlledFrame.detail} · run: mise run iwa`}
-        </div>
+        </Banner>
       )}
 
       <Sidebar open={sidebar} className={styles.sidebar}>

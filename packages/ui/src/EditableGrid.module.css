@@ -1,24 +1,29 @@
-.csv {
+.wrap {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 
-.csv table {
+.table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
 
-.csv th {
+.table th {
   text-align: left;
   background: var(--bg-raise);
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
 }
-.sortable { cursor: pointer; user-select: none; }
-.sortable:hover { color: var(--accent); }
+
+.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+.clickable:hover { color: var(--accent); }
+
 .sort {
   display: inline-block;
   width: 1.1em;
@@ -27,53 +32,67 @@
   margin-left: 0.2em;
 }
 
-.csv td {
+.table td {
   padding: 0.35rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
-.cell { cursor: pointer; }
-.cell:hover { background: var(--bg-raise); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+.table tr:last-child td { border-bottom: none; }
 
-.editing { position: relative; }
+.cell { cursor: pointer; }
+.cell:hover {
+  background: var(--bg-raise);
+  box-shadow: inset 0 0 0 1px var(--accent-dim);
+}
+
+/* The ghost preserves the cell's width so opening the editor can't resize
+   the column; the input is absolutely positioned over it. */
+.editing { position: relative; display: block; }
 .editing .ghost { visibility: hidden; white-space: pre; }
 .editing input {
   position: absolute;
-  inset: 2px;
-  width: calc(100% - 4px);
+  inset: -2px;
+  width: calc(100% + 4px);
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--accent);
   border-radius: 4px;
   font: inherit;
-  padding: 0 0.3rem;
+  padding: 0 0.25rem;
 }
 
-.rowActions { width: 2rem; }
-.rowActions button {
+/* Row/column controls stay hidden until the row is hovered. */
+.actions { width: 2rem; }
+.actions button {
   background: none;
   border: none;
   color: var(--fg-dim);
   cursor: pointer;
   visibility: hidden;
+  padding: 0;
+  font: inherit;
 }
-tr:hover .rowActions button { visibility: visible; }
-.rowActions button:hover { color: var(--danger); }
+th.actions button { visibility: visible; }
+tr:hover .actions button { visibility: visible; }
+.actions button:hover { color: var(--accent); }
 
 .foot {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   padding: 0.3rem 0.75rem;
+  background: var(--bg-raise);
   font-size: 0.8rem;
   color: var(--fg-dim);
-  background: var(--bg-raise);
 }
 .foot button {
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: none;
   color: var(--fg-dim);
   cursor: pointer;
-  padding: 0.1rem 0.6rem;
+  font: inherit;
+  font-size: 0.8rem;
 }
-.foot button:hover { color: var(--fg); border-color: var(--accent-dim); }
+.foot button:hover { color: var(--fg); }
+
+.status { flex: 1; text-align: center; }

@@ -10,10 +10,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import * as calendarStories from '../../view-ics/src/Calendar.stories.js'
 import * as dataViewStories from '../src/DataView.stories.js'
 import * as fileTreeStories from '../../view-filetree/src/FileTree.stories.js'
+import * as gridStories from '../src/EditableGrid.stories.js'
 
 const fileTree = composeStories(fileTreeStories)
 const ics = composeStories(calendarStories)
 const dataView = composeStories(dataViewStories)
+const grid = composeStories(gridStories)
 
 afterEach(cleanup)
 
@@ -76,5 +78,27 @@ describe('DataView stories', () => {
     cleanup()
     render(<dataView.NoServerMatch />)
     expect(screen.getByText(/no results yet/)).toBeTruthy()
+  })
+})
+
+describe('EditableGrid stories', () => {
+  it('CsvMode renders sortable headers and every cell', () => {
+    render(<grid.CsvMode />)
+    expect(screen.getByText('keyboard')).toBeTruthy()
+    expect(screen.getByText('3 rows')).toBeTruthy()
+    // Sortable headers expose their state to assistive tech.
+    expect(screen.getByText('category').closest('th')?.getAttribute('aria-sort')).toBe('none')
+  })
+
+  it('MarkdownMode offers a column control instead of sorting', () => {
+    render(<grid.MarkdownMode />)
+    expect(screen.getByTitle('add column')).toBeTruthy()
+    expect(screen.getByText('item').closest('th')?.getAttribute('aria-sort')).toBeNull()
+  })
+
+  it('Empty still renders its header row', () => {
+    render(<grid.Empty />)
+    expect(screen.getByText('name')).toBeTruthy()
+    expect(screen.getByText('0 rows')).toBeTruthy()
   })
 })

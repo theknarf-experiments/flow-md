@@ -1,0 +1,28 @@
+.banner {
+  flex: none;
+  padding: 0.45rem 0.9rem;
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+}
+
+.floating {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 20;
+}
+
+.warn {
+  background: #3a2f22;
+  color: #e0b070;
+}
+
+.error {
+  background: #3a2222;
+  color: var(--danger, #d97c7c);
+}
+
+.info {
+  background: var(--bg-raise, #242424);
+  color: var(--fg-dim, #8a8a8a);
+}

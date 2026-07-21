@@ -24,7 +24,9 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 | `IconButton` | square icon-sized button used across toolbars |
 | `CommandPalette` | modal input, with or without a result list |
 | `LogPanel` | fixed-corner scrolling log with tone colours |
+| `Banner` | a strip of bad news, optionally pinned to the top |
 | `DataView` | sortable query-result table with in-place cell editing |
+| `EditableGrid` | editable table grid — the markdown and CSV editors |
 
 Two components carry a deliberate design note:
 
@@ -36,6 +38,14 @@ here, ranks both, so a match feels identical in either surface. Callers pass
 scroll-into-view, and routing wheel events to the list so the page behind
 can't scroll. Omitting `items` leaves a bare input whose Enter calls
 `onSubmit`.
+
+**`EditableGrid` is both grids.** The markdown pipe-table editor and the CSV
+viewer were ~350 lines of near-duplicate differing only in which affordances
+were on, so this is their union with the differences as flags
+(`editableHeader`, `sortable`, `canAddColumn`, …). Data in, whole table out:
+every mutation calls `onChange` with the next table and the caller decides
+what that means — re-serialize a markdown block, save a `.csv`. Both call
+sites are now ~35 lines.
 
 **`DataView` takes an `onEditCell` callback** rather than importing the app's
 write-through store — omit it and the table is read-only, which is what keeps

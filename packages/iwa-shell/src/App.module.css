@@ -14,18 +14,6 @@
   transition: background 400ms ease;
 }
 
-.banner {
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 20;
-  padding: 0.45rem 0.9rem;
-  background: #3a2222;
-  color: var(--danger);
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  white-space: pre-wrap;
-}
-
 /* ---------------------------------------------------------------- sidebar */
 
 /* Layout comes from <Sidebar>; the shell only tints it for the space. */
