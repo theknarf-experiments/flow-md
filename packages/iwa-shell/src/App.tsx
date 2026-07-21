@@ -60,11 +60,13 @@ const HOME = 'http://localhost:4748/'
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
 /** The recess drawn behind the traffic lights. macOS puts them at a fixed
- *  spot in the window, so these numbers are measured against that: the lights
- *  span roughly 23–72px from the window's left edge, and the well is inset
- *  from that edge so it reads as a placed object rather than a corner that
- *  was cut off. The toolbar starts where the well ends. */
-const TRAFFIC_WELL = { left: 10, width: 82 }
+ *  spot — spanning about 23–75px across and 5–17px down from the window's
+ *  top-left — and won't say where, so these numbers are measured off a
+ *  screenshot and chosen to leave the same 7px on the left, right and bottom.
+ *  Above them is the one edge that can't be padded: the well hangs from the
+ *  window's top, and macOS keeps the lights that close to it. The toolbar
+ *  starts where the well ends. */
+const TRAFFIC_WELL = { left: 16, width: 66 }
 
 interface Space {
   id: string
