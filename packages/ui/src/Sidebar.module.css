@@ -10,7 +10,11 @@
   padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
   overflow: hidden;
   transition: width 220ms ease, padding 220ms ease, opacity 180ms ease;
-  app-region: drag;
+  /* Deliberately NOT a drag region. A draggable surface is non-client area to
+     the OS, which swallows wheel events before the page sees them — so the
+     whole sidebar would be dead to trackpad gestures. The toolbar row carries
+     the drag region instead, which is where a title bar would be anyway. */
+  app-region: no-drag;
 }
 
 .collapsed {
@@ -47,7 +51,8 @@
   align-items: center;
   gap: 0.35rem;
   min-height: 30px;
-  app-region: no-drag;
+  /* The window's drag handle. The buttons inside opt out individually. */
+  app-region: drag;
 }
 
 .sidebarButton {

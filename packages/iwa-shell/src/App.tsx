@@ -27,11 +27,11 @@ import {
   SpaceRail,
   SidebarButton,
   SpaceHeader,
-  Spacer,
   Tab as TabRow,
   Toolbar,
+  SwipeDeck,
   fuzzyFilter,
-  useHorizontalSwipe,
+  useSwipeDeck,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
@@ -119,9 +119,6 @@ export function App() {
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
-  const spaceTabs = useMemo(() => tabs.filter((t) => t.spaceId === spaceId), [tabs, spaceId])
-  const pinned = spaceTabs.filter((t) => t.pinned)
-  const loose = spaceTabs.filter((t) => !t.pinned)
 
   /** Pull the guest's real title/url back out after it navigates. */
   const sync = useCallback(async (id: number) => {
@@ -362,18 +359,19 @@ export function App() {
     log(`space ${next.name} (${next.partition})`)
   }, [spaces, openTab, log])
 
-  /** Swipe left/right anywhere over the sidebar to move between spaces. */
-  const step = useCallback(
-    (delta: number) => {
-      const i = spaces.findIndex((s) => s.id === spaceId)
-      const next = spaces[(i + delta + spaces.length) % spaces.length]
+  /** Swipe anywhere over the sidebar to slide between spaces. The deck stops
+   *  at either end rather than wrapping — there is no space past the last one. */
+  const spaceIndex = Math.max(
+    0,
+    spaces.findIndex((s) => s.id === spaceId),
+  )
+  const swipe = useSwipeDeck(sidebarRef, {
+    count: spaces.length,
+    index: spaceIndex,
+    onIndex: (i) => {
+      const next = spaces[i]
       if (next) setSpaceId(next.id)
     },
-    [spaces, spaceId],
-  )
-  useHorizontalSwipe(sidebarRef, {
-    onNext: () => step(1),
-    onPrev: () => step(-1),
   })
 
   const capture = async () => {
@@ -383,13 +381,13 @@ export function App() {
     log(info ? `capture → ${JSON.stringify(info)}` : 'capture failed (no executeScript)')
   }
 
-  const renderTab = (tab: Tab) => (
+  const renderTab = (tab: Tab, activeInSpace: number | null) => (
     <TabRow
       key={tab.id}
       label={tab.title}
       icon={tab.icon}
       title={tab.url}
-      active={tab.id === activeId}
+      active={tab.id === activeInSpace}
       pinned={tab.pinned}
       onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
       onTogglePin={() =>
@@ -433,26 +431,54 @@ export function App() {
           onClick={() => setCommand({ open: true, value: active?.url ?? '', newTab: false })}
         />
 
-        {pinned.length > 0 && (
-          <PinnedGrid
-            items={pinned.map((t) => ({ id: t.id, label: t.title, icon: t.icon, title: t.url }))}
-            activeId={activeId}
-            onSelect={(id) => setActiveBySpace((m) => ({ ...m, [spaceId]: Number(id) }))}
-            onUnpin={(id) =>
-              setTabs((ts) => ts.map((t) => (t.id === Number(id) ? { ...t, pinned: false } : t)))
-            }
-          />
-        )}
+        {/* Every space's tabs are laid out side by side, so a swipe carries
+            the one you're leaving off-screen as the next arrives. */}
+        <SwipeDeck
+          index={spaceIndex}
+          offset={swipe.offset}
+          dragging={swipe.dragging}
+          className={styles.deck}
+        >
+          {spaces.map((sp) => {
+            const spaceTabs = tabs.filter((t) => t.spaceId === sp.id)
+            const spacePinned = spaceTabs.filter((t) => t.pinned)
+            const spaceActive = activeBySpace[sp.id] ?? null
+            return (
+              <div className={styles.panel} key={sp.id}>
+                {spacePinned.length > 0 && (
+                  <PinnedGrid
+                    items={spacePinned.map((t) => ({
+                      id: t.id,
+                      label: t.title,
+                      icon: t.icon,
+                      title: t.url,
+                    }))}
+                    activeId={spaceActive}
+                    onSelect={(id) => setActiveBySpace((m) => ({ ...m, [sp.id]: Number(id) }))}
+                    onUnpin={(id) =>
+                      setTabs((ts) =>
+                        ts.map((t) => (t.id === Number(id) ? { ...t, pinned: false } : t)),
+                      )
+                    }
+                  />
+                )}
 
-        <SpaceHeader emoji={space.emoji}>{space.name}</SpaceHeader>
-        <div className={styles.tabList}>
-          {loose.map(renderTab)}
-          <SidebarButton onClick={() => setCommand({ open: true, value: '', newTab: true })}>
-            + New tab
-          </SidebarButton>
-        </div>
-
-        <Spacer />
+                <SpaceHeader emoji={sp.emoji}>{sp.name}</SpaceHeader>
+                <div className={styles.tabList}>
+                  {spaceTabs.filter((t) => !t.pinned).map((t) => renderTab(t, spaceActive))}
+                  <SidebarButton
+                    onClick={() => {
+                      setSpaceId(sp.id)
+                      setCommand({ open: true, value: '', newTab: true })
+                    }}
+                  >
+                    + New tab
+                  </SidebarButton>
+                </div>
+              </div>
+            )
+          })}
+        </SwipeDeck>
 
         <SpaceRail
           spaces={spaces.map((s) => ({

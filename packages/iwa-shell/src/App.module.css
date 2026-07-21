@@ -23,6 +23,23 @@
 
 /* The address "pill" — click to open the command bar, like Arc. */
 
+/* The deck takes the slack between the address pill and the space rail, so
+   the rail stays pinned to the bottom while panels slide beneath it. */
+.deck {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+  /* Panels sit edge to edge in the track; without this the one arriving would
+     touch the one leaving. */
+  padding-right: 1px;
+}
+
 .tabList {
   app-region: no-drag;
   display: flex;
