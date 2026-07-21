@@ -17,6 +17,11 @@ export interface TabProps {
   drag?: Record<string, unknown>
   /** How deep in the tree, when the list is one. */
   depth?: number
+  /** Making noise right now. The speaker only appears for tabs that are —
+   *  a mute button on a silent tab is a button for nothing. */
+  audible?: boolean
+  muted?: boolean
+  onToggleMute?: () => void
   /** Right-click affordance — the shell hangs rename/copy/move/close off it. */
   onContextMenu?: (e: MouseEvent<HTMLElement>) => void
   /** Swaps the label for an input. Commit with Enter or by clicking away,
@@ -32,6 +37,7 @@ export interface TabProps {
 export function Tab(props: TabProps) {
   const { label, icon, title, active, pinned, onSelect, onTogglePin, onClose } = props
   const { onContextMenu, editing, onRename, onCancelRename, drag, depth } = props
+  const { audible, muted, onToggleMute } = props
   const indent = depth ? ({ '--depth': depth } as CSSProperties) : undefined
   const input = useRef<HTMLInputElement>(null)
 
@@ -83,6 +89,20 @@ export function Tab(props: TabProps) {
     >
       {glyph}
       <span className={styles.label}>{label}</span>
+      {onToggleMute && (audible || muted) && (
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={muted ? 'unmute tab' : 'mute tab'}
+          className={`${styles.action} ${styles.speaker}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggleMute()
+          }}
+        >
+          {muted ? '🔇' : '🔊'}
+        </span>
+      )}
       {onTogglePin && (
         <span
           role="button"

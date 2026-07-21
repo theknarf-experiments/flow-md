@@ -11,6 +11,11 @@ export interface ControlledFrame extends HTMLElement {
   forward?(): Promise<void> | void
   stop?(): void
   clearData?(options?: unknown, types?: unknown): Promise<void>
+  /** True while the guest is making noise — not whether it has media, but
+   *  whether that media is audible right now. */
+  getAudioState?(): Promise<boolean>
+  isAudioMuted?(): Promise<boolean>
+  setAudioMuted?(muted: boolean): void
 }
 
 /** Raised when a guest asks for a window of its own: ⌘-click, a target of

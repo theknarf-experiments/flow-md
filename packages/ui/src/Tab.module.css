@@ -63,6 +63,12 @@
   font-size: 0.72rem;
 }
 .tab:hover .action { opacity: 0.6; }
+
+/* The other affordances appear on hover; this one is information. Finding
+   which tab is making noise is the whole reason it's there, so it shows
+   whether or not the pointer is anywhere near. */
+.speaker { opacity: 0.8; }
+.tab:hover .speaker { opacity: 0.9; }
 .action:hover {
   opacity: 1;
   background: color-mix(in srgb, currentColor 22%, transparent);

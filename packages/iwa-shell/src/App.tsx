@@ -30,6 +30,7 @@ import {
   IconButton,
   LogPanel,
   Placeholder,
+  MediaBar,
   PinnedGrid,
   SectionLabel,
   Sidebar,
@@ -64,7 +65,14 @@ import {
   hasTitleBar,
   windowManagementState,
 } from './lib/env.js'
-import { type FrameHandle, type KeyClaim, createFrame, normalizeUrl } from './lib/frames.js'
+import {
+  type FrameHandle,
+  type KeyClaim,
+  type Sound,
+  SILENT,
+  createFrame,
+  normalizeUrl,
+} from './lib/frames.js'
 import {
   type Space,
   type Tab as Row,
@@ -244,6 +252,60 @@ export function App() {
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
+  /** What each guest is playing. Polled rather than pushed: Controlled Frame
+   *  reports audio state on request and raises no event when it changes, so
+   *  the only way to know a tab started making noise is to ask. Every second
+   *  is often enough to feel immediate and rare enough to be free — the ask
+   *  is a no-op for guests that aren't audible. */
+  const [sounds, setSounds] = useState<Record<string, Sound>>({})
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      const entries = await Promise.all(
+        [...frames.current.entries()].map(
+          async ([id, frame]) => [id, await frame.sound()] as const,
+        ),
+      )
+      if (!alive) return
+      setSounds((prev) => {
+        const next = Object.fromEntries(entries)
+        // Same object when nothing changed, so this doesn't re-render the
+        // window once a second forever.
+        const keys = new Set([...Object.keys(prev), ...Object.keys(next)])
+        for (const k of keys) {
+          const a = prev[k] ?? SILENT
+          const b = next[k] ?? SILENT
+          if (a.audible !== b.audible || a.muted !== b.muted || a.playing !== b.playing ||
+              a.video !== b.video || a.title !== b.title) {
+            return next
+          }
+        }
+        return prev
+      })
+    }
+    void tick()
+    const timer = setInterval(() => void tick(), 1000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [tabs])
+
+  /** The tab making noise, preferring the one in the space you're looking at. */
+  const noisy = useMemo(() => {
+    const playing = tabs.filter((t) => sounds[t.id]?.audible || sounds[t.id]?.muted)
+    return playing.find((t) => t.space === spaceId) ?? playing[0] ?? null
+  }, [tabs, sounds, spaceId])
+
+  const toggleMute = useCallback((id: string) => {
+    const frame = frames.current.get(id)
+    if (!frame) return
+    const muted = !(sounds[id]?.muted ?? false)
+    frame.setMuted(muted)
+    // Optimistic, so the icon flips on the click rather than on the next poll.
+    setSounds((s) => ({ ...s, [id]: { ...(s[id] ?? SILENT), muted } }))
+  }, [sounds])
+
   /** Read the guest and write down what it says: its favicon, whether it can
    *  go back, where it now is and what that page calls itself.
    *
@@ -356,6 +418,7 @@ export function App() {
         owner.partition,
         container,
         styles.frameActive!,
+        styles.framePip!,
         () => void sync(id),
         // A link opened in a new tab is a link written into the space, the
         // same as any other — so ⌘-click adds a line to the file, indented
@@ -416,11 +479,19 @@ export function App() {
     )
   }, [spaces])
 
-  // Only the active tab of the active space is visible.
+  // Only the active tab of the active space is visible — except a video that
+  // was playing when you left it, which follows you into the corner. Arc's
+  // trick, and it costs nothing here: the guest was never unloaded, so this
+  // is the same live frame with different geometry.
   useEffect(() => {
-    for (const [id, frame] of frames.current) frame.setActive(id === activeId)
+    for (const [id, frame] of frames.current) {
+      const active = id === activeId
+      const sound = sounds[id]
+      frame.setActive(active)
+      frame.setPip(!active && !!sound?.video && !!sound.playing)
+    }
     if (activeId !== null) void sync(activeId)
-  }, [activeId, tabs.length, sync])
+  }, [activeId, tabs.length, sync, sounds])
 
   const go = useCallback(
     (value: string, asNewTab: boolean) => {
@@ -894,6 +965,9 @@ export function App() {
       onRename={(title) => renameTab(tab.id, title)}
       onCancelRename={() => setRenamingTab(null)}
       pinned={tab.pinned}
+      audible={sounds[tab.id]?.audible ?? false}
+      muted={sounds[tab.id]?.muted ?? false}
+      onToggleMute={() => toggleMute(tab.id)}
       onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))}
       onTogglePin={() => togglePin(tab)}
       onClose={() => closeTab(tab.id)}
@@ -1016,6 +1090,24 @@ export function App() {
             )
           })}
         </SwipeDeck>
+
+        {/* Above the rail: it belongs to the window rather than to a space,
+            because the thing playing keeps playing while you swipe away. */}
+        {noisy && (
+          <MediaBar
+            title={sounds[noisy.id]?.title || noisy.title}
+            playing={sounds[noisy.id]?.playing ?? false}
+            muted={sounds[noisy.id]?.muted ?? false}
+            onPlayPause={() =>
+              frames.current.get(noisy.id)?.playPause(!(sounds[noisy.id]?.playing ?? false))
+            }
+            onToggleMute={() => toggleMute(noisy.id)}
+            onSelect={() => {
+              setSpaceId(noisy.space)
+              setActiveBySpace((m) => ({ ...m, [noisy.space]: noisy.id }))
+            }}
+          />
+        )}
 
         <SpaceRail
           spaces={spaces.map((s) => ({

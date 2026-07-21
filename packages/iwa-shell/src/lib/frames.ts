@@ -61,10 +61,19 @@ export interface FrameHandle {
   adopt(claims: KeyClaim[]): Promise<void>
   /** Labels every clickable thing in view and waits for a label to be typed. */
   hint(newTab: boolean): Promise<number>
+  /** What the guest is playing, if anything — polled, because nothing in the
+   *  Controlled Frame API pushes a change. */
+  sound(): Promise<Sound>
+  setMuted(muted: boolean): void
+  /** Play or pause the media the guest is playing, from the sidebar. */
+  playPause(play: boolean): void
   /** Scrolls the guest by a number of px. Negative is up. */
   scrollBy(dy: number): void
   scrollToEdge(edge: 'top' | 'end'): void
   setActive(active: boolean): void
+  /** Keep a playing video on screen after its tab stops being the active one,
+   *  in a corner rather than filling the card. */
+  setPip(pip: boolean): void
   destroy(): void
 }
 
@@ -333,6 +342,43 @@ const GLIDE = `(() => {
   }
 })()`
 
+/** What a guest is playing. `audible` comes from the frame (is it making
+ *  noise), the rest from the page's own media elements — the frame knows
+ *  about sound, only the DOM knows whether it's a video and what it's called. */
+export interface Sound {
+  audible: boolean
+  muted: boolean
+  playing: boolean
+  video: boolean
+  title: string
+}
+
+export const SILENT: Sound = {
+  audible: false,
+  muted: false,
+  playing: false,
+  video: false,
+  title: '',
+}
+
+/** The biggest media element that isn't done — the one a person would say the
+ *  page "is playing". Silent autoplay decoration is skipped: a muted loop in
+ *  a hero image isn't something anyone wants controls for. */
+const MEDIA = `(() => {
+  const els = [...document.querySelectorAll('video, audio')]
+    .filter((m) => m.currentSrc || m.src || m.querySelector('source'))
+    .filter((m) => !(m.muted && m.loop && m.tagName === 'VIDEO'))
+  if (!els.length) return JSON.stringify(null)
+  const playing = els.filter((m) => !m.paused && !m.ended)
+  const area = (m) => (m.videoWidth || 0) * (m.videoHeight || 0) + (m.duration || 0)
+  const m = (playing.length ? playing : els).sort((a, b) => area(b) - area(a))[0]
+  return JSON.stringify({
+    playing: !m.paused && !m.ended,
+    video: m.tagName === 'VIDEO' && !!m.videoWidth,
+    title: document.title,
+  })
+})()`
+
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
 
 export function createFrame(
@@ -340,6 +386,7 @@ export function createFrame(
   partition: string,
   container: HTMLElement,
   activeClass: string,
+  pipClass: string,
   onLifecycle: () => void,
   /** The guest asked for a window of its own — ⌘-click, target=_blank,
    *  window.open. Given the url it wanted; the request itself is discarded. */
@@ -441,6 +488,44 @@ export function createFrame(
         return 0
       }
     },
+    async sound() {
+      const f = cf()
+      if (typeof f.getAudioState !== 'function') return SILENT
+      try {
+        const [audible, muted] = await Promise.all([
+          f.getAudioState(),
+          f.isAudioMuted?.() ?? Promise.resolve(false),
+        ])
+        // Only ask the page when the frame says there's something to ask
+        // about: executeScript on every guest every second is not free.
+        if (!audible && !muted) return { ...SILENT }
+        const res = (await f.executeScript?.({ code: MEDIA })) as unknown
+        const raw = JSON.parse(String(Array.isArray(res) ? res[0] : res) || 'null') as
+          | { playing: boolean; video: boolean; title: string }
+          | null
+        return {
+          audible: !!audible,
+          muted: !!muted,
+          playing: raw?.playing ?? !!audible,
+          video: raw?.video ?? false,
+          title: raw?.title ?? '',
+        }
+      } catch {
+        return { ...SILENT }
+      }
+    },
+    setMuted(muted) {
+      cf().setAudioMuted?.(muted)
+    },
+    playPause(play) {
+      void exec(`(() => {
+        const els = [...document.querySelectorAll('video, audio')]
+          .filter((m) => m.currentSrc || m.src)
+        const m = els.sort((a, b) => (b.videoWidth || 0) - (a.videoWidth || 0))[0]
+        if (!m) return
+        ${play ? 'm.play()' : 'm.pause()'}
+      })()`)
+    },
     /** Scrolling happens inside the guest, so it has to be scripted in. */
     scrollBy(dy) {
       void exec(`(() => {
@@ -459,6 +544,9 @@ export function createFrame(
     },
     setActive(active) {
       el.classList.toggle(activeClass, active)
+    },
+    setPip(pip) {
+      el.classList.toggle(pipClass, pip)
     },
     destroy() {
       for (const ev of LIFECYCLE) el.removeEventListener(ev, onLifecycle)
