@@ -1,0 +1,34 @@
+.sidebar {
+  flex: none;
+  width: var(--sidebar-width, 244px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+  /* Only reserve space when a window-controls overlay is actually active;
+     env() is 0 otherwise, so this is a no-op in a normal tab. */
+  padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
+  overflow: hidden;
+  transition: width 220ms ease, padding 220ms ease, opacity 180ms ease;
+  app-region: drag;
+}
+
+.collapsed {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sectionLabel {
+  padding: 0.35rem 0.5rem 0.1rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+
+.spacer {
+  flex: 1;
+}

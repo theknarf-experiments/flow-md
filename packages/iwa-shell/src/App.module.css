@@ -28,28 +28,9 @@
 
 /* ---------------------------------------------------------------- sidebar */
 
+/* Layout comes from <Sidebar>; the shell only tints it for the space. */
 .sidebar {
-  flex: none;
-  width: 244px;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem 0.6rem 0.6rem;
-  /* Only reserve space when the window-controls overlay is actually active.
-     Chrome draws its own title bar otherwise, and env() is 0 — forcing a
-     minimum here just left a dead band under the title bar. */
-  padding-top: calc(env(titlebar-area-height, 0px) + 0.5rem);
   color: rgba(255, 255, 255, 0.92);
-  overflow: hidden;
-  transition: width 220ms ease, padding 220ms ease, opacity 180ms ease;
-  app-region: drag;
-}
-.sidebar.collapsed {
-  width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  opacity: 0;
-  pointer-events: none;
 }
 
 .navRow {
@@ -59,35 +40,7 @@
   app-region: no-drag;
 }
 
-.spacer { flex: 1; }
-
 /* The address "pill" — click to open the command bar, like Arc. */
-.address {
-  app-region: no-drag;
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.86);
-  cursor: text;
-  font: inherit;
-  font-size: 0.78rem;
-  padding: 0.4rem 0.6rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.address:hover { background: rgba(255, 255, 255, 0.18); }
-
-.sectionLabel {
-  padding: 0.35rem 0.5rem 0.1rem;
-  font-size: 0.66rem;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.45);
-}
 
 .tabList {
   app-region: no-drag;
@@ -114,33 +67,6 @@
   app-region: no-drag;
 }
 .newTab:hover { background: rgba(255, 255, 255, 0.11); color: #fff; }
-
-/* ---- spaces rail at the bottom, Arc-style ---- */
-.spaces {
-  app-region: no-drag;
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.14);
-}
-
-.space {
-  flex: 1;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  color: rgba(255, 255, 255, 0.55);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.72rem;
-  padding: 0.3rem 0.2rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.space:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
-.space.activeSpace { background: rgba(255, 255, 255, 0.2); color: #fff; }
 
 /* ---------------------------------------------------------------- content */
 

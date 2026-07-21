@@ -17,15 +17,33 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 
 | component | |
 | --- | --- |
-| `IconButton` | square icon-sized button used across toolbars |
+| `Sidebar` | fixed-width collapsible chrome column (+ `SectionLabel`, `Spacer`) |
 | `Tab` | a tab row: label, optional pin toggle and close |
-| `CommandBar` | centered modal input with a hint line |
+| `SpaceRail` | the segmented row of spaces along a sidebar's bottom |
+| `AddressPill` | reads as an address field, behaves as a button |
+| `IconButton` | square icon-sized button used across toolbars |
+| `CommandPalette` | modal input, with or without a result list |
 | `LogPanel` | fixed-corner scrolling log with tone colours |
 | `DataView` | sortable query-result table with in-place cell editing |
 
-`DataView` takes an `onEditCell` callback rather than importing the app's
+Two components carry a deliberate design note:
+
+**`CommandPalette` is both palettes.** The app's ⌘K (files, content, commands)
+and the shell's address bar only ever differed in whether results were passed,
+so they're one component: pass `items` for a searchable list, omit them and
+Enter calls `onSubmit` with the raw text. What to search and how to rank stays
+with the caller; the component owns the interaction — keyboard nav, dismissal,
+scroll-into-view, and routing wheel events to the list so the page behind
+can't scroll.
+
+**`DataView` takes an `onEditCell` callback** rather than importing the app's
 write-through store — omit it and the table is read-only, which is what keeps
 the component free of app state.
+
+`Sidebar` carries two app-window affordances that are simply no-ops in a
+normal browser tab: the surface is a window drag region, and its top padding
+grows by `env(titlebar-area-height)` when a window-controls overlay is
+active.
 
 ## Storybook
 

@@ -14,7 +14,17 @@
 // React owns the chrome only; guests live in lib/frames.ts, outside
 // reconciliation, so a re-render can never throw a loaded page away.
 
-import { CommandBar, IconButton, LogPanel, Tab as TabRow } from '@flow-md/ui'
+import {
+  AddressPill,
+  CommandPalette,
+  IconButton,
+  LogPanel,
+  SectionLabel,
+  Sidebar,
+  SpaceRail,
+  Spacer,
+  Tab as TabRow,
+} from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import {
@@ -240,7 +250,7 @@ export function App() {
         </div>
       )}
 
-      <aside className={`${styles.sidebar} ${sidebar ? '' : styles.collapsed}`}>
+      <Sidebar open={sidebar} className={styles.sidebar}>
         <div className={styles.navRow}>
           <IconButton title="toggle sidebar (⌘S)" onClick={() => setSidebar((s) => !s)}>
             ▏
@@ -258,7 +268,7 @@ export function App() {
           <IconButton title="reload" onClick={() => activeFrame?.reload()}>
             ⟳
           </IconButton>
-          <span className={styles.spacer} />
+          <Spacer />
           {offerUnframe && (
             <IconButton
               title="Remove the title bar — grants window management, then reopen the window"
@@ -277,23 +287,20 @@ export function App() {
           </IconButton>
         </div>
 
-        <button
-          type="button"
-          className={styles.address}
+        <AddressPill
+          value={active ? active.url.replace(/^https?:\/\//, '') : ''}
           title="edit address (⌘L)"
           onClick={() => setCommand({ open: true, value: active?.url ?? '', newTab: false })}
-        >
-          {active ? active.url.replace(/^https?:\/\//, '') : 'new tab'}
-        </button>
+        />
 
         {pinned.length > 0 && (
           <>
-            <div className={styles.sectionLabel}>Pinned</div>
+            <SectionLabel>Pinned</SectionLabel>
             <div className={styles.tabList}>{pinned.map(renderTab)}</div>
           </>
         )}
 
-        <div className={styles.sectionLabel}>{space.name}</div>
+        <SectionLabel>{space.name}</SectionLabel>
         <div className={styles.tabList}>
           {loose.map(renderTab)}
           <button
@@ -305,33 +312,29 @@ export function App() {
           </button>
         </div>
 
-        <span className={styles.spacer} />
+        <Spacer />
 
-        <div className={styles.spaces}>
-          {SPACES.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`${styles.space} ${s.id === spaceId ? styles.activeSpace : ''}`}
-              onClick={() => setSpaceId(s.id)}
-              title={`${s.name} — separate container (${s.partition})`}
-            >
-              {s.name}
-            </button>
-          ))}
-        </div>
-      </aside>
+        <SpaceRail
+          spaces={SPACES.map((s) => ({
+            id: s.id,
+            name: s.name,
+            title: `${s.name} — separate container (${s.partition})`,
+          }))}
+          activeId={spaceId}
+          onSelect={setSpaceId}
+        />
+      </Sidebar>
 
       <main className={styles.stage}>
         <div className={styles.card} ref={cardRef} />
       </main>
 
-      <CommandBar
+      <CommandPalette
         open={command.open}
-        value={command.value}
+        query={command.value}
         placeholder={command.newTab ? 'Search or enter address…' : 'Edit address…'}
         hint={`${command.newTab ? 'Opens in a new tab' : 'Navigates this tab'} · Esc to dismiss`}
-        onChange={(value) => setCommand((c) => ({ ...c, value }))}
+        onQueryChange={(value) => setCommand((c) => ({ ...c, value }))}
         onSubmit={(value) => {
           go(value, command.newTab)
           setCommand((c) => ({ ...c, open: false }))

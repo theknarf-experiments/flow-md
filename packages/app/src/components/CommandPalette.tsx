@@ -1,29 +1,20 @@
 // Cmd+K command palette: fuzzy file search, free-text content search across
 // the whole vault (we have every note's content client-side in the notes
-// collection, so this is just a scan), and a few app commands. Keyboard
-// driven: arrows + Enter, Escape closes.
+// collection, so this is just a scan), and a few app commands.
+//
+// Only the searching lives here. Rendering, keyboard nav and dismissal come
+// from @flow-md/ui's CommandPalette, which the shell uses too.
 
+import { type PaletteItem, CommandPalette as Palette } from '@flow-md/ui'
 import { fileIcon } from '@flow-md/view-filetree'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { notesCollection } from '../lib/db.js'
 import { fuzzyFilter } from '../lib/fuzzy.js'
-import styles from './CommandPalette.module.css'
 
 export interface PaletteCommand {
   label: string
-  run: () => void
-}
-
-interface Item {
-  kind: 'command' | 'file' | 'text'
-  key: string
-  /** Leading glyph: the sidebar's file-type icon for file-backed rows,
-   *  ⌘ for commands — one icon language across the app. */
-  icon: string
-  label: string
-  detail?: string
   run: () => void
 }
 
@@ -34,23 +25,14 @@ export function CommandPalette(props: {
 }) {
   const { open, onClose, commands } = props
   const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState(0)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const resultsRef = useRef<HTMLUListElement>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { data: notes } = useLiveQuery((q) => q.from({ note: notesCollection }))
 
   useEffect(() => {
-    if (open) {
-      setQuery('')
-      setSelected(0)
-      // Focus after the dialog renders.
-      setTimeout(() => inputRef.current?.focus(), 0)
-    }
+    if (open) setQuery('')
   }, [open])
 
-  const items = useMemo<Item[]>(() => {
+  const items = useMemo<PaletteItem[]>(() => {
     const all = notes ?? []
     const goto = (path: string) => () => {
       onClose()
@@ -59,17 +41,15 @@ export function CommandPalette(props: {
 
     // Show plenty of files — ⌘K is the primary navigation surface, and the
     // results list scrolls.
-    const fileItems: Item[] = fuzzyFilter(all, query, (n) => n.path, 50).map((n) => ({
-      kind: 'file',
+    const fileItems: PaletteItem[] = fuzzyFilter(all, query, (n) => n.path, 50).map((n) => ({
       key: `file:${n.path}`,
       icon: fileIcon(n.path),
       label: n.path,
       run: goto(n.path),
     }))
 
-    const commandItems: Item[] = fuzzyFilter(commands, query, (c) => c.label, 4).map(
+    const commandItems: PaletteItem[] = fuzzyFilter(commands, query, (c) => c.label, 4).map(
       (c) => ({
-        kind: 'command',
         key: `cmd:${c.label}`,
         icon: '⌘',
         label: c.label,
@@ -82,7 +62,7 @@ export function CommandPalette(props: {
 
     // Free-text content search: substring, case-insensitive, one hit per
     // file, with the matching line as the detail.
-    const textItems: Item[] = []
+    const textItems: PaletteItem[] = []
     const q = query.trim().toLowerCase()
     if (q.length >= 2) {
       for (const n of all) {
@@ -94,7 +74,6 @@ export function CommandPalette(props: {
           .slice(lineStart, lineEnd < 0 ? undefined : lineEnd)
           .trim()
         textItems.push({
-          kind: 'text',
           key: `text:${n.path}`,
           icon: fileIcon(n.path),
           label: n.path,
@@ -114,94 +93,14 @@ export function CommandPalette(props: {
     ]
   }, [notes, query, commands, navigate, onClose])
 
-  useEffect(() => {
-    setSelected(0)
-  }, [items.length])
-
-  // Keep the keyboard-selected row visible as it moves past the fold.
-  useEffect(() => {
-    const list = resultsRef.current
-    list?.children[selected]?.scrollIntoView({ block: 'nearest' })
-  }, [selected])
-
-  // The scrollable region is the (narrow, centered) results list, but the
-  // pointer usually rests over the input or the dimmed backdrop — where a
-  // wheel would otherwise scroll the page *behind* the palette. Attach a
-  // non-passive wheel listener on the overlay (React's onWheel is passive,
-  // so preventDefault there is a no-op), route the delta to the list, and
-  // cancel the default so nothing behind moves.
-  useEffect(() => {
-    const overlay = overlayRef.current
-    if (!open || !overlay) return
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const list = resultsRef.current
-      if (list) list.scrollTop += e.deltaY
-    }
-    overlay.addEventListener('wheel', onWheel, { passive: false })
-    return () => overlay.removeEventListener('wheel', onWheel)
-  }, [open])
-
-  if (!open) return null
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setSelected((s) => Math.min(s + 1, items.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setSelected((s) => Math.max(s - 1, 0))
-    } else if (e.key === 'Enter') {
-      e.preventDefault()
-      items[selected]?.run()
-    } else if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose()
-    }
-  }
-
   return (
-    <div
-      ref={overlayRef}
-      className={styles.overlay}
-      onClick={onClose}
-      data-testid="command-palette"
-    >
-      <div
-        className={styles.panel}
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-label="command palette"
-      >
-        <input
-          ref={inputRef}
-          className={styles.input}
-          placeholder="Search files, content and commands…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        <ul className={styles.results} ref={resultsRef}>
-          {items.map((item, i) => (
-            <li key={item.key}>
-              <button
-                type="button"
-                className={i === selected ? styles.selected : ''}
-                onMouseEnter={() => setSelected(i)}
-                onClick={item.run}
-              >
-                <span className={styles.kind}>{item.icon}</span>
-                <span className={styles.label}>{item.label}</span>
-                {item.detail && (
-                  <span className={styles.detail}>{item.detail}</span>
-                )}
-              </button>
-            </li>
-          ))}
-          {items.length === 0 && <li className={styles.none}>no matches</li>}
-        </ul>
-      </div>
-    </div>
+    <Palette
+      open={open}
+      query={query}
+      items={items}
+      placeholder="Search files, content and commands…"
+      onQueryChange={setQuery}
+      onDismiss={onClose}
+    />
   )
 }
-

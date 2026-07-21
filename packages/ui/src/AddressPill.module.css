@@ -1,0 +1,23 @@
+.address {
+  app-region: no-drag;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  opacity: 0.86;
+  cursor: text;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.4rem 0.6rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.address:hover {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  opacity: 1;
+}
