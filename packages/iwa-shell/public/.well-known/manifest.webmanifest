@@ -31,6 +31,9 @@
     ],
     "window-management": [
       "self"
+    ],
+    "clipboard-write": [
+      "self"
     ]
   }
 }

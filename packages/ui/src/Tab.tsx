@@ -1,3 +1,4 @@
+import { type MouseEvent, useEffect, useRef } from 'react'
 import styles from './Tab.module.css'
 
 export interface TabProps {
@@ -12,6 +13,13 @@ export interface TabProps {
   onSelect?: () => void
   onTogglePin?: () => void
   onClose?: () => void
+  /** Right-click affordance — the shell hangs rename/copy/move/close off it. */
+  onContextMenu?: (e: MouseEvent<HTMLElement>) => void
+  /** Swaps the label for an input. Commit with Enter or by clicking away,
+   *  abandon with Escape. */
+  editing?: boolean
+  onRename?: (label: string) => void
+  onCancelRename?: () => void
 }
 
 /** One row in a vertical tab list. The row itself is the button; the pin and
@@ -19,19 +27,54 @@ export interface TabProps {
  *  a <button> inside a <button> is invalid HTML and React will warn. */
 export function Tab(props: TabProps) {
   const { label, icon, title, active, pinned, onSelect, onTogglePin, onClose } = props
+  const { onContextMenu, editing, onRename, onCancelRename } = props
+  const input = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    // Selected, not just focused: renaming almost always means replacing.
+    input.current?.select()
+  }, [editing])
+
+  const glyph = icon ? (
+    // eslint-disable-next-line jsx-a11y/alt-text -- decorative; the label names the tab
+    <img className={styles.favicon} src={icon} alt="" aria-hidden="true" />
+  ) : (
+    <span className={styles.dot} />
+  )
+
+  if (editing) {
+    // A div, not the button: an <input> inside a <button> can't be typed in.
+    return (
+      <div className={`${styles.tab} ${active ? styles.active : ''}`}>
+        {glyph}
+        <input
+          ref={input}
+          className={styles.rename}
+          defaultValue={label}
+          aria-label="Tab name"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onRename?.(e.currentTarget.value.trim() || label)
+            if (e.key === 'Escape') {
+              e.stopPropagation()
+              onCancelRename?.()
+            }
+          }}
+          onBlur={(e) => onRename?.(e.currentTarget.value.trim() || label)}
+        />
+      </div>
+    )
+  }
+
   return (
     <button
       type="button"
       className={`${styles.tab} ${active ? styles.active : ''}`}
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       title={title ?? label}
     >
-      {icon ? (
-        // eslint-disable-next-line jsx-a11y/alt-text -- decorative; the label names the tab
-        <img className={styles.favicon} src={icon} alt="" aria-hidden="true" />
-      ) : (
-        <span className={styles.dot} />
-      )}
+      {glyph}
       <span className={styles.label}>{label}</span>
       {onTogglePin && (
         <span

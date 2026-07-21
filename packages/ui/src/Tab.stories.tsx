@@ -23,6 +23,19 @@ export default meta
 
 type Story = StoryObj<typeof Tab>
 
+/** Renaming in place. The label becomes an input, pre-selected — a rename is
+ *  usually a replacement — and the row keeps its favicon and highlight so it
+ *  doesn't jump about while you type. */
+export const Renaming: Story = {
+  args: {
+    label: 'A very long page title that needed shortening',
+    active: true,
+    editing: true,
+    onRename: () => {},
+    onCancelRename: () => {},
+  },
+}
+
 export const Default: Story = {}
 
 export const Active: Story = { args: { active: true } }

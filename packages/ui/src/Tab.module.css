@@ -67,3 +67,15 @@
   opacity: 1;
   background: color-mix(in srgb, currentColor 22%, transparent);
 }
+
+.rename {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 0.15rem;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}

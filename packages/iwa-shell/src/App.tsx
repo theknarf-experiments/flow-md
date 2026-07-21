@@ -83,6 +83,8 @@ interface Tab {
   title: string
   url: string
   pinned: boolean
+  /** Set by "Rename tab" — stops the guest's own <title> overwriting it. */
+  renamed?: boolean
   /** Inlined favicon; null until the guest has fetched it. */
   icon: string | null
 }
@@ -98,7 +100,9 @@ export function App() {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [spaces, setSpaces] = useState<Space[]>(INITIAL_SPACES)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const [renamingTab, setRenamingTab] = useState<number | null>(null)
   const spaceMenu = useContextMenu<string>()
+  const tabMenu = useContextMenu<number>()
   const [spaceId, setSpaceId] = useState(INITIAL_SPACES[0]!.id)
   /** Active tab per space, so switching spaces restores where you were. */
   const [activeBySpace, setActiveBySpace] = useState<Record<string, number | null>>({})
@@ -145,7 +149,12 @@ export function App() {
       setTabs((ts) =>
         ts.map((t) =>
           t.id === id
-            ? { ...t, title: info.title || info.url, url: info.url, icon: info.icon ?? t.icon }
+            ? {
+                ...t,
+                title: t.renamed ? t.title : info.title || info.url,
+                url: info.url,
+                icon: info.icon ?? t.icon,
+              }
             : t,
         ),
       )
@@ -162,7 +171,7 @@ export function App() {
   const openTab = useCallback(
     (url: string, opts: { space?: string; pinned?: boolean; activate?: boolean } = {}) => {
       const container = cardRef.current
-      if (!container) return
+      if (!container) return undefined
       const target = opts.space ?? spaceId
       const partition = (spaces.find((s) => s.id === target) ?? spaces[0]!).partition
       const id = ++seq.current
@@ -176,6 +185,7 @@ export function App() {
       ])
       if (opts.activate !== false) setActiveBySpace((m) => ({ ...m, [target]: id }))
       log(`tab ${id} → ${url}`)
+      return id
     },
     [spaceId, spaces, log, sync],
   )
@@ -225,6 +235,20 @@ export function App() {
       log(`window-management: ${state} · title bar: ${hasTitleBar()}`)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /** The browser's own context menu offers nothing an app window can use —
+   *  reload, back, view-source — and it covers ours. Suppressed everywhere
+   *  except text fields, where cut/copy/paste is worth keeping. Guests draw
+   *  their own menus inside their frames; this doesn't reach them. */
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      e.preventDefault()
+    }
+    document.addEventListener('contextmenu', onMenu)
+    return () => document.removeEventListener('contextmenu', onMenu)
   }, [])
 
   // A space with tabs but no active one (opened in the background, or its
@@ -408,6 +432,54 @@ export function App() {
     [tabs, closeTab, log],
   )
 
+  const renameTab = useCallback((id: number, title: string) => {
+    setTabs((ts) => ts.map((t) => (t.id === id ? { ...t, title, renamed: true } : t)))
+    setRenamingTab(null)
+  }, [])
+
+  /** The async Clipboard API is the right one, but an IWA's permissions
+   *  policy comes from its manifest and is resolved at *install* time — so
+   *  every copy in an app installed before `clipboard-write` was declared
+   *  fails with NotAllowedError. execCommand is deprecated and isn't gated by
+   *  permissions policy, which makes it the fallback that actually works. */
+  const copyUrl = useCallback(
+    (url: string) => {
+      const viaSelection = () => {
+        const field = document.createElement('textarea')
+        field.value = url
+        field.setAttribute('aria-hidden', 'true')
+        // Off-screen but focusable — a display:none field can't be selected.
+        field.style.cssText = 'position:fixed;top:-100px;opacity:0'
+        document.body.append(field)
+        field.select()
+        const copied = document.execCommand('copy')
+        field.remove()
+        log(copied ? `copied ${url}` : `copy failed`)
+      }
+      navigator.clipboard.writeText(url).then(() => log(`copied ${url}`), viaSelection)
+    },
+    [log],
+  )
+
+  /** A guest's partition is fixed when it's created, so moving a tab between
+   *  spaces means rebuilding it in the other one. The page reloads; there's no
+   *  way to carry a live document across a partition boundary. */
+  const moveTab = useCallback(
+    (id: number, target: string) => {
+      const tab = tabs.find((t) => t.id === id)
+      if (!tab || tab.spaceId === target) return
+      closeTab(id)
+      const moved = openTab(tab.url, { space: target, pinned: tab.pinned, activate: false })
+      if (moved !== undefined && tab.renamed) {
+        setTabs((ts) =>
+          ts.map((t) => (t.id === moved ? { ...t, title: tab.title, renamed: true } : t)),
+        )
+      }
+      log(`tab ${id} → ${target}`)
+    },
+    [tabs, closeTab, openTab, log],
+  )
+
   /** Swipe over the sidebar to slide between spaces; <SwipeDeck> does the
    *  gesture. It stops at either end rather than wrapping — there is no space
    *  past the last one. */
@@ -458,6 +530,10 @@ export function App() {
       icon={tab.icon}
       title={tab.url}
       active={tab.id === activeInSpace}
+      onContextMenu={(e) => tabMenu.open(e, tab.id)}
+      editing={renamingTab === tab.id}
+      onRename={(title) => renameTab(tab.id, title)}
+      onCancelRename={() => setRenamingTab(null)}
       pinned={tab.pinned}
       onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.spaceId]: tab.id }))}
       onTogglePin={() =>
@@ -616,6 +692,58 @@ export function App() {
             }}
           >
             Delete space
+          </ContextMenuItem>
+        </ContextMenu>
+      )}
+
+      {tabMenu.anchor && (
+        <ContextMenu x={tabMenu.anchor.x} y={tabMenu.anchor.y} onClose={tabMenu.close}>
+          <ContextMenuItem
+            onSelect={() => {
+              setRenamingTab(tabMenu.anchor?.target ?? null)
+              tabMenu.close()
+            }}
+          >
+            Rename tab
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              const tab = tabs.find((t) => t.id === tabMenu.anchor?.target)
+              if (tab) copyUrl(tab.url)
+              tabMenu.close()
+            }}
+          >
+            Copy URL
+          </ContextMenuItem>
+          {spaces.length > 1 && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuLabel>Move to space</ContextMenuLabel>
+              {spaces
+                .filter((sp) => sp.id !== tabs.find((t) => t.id === tabMenu.anchor?.target)?.spaceId)
+                .map((sp) => (
+                  <ContextMenuItem
+                    key={sp.id}
+                    onSelect={() => {
+                      moveTab(tabMenu.anchor?.target ?? -1, sp.id)
+                      tabMenu.close()
+                    }}
+                  >
+                    <span aria-hidden="true">{sp.emoji ?? '•'}</span>
+                    {sp.name}
+                  </ContextMenuItem>
+                ))}
+            </>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            danger
+            onSelect={() => {
+              closeTab(tabMenu.anchor?.target ?? -1)
+              tabMenu.close()
+            }}
+          >
+            Close tab
           </ContextMenuItem>
         </ContextMenu>
       )}
