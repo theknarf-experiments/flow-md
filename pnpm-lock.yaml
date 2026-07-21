@@ -256,6 +256,15 @@ importers:
       '@tanstack/hotkeys':
         specifier: ^0.8.0
         version: 0.8.0
+      '@tanstack/query-core':
+        specifier: ^5.101.0
+        version: 5.101.0
+      '@tanstack/query-db-collection':
+        specifier: ^1.0.40
+        version: 1.0.40(@tanstack/query-core@5.101.0)(typescript@5.9.3)
+      '@tanstack/react-db':
+        specifier: ^0.1.86
+        version: 0.1.86(react@19.2.7)(typescript@5.9.3)
       '@tanstack/react-hotkeys':
         specifier: ^0.10.0
         version: 0.10.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

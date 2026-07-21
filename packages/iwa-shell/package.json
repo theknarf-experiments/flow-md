@@ -22,6 +22,9 @@
   "dependencies": {
     "@flow-md/ui": "workspace:*",
     "@tanstack/hotkeys": "^0.8.0",
+    "@tanstack/query-core": "^5.101.0",
+    "@tanstack/query-db-collection": "^1.0.40",
+    "@tanstack/react-db": "^0.1.86",
     "@tanstack/react-hotkeys": "^0.10.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

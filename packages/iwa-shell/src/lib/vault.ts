@@ -137,6 +137,20 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(await send(path, init)) as T
 }
 
+/** Writes in flight. Polling reads the file back, so a poll that lands
+ *  between "we sent a change" and "the vault wrote it" would see the old
+ *  file and dutifully undo the change. */
+let writing = 0
+
+async function mutate<T>(path: string, data: unknown): Promise<T> {
+  writing++
+  try {
+    return await json<T>(path, body(data))
+  } finally {
+    writing--
+  }
+}
+
 const body = (data: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -144,6 +158,9 @@ const body = (data: unknown): RequestInit => ({
 })
 
 export const vault = {
+  /** True while one of our own writes hasn't landed yet. */
+  busy: (): boolean => writing > 0,
+
   async available(): Promise<boolean> {
     try {
       const health = await json<{ ok: boolean }>('/health')
@@ -159,7 +176,7 @@ export const vault = {
 
   /** Add a fact. Locator columns the caller can't know (a line) go as 0. */
   insert(rel: string, row: Cell[]): Promise<{ error: string | null }> {
-    return json('/insert', body({ rel, row }))
+    return mutate('/insert', { rel, row })
   },
 
   /** Edit one cell of a query result — the vault traces it back to the file. */
@@ -169,11 +186,11 @@ export const vault = {
     column: string,
     value: Cell,
   ): Promise<{ error: string | null }> {
-    return json('/update', body({ q: query, row, column, value }))
+    return mutate('/update', { q: query, row, column, value })
   },
 
   /** Remove what a query row was derived from. */
   delete(query: string, row: Cell[]): Promise<{ error: string | null }> {
-    return json('/delete', body({ q: query, row }))
+    return mutate('/delete', { q: query, row })
   },
 }

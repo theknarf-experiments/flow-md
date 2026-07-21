@@ -13,5 +13,6 @@ pinned:
 The notes themselves. Links here are tabs — open one in the browser and it is
 written back to this file; close it and the line goes.
 
-- [flow-md](http://localhost:4748/)
-- [http://neverssl.com](http://grandshiningbrightspell.neverssl.com/online/)
+- [flow-md](http://localhost:4748/note/spaces/web.md)
+
+
