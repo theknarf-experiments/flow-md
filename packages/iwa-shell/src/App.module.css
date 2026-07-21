@@ -14,6 +14,7 @@
 .shell {
   /* The breathing room around the card, and the same on every edge. */
   --window-margin: 0.8rem;
+  position: relative;
   display: flex;
   height: 100%;
   background:
@@ -26,6 +27,19 @@
   /* No transition: the hue is driven from the deck's scroll position, so it's
      already following the gesture frame by frame. A transition would only
      make it lag behind the fingers. */
+}
+
+/* Sits under the traffic lights, hanging from the top edge — its left offset
+   and width come from the shell, which measures them against where macOS puts
+   the lights. Not interactive: the lights are painted above the web contents
+   by the OS and must keep their own hit areas. */
+.trafficWell {
+  position: absolute;
+  top: 0;
+  height: 33px;
+  border-radius: 0 0 12px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  pointer-events: none;
 }
 
 /* ---------------------------------------------------------------- sidebar */

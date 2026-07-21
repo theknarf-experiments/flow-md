@@ -59,7 +59,12 @@ const HOME = 'http://localhost:4748/'
  *  lights, which a frameless window draws over the top-left of our content.
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
-const TRAFFIC_LIGHTS = 76
+/** The recess drawn behind the traffic lights. macOS puts them at a fixed
+ *  spot in the window, so these numbers are measured against that: the lights
+ *  span roughly 23–72px from the window's left edge, and the well is inset
+ *  from that edge so it reads as a placed object rather than a corner that
+ *  was cut off. The toolbar starts where the well ends. */
+const TRAFFIC_WELL = { left: 10, width: 82 }
 
 interface Space {
   id: string
@@ -601,8 +606,18 @@ export function App() {
         </Banner>
       )}
 
+      {/* The traffic lights are drawn by macOS at a fixed spot and can't be
+          moved or hidden, so the chrome is built around them: a recess under
+          them turns an unavoidable gap into somewhere they sit. */}
+      {unframed && (
+        <div
+          className={styles.trafficWell}
+          style={{ left: TRAFFIC_WELL.left, width: TRAFFIC_WELL.width }}
+        />
+      )}
+
       <Sidebar open={sidebar} className={styles.sidebar}>
-        <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
+        <Toolbar leadingInset={unframed ? TRAFFIC_WELL.left + TRAFFIC_WELL.width : 0}>
           <IconButton size="lg" tooltip="Hide sidebar  ⌘S" onClick={() => setSidebar((v) => !v)}>
             <SidebarIcon />
           </IconButton>
