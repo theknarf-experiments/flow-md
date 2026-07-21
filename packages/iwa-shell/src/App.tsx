@@ -29,6 +29,7 @@ import {
   HueSwatches,
   IconButton,
   LogPanel,
+  Placeholder,
   PinnedGrid,
   SectionLabel,
   Sidebar,
@@ -73,7 +74,7 @@ import {
   spacesCollection,
   tabsCollection,
 } from './lib/db.js'
-import { vault } from './lib/vault.js'
+import { type Status, vault } from './lib/vault.js'
 
 const HOME = 'http://localhost:4748/'
 /** Width to keep clear at the start of the toolbar row for the macOS traffic
@@ -136,6 +137,10 @@ export function App() {
   )
 
   const [runtime, setRuntime] = useState<Record<string, Runtime>>({})
+  /** Whether the vault answers. The collections poll it anyway; this is the
+   *  same question asked on the window's behalf, so it has something to say
+   *  when they come back with nothing. */
+  const [status, setStatus] = useState<Status>('connecting')
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
@@ -291,6 +296,13 @@ export function App() {
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    const check = () => setStatus(vault.status())
+    check()
+    const timer = setInterval(check, 1000)
+    return () => clearInterval(timer)
   }, [])
 
   // Boot: say what the environment is, and let the collections do the rest.
@@ -705,6 +717,10 @@ export function App() {
     })
   }
 
+  /** Nothing to show in the card: either the vault can't be reached, or it
+   *  can and has no spaces in it. */
+  const nothingLoaded = status === 'offline' || (status === 'connected' && spaces.length === 0)
+
   /** Dragging a tab moves its link in the file, which is what puts the tabs
    *  in that order in the first place. */
   const reorder = useReorder<string>(
@@ -969,7 +985,35 @@ export function App() {
       </Sheet>
 
       <main className={styles.stage}>
-        <div className={styles.card} ref={cardRef} />
+        <div
+          className={`${styles.card} ${nothingLoaded ? styles.empty : ''}`}
+          ref={cardRef}
+        >
+          {/* Guests are put in here imperatively and cover it when there are
+              any; this is what's underneath when there aren't. */}
+          {status === 'offline' && (
+            <Placeholder
+              icon="🔌"
+              title="No vault"
+              command="flow-md serve docs/"
+            >
+              This browser keeps its spaces in markdown files and reads them
+              from a flow-md server. Start one over the folder you keep your
+              notes in, and the window will fill itself in — nothing here needs
+              restarting.
+            </Placeholder>
+          )}
+          {status === 'connected' && spaces.length === 0 && (
+            <Placeholder
+              icon="📓"
+              title="No spaces yet"
+              action={{ label: 'Create one', onClick: addSpace }}
+            >
+              A space is a markdown file with <code>type: space</code> in its
+              frontmatter. Its links are its tabs.
+            </Placeholder>
+          )}
+        </div>
       </main>
 
       <CommandPalette

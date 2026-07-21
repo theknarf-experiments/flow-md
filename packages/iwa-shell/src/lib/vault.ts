@@ -29,6 +29,10 @@ export interface QueryResult {
   rows: Cell[][]
 }
 
+export type Status = 'connecting' | 'connected' | 'offline'
+
+let status: Status = 'connecting'
+
 type Send = (path: string, init?: RequestInit) => Promise<string>
 
 /** The relay, as a script to run inside the guest.
@@ -83,12 +87,27 @@ function connect(): Promise<Send> {
     if (!frame.isConnected) document.body.append(frame)
 
     let seq = 0
-    const exec = async (code: string): Promise<unknown> => {
+    /** Run a script in the guest, but not for ever. A frame whose page never
+     *  loaded doesn't reject in any hurry, so without a clock of our own the
+     *  first attempt can outlast everything waiting on it — which is how a
+     *  browser with no vault sat there saying "connecting" instead of saying
+     *  so. */
+    const exec = async (code: string, ms = 2000): Promise<unknown> => {
       if (typeof frame.executeScript !== 'function') {
         throw new Error('this build of Controlled Frame cannot run scripts')
       }
-      const res = (await frame.executeScript({ code })) as unknown
-      return Array.isArray(res) ? res[0] : res
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        const res = (await Promise.race([
+          frame.executeScript({ code }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('the vault bridge is not answering')), ms)
+          }),
+        ])) as unknown
+        return Array.isArray(res) ? res[0] : res
+      } finally {
+        clearTimeout(timer)
+      }
     }
 
     const send: Send = async (path, init) => {
@@ -125,12 +144,17 @@ function connect(): Promise<Send> {
       return true
     }
     frame.addEventListener('loadstop', () => void attempt())
+    // A deadline rather than a number of tries: what matters is how long
+    // someone is left looking at a window that hasn't said anything yet. Five
+    // seconds, then the shell reports itself offline — and the next poll
+    // starts a fresh attempt, so it comes back on its own when the vault does.
     void (async () => {
-      for (let i = 0; i < 60 && !done; i++) {
+      const until = Date.now() + 5000
+      while (!done && Date.now() < until) {
         if (await attempt()) return
         await new Promise((r) => setTimeout(r, 250))
       }
-      if (!done) failed(new Error('vault bridge did not load'))
+      if (!done) failed(new Error('the vault is not answering on ' + ORIGIN))
     })()
   })
   // A failed connection is not a permanent verdict: the vault may simply not
@@ -145,8 +169,17 @@ function connect(): Promise<Send> {
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const send = await connect()
-  return JSON.parse(await send(path, init)) as T
+  try {
+    const send = await connect()
+    const answer = JSON.parse(await send(path, init)) as T
+    status = 'connected'
+    return answer
+  } catch (err) {
+    // Reaching the vault at all is what this reports. A query the vault
+    // answered with an error still counts as connected — see rowsOf().
+    status = 'offline'
+    throw err
+  }
 }
 
 const mutate = <T,>(path: string, data: unknown): Promise<T> => json<T>(path, body(data))
@@ -158,6 +191,9 @@ const body = (data: unknown): RequestInit => ({
 })
 
 export const vault = {
+  /** Whether the vault is reachable. Not whether it liked the last query. */
+  status: (): Status => status,
+
   async available(): Promise<boolean> {
     try {
       const health = await json<{ ok: boolean }>('/health')

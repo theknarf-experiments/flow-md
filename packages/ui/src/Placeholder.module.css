@@ -1,0 +1,54 @@
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  height: 100%;
+  padding: 2rem;
+  text-align: center;
+  color: var(--fg, #f2f2f2);
+}
+
+.icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  opacity: 0.7;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.detail {
+  max-width: 42ch;
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.command {
+  padding: 0.35rem 0.6rem;
+  border-radius: 7px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  /* Selectable: the point of showing a command is that it gets run. */
+  user-select: all;
+}
+
+.action {
+  margin-top: 0.2rem;
+  padding: 0.4rem 0.8rem;
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 0.83rem;
+  cursor: default;
+}
+.action:hover { background: color-mix(in srgb, currentColor 24%, transparent); }

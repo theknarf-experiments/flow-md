@@ -19,7 +19,30 @@ import { QueryClient } from '@tanstack/query-core'
 import { queryCollectionOptions } from '@tanstack/query-db-collection'
 import { createCollection } from '@tanstack/react-db'
 import { ulid } from './ulid.js'
-import { type Cell, vault } from './vault.js'
+import { type Cell, type QueryResult, vault } from './vault.js'
+
+/** Query errors already reported, so a broken query complains once rather
+ *  than twice a second. */
+const complained = new Set<string>()
+
+/** Run a query, and treat a query the vault couldn't answer as no rows.
+ *
+ *  A relation the server hasn't got — because it's running a build from
+ *  before the relation existed — used to fail the whole load, and the
+ *  browser came up blank with nothing to say about why. One query going
+ *  wrong should cost that query's rows, not every tab in the window.
+ *
+ *  Not reachable at all is a different matter, and still throws: that's the
+ *  collection's cue to report itself offline. */
+async function rowsOf(query: string): Promise<QueryResult['rows']> {
+  const result = await vault.run(query)
+  if (!result.error) return result.rows
+  if (!complained.has(result.error)) {
+    complained.add(result.error)
+    console.warn(`flow-md: query failed, treating as empty — ${result.error}\n  ${query}`)
+  }
+  return []
+}
 
 export interface Space {
   /** The vault-relative path of the file this space is — and, because a space
@@ -115,15 +138,23 @@ const rowOf = (t: Tab): Cell[] => [
 ]
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false } },
+  defaultOptions: {
+    queries: {
+      retry: false,
+      // Keep reading while the window is behind something else. A browser
+      // whose tabs are a file has to notice the file changing whether or not
+      // anyone is looking at it — and without this the shell can't even tell
+      // that the vault has gone away, because it stops asking.
+      refetchIntervalInBackground: true,
+    },
+  },
 })
 
 async function loadSpaces(): Promise<Space[]> {
-  const result = await vault.run(SPACE_QUERY)
-  if (result.error) throw new Error(result.error)
+  const rows = await rowsOf(SPACE_QUERY)
 
   const byPath = new Map<string, Map<string, string[]>>()
-  for (const [path, key, value] of result.rows as [string, string, string][]) {
+  for (const [path, key, value] of rows as [string, string, string][]) {
     const keys = byPath.get(path) ?? new Map<string, string[]>()
     keys.set(key, [...(keys.get(key) ?? []), value])
     byPath.set(path, keys)
@@ -146,16 +177,13 @@ async function loadSpaces(): Promise<Space[]> {
 
 async function loadTabs(): Promise<Tab[]> {
   const [rows, blocks, indents, spaces] = await Promise.all([
-    vault.run(TAB_QUERY),
-    vault.run(BLOCK_QUERY),
-    vault.run(INDENT_QUERY),
+    rowsOf(TAB_QUERY),
+    rowsOf(BLOCK_QUERY),
+    rowsOf(INDENT_QUERY),
     loadSpaces(),
   ])
-  if (rows.error) throw new Error(rows.error)
-  if (blocks.error) throw new Error(blocks.error)
-  if (indents.error) throw new Error(indents.error)
   const indentOf = new Map(
-    (indents.rows as [string, number, number][]).map(([path, line, spaces_]) => [
+    (indents as [string, number, number][]).map(([path, line, spaces_]) => [
       `${path}\n${line}`,
       spaces_,
     ]),
@@ -163,13 +191,13 @@ async function loadTabs(): Promise<Tab[]> {
   const pinned = new Map(spaces.map((s) => [s.id, s.pinned]))
   // A block id belongs to the line it closes.
   const blockOf = new Map(
-    (blocks.rows as [string, string, number][]).map(([path, block, line]) => [
+    (blocks as [string, string, number][]).map(([path, block, line]) => [
       `${path}\n${line}`,
       block,
     ]),
   )
   type Row = [string, number, number, string, number, number, number, string, string, string]
-  const all = rows.rows as Row[]
+  const all = rows as Row[]
 
   // Anything the browser hasn't named yet — a link somebody wrote by hand,
   // or one written a moment ago. Naming it is a write, so it happens out of
