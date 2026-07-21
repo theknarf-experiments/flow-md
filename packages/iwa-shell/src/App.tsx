@@ -857,9 +857,12 @@ export function App() {
                 >
                   {sp.name}
                 </SpaceHeader>
-                <div className={styles.tabList}>
-                  {spaceTabs.filter((t) => !t.pinned).map((t) => renderTab(t, spaceActive))}
+                {/* Above the tabs rather than after them: a list that grows
+                    downwards would otherwise walk the button off the bottom,
+                    and it's the same reach every time up here. */}
+                <div className={styles.newTabRow}>
                   <SidebarButton
+                    className={styles.newTab}
                     onClick={() => {
                       setSpaceId(sp.id)
                       setCommand({ open: true, value: '', newTab: true })
@@ -867,6 +870,9 @@ export function App() {
                   >
                     + New tab
                   </SidebarButton>
+                </div>
+                <div className={styles.tabList}>
+                  {spaceTabs.filter((t) => !t.pinned).map((t) => renderTab(t, spaceActive))}
                 </div>
               </div>
             )

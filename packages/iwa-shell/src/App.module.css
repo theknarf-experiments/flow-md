@@ -81,6 +81,20 @@
   padding-right: 1px;
 }
 
+/* The space's name is on the left, so this sits opposite it — pulled up
+   under the header rather than floating between it and the first tab. */
+.newTabRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: -0.75rem 0 0.15rem;
+}
+
+.newTab {
+  width: auto;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.75rem;
+}
+
 .tabList {
   app-region: no-drag;
   display: flex;

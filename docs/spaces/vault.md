@@ -15,3 +15,4 @@ browser and it is written here, close it and the line goes, drag it and the
 line moves. Indent a line and the tab becomes a child of the one above.
 
 - [flow-md](http://localhost:4748/) ^01KY30XANMCDR1FFY3NMDHSVEY
+- [Hacker News](https://news.ycombinator.com/) ^01KY34GJGW1CNRDM40M19NTQFP
