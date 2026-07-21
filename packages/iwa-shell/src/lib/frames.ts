@@ -79,6 +79,10 @@ export interface FrameHandle {
   scrollToEdge(edge: 'top' | 'end'): void
   /** Put the caret in the page's first real text field — Vimium's `gi`. */
   focusInput(): void
+  /** Hand the guest the userscripts it should run itself. Replaces whatever
+   *  was registered before, so editing a script note re-registers rather than
+   *  stacking a second copy. */
+  setUserScripts(scripts: Array<{ name: string; matches: string[]; code: string }>): void
   /** Follow the page's own "next"/"previous" link, the way `]]` and `[[` do:
    *  paginated things nearly always label the way onward in the same handful
    *  of ways. */
@@ -587,6 +591,33 @@ export function createFrame(
         seen.focus()
         if (seen.select) seen.select()
       })()`)
+    },
+    setUserScripts(scripts) {
+      const f = cf()
+      if (typeof f.addContentScripts !== 'function') return
+      try {
+        // Named after the note, so re-registering the same one replaces it.
+        f.removeContentScripts?.(scripts.map((s) => s.name))
+        if (!scripts.length) return
+        // Controlled Frame's own names, not the webview extension ones it
+        // grew out of: `urlPatterns` rather than `matches`, and a hyphenated
+        // runAt. Passing the old spellings fails with nothing but "incorrect
+        // naming" to go on.
+        void f.addContentScripts(
+          scripts.map((s) => ({
+            name: s.name,
+            urlPatterns: s.matches,
+            js: { code: s.code },
+            // Idle, not document-start: a script that rearranges a page wants
+            // the page to exist. All frames, because the interesting bits of a
+            // page are often in one.
+            runAt: 'document-idle',
+            allFrames: true,
+          })),
+        )
+      } catch {
+        /* a guest mid-navigation can refuse; the next sync re-registers */
+      }
     },
     /** Matched on the link's own words and rel attribute rather than a site
      *  list: "next", "older", "›" and their opposites are how pagination

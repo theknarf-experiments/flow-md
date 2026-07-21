@@ -13,6 +13,10 @@ export interface ControlledFrame extends HTMLElement {
   clearData?(options?: unknown, types?: unknown): Promise<void>
   /** True while the guest is making noise — not whether it has media, but
    *  whether that media is audible right now. */
+  /** Register scripts the guest injects itself, on every matching page and
+   *  across navigations — what an extension's content scripts are. */
+  addContentScripts?(scripts: unknown[]): Promise<void> | void
+  removeContentScripts?(names?: string[]): Promise<void> | void
   getAudioState?(): Promise<boolean>
   isAudioMuted?(): Promise<boolean>
   setAudioMuted?(muted: boolean): void

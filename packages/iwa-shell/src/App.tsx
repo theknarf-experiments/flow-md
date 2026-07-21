@@ -92,6 +92,7 @@ import {
   setProfile,
 } from './lib/db.js'
 import { type Keymap, useKeymap } from './lib/keymap.js'
+import { type UserScript, loadUserScripts, matches } from './lib/userscripts.js'
 import { type Status, vault } from './lib/vault.js'
 
 const HOME = 'http://localhost:4748/'
@@ -356,6 +357,38 @@ export function App() {
       clearInterval(timer)
     }
   }, [tabs])
+
+  /** Extensions, which are notes. Polled like the keymap, so editing a
+   *  userscript note re-registers it without a restart. */
+  const [scripts, setScripts] = useState<UserScript[]>([])
+  useEffect(() => {
+    let alive = true
+    const load = () =>
+      void loadUserScripts().then((s) => {
+        if (alive) setScripts(s)
+      })
+    load()
+    const timer = setInterval(load, 3000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
+
+  /** Give each guest the scripts that claim its url. Registered on the guest
+   *  rather than injected by us, so they survive its own navigations. */
+  useEffect(() => {
+    const enabled = scripts.filter((s) => s.enabled)
+    for (const [id, frame] of frames.current) {
+      const row = tabsCollection.get(id)
+      if (!row) continue
+      frame.setUserScripts(
+        enabled
+          .filter((s) => matches(s.matches, row.url))
+          .map((s) => ({ name: s.path, matches: s.matches, code: s.code })),
+      )
+    }
+  }, [scripts, tabs])
 
   /** The tab making noise, preferring the one in the space you're looking at. */
   const noisy = useMemo(() => {
