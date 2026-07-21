@@ -21,13 +21,6 @@
   color: rgba(255, 255, 255, 0.92);
 }
 
-.navRow {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  app-region: no-drag;
-}
-
 /* The address "pill" — click to open the command bar, like Arc. */
 
 .tabList {
@@ -39,22 +32,6 @@
   min-height: 0;
 }
 .tabList::-webkit-scrollbar { width: 0; }
-
-.newTab {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.34rem 0.5rem;
-  border: 0;
-  border-radius: 9px;
-  background: none;
-  color: rgba(255, 255, 255, 0.5);
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  app-region: no-drag;
-}
-.newTab:hover { background: rgba(255, 255, 255, 0.11); color: #fff; }
 
 /* ---------------------------------------------------------------- content */
 

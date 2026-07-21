@@ -122,16 +122,17 @@ the sidebar runs through the host.
 packages/app/src
 ├── routes/           __root (sidebar shell — builds the app-level host),
 │                     index, note.$ (splat = path)
-├── components/       NotePage, IcsView, CsvView, CommandPalette,
-│                     Editor (+ *.module.css per component)
+├── components/       NotePage, CsvView, CommandPalette (+ *.module.css
+│                     per component) — thin adapters over @flow-md/ui
 │   └── editor/       LiveEditor + live-preview (CM6 Typora view), widgets,
 │                     MdTableGrid
 ├── lib/              db.ts (TanStack DB collections), api.ts, host.ts (the
 │                     view-plugin host impl), wiki, fuzzy, ics
 └── plugins.ts        the registered view plugins → the MDX component registry
 
-packages/ui             shared presentational components (DataView, Tab,
-                        CommandBar, …) + the monorepo's only Storybook
+packages/ui             shared presentational components (EditableGrid,
+                        CommandPalette, DataView, RawEditor, Sidebar, …)
+                        + the monorepo's only Storybook
 packages/view-api       the plugin contract (host interface, FlowMdViewPlugin,
                         FlowMdHostProvider / useFlowMd)
 packages/view-kanban    the <Kanban> plugin       ┐

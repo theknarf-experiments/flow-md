@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { AddressPill } from './AddressPill.js'
 import { IconButton } from './IconButton.js'
-import { SectionLabel, Sidebar, Spacer } from './Sidebar.js'
+import { SectionLabel, Sidebar, SidebarButton, Spacer, Toolbar } from './Sidebar.js'
 import { SpaceRail } from './SpaceRail.js'
 import { Tab } from './Tab.js'
 
@@ -43,7 +43,7 @@ export const Composed: Story = {
     const [active, setActive] = useState('a')
     return (
       <Sidebar>
-        <div style={{ display: 'flex', gap: '0.15rem', alignItems: 'center' }}>
+        <Toolbar>
           <IconButton title="toggle sidebar">▏</IconButton>
           <IconButton title="back" disabled>
             ‹
@@ -52,13 +52,14 @@ export const Composed: Story = {
           <IconButton title="reload">⟳</IconButton>
           <Spacer />
           <IconButton title="capture">⤓</IconButton>
-        </div>
+        </Toolbar>
         <AddressPill value="localhost:4748/note/board.mdx" title="edit address" />
         <SectionLabel>Pinned</SectionLabel>
         <Tab label="flow-md" active={active === 'a'} pinned onSelect={() => setActive('a')} />
         <SectionLabel>Vault</SectionLabel>
         <Tab label="Example Domain" active={active === 'b'} onSelect={() => setActive('b')} />
         <Tab label="Chrome for Developers" active={active === 'c'} onSelect={() => setActive('c')} />
+        <SidebarButton>+ New tab</SidebarButton>
         <Spacer />
         <SpaceRail spaces={SPACES} activeId={space} onSelect={setSpace} />
       </Sidebar>

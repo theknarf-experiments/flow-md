@@ -17,7 +17,7 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 
 | component | |
 | --- | --- |
-| `Sidebar` | fixed-width collapsible chrome column (+ `SectionLabel`, `Spacer`) |
+| `Sidebar` | fixed-width collapsible chrome column (+ `Toolbar`, `SectionLabel`, `SidebarButton`, `Spacer`) |
 | `Tab` | a tab row: label, optional pin toggle and close |
 | `SpaceRail` | the segmented row of spaces along a sidebar's bottom |
 | `AddressPill` | reads as an address field, behaves as a button |
@@ -27,6 +27,7 @@ keep it out of the esbuild prebundle — see the shell's `vite.config.ts`.
 | `Banner` | a strip of bad news, optionally pinned to the top |
 | `DataView` | sortable query-result table with in-place cell editing |
 | `EditableGrid` | editable table grid — the markdown and CSV editors |
+| `RawEditor` | textarea + save bar, with clean/dirty/saving/error |
 
 Two components carry a deliberate design note:
 

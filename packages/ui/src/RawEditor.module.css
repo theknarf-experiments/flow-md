@@ -1,0 +1,42 @@
+.editor textarea {
+  width: 100%;
+  min-height: 70vh;
+  background: var(--bg-side, #151515);
+  color: var(--fg, #dedede);
+  border: 1px solid var(--border, #2e2e2e);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  resize: vertical;
+}
+.editor textarea:focus { outline: 1px solid var(--accent-dim, #1663b3); }
+
+.bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+.bar button {
+  background: var(--accent-dim, #1663b3);
+  border: none;
+  border-radius: 6px;
+  color: var(--accent-fg, #fff);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.3rem 1rem;
+}
+.bar button:disabled { opacity: 0.4; cursor: default; }
+
+.status {
+  color: var(--fg-dim, #8a8a8a);
+  font-size: 0.8rem;
+}
+.status.dirty { color: var(--accent, #1a8fff); }
+
+.error {
+  color: var(--danger, #d97c7c);
+  font-size: 0.85rem;
+}

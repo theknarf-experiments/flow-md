@@ -24,8 +24,10 @@ import {
   SectionLabel,
   Sidebar,
   SpaceRail,
+  SidebarButton,
   Spacer,
   Tab as TabRow,
+  Toolbar,
   fuzzyFilter,
 } from '@flow-md/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -334,7 +336,7 @@ export function App() {
       )}
 
       <Sidebar open={sidebar} className={styles.sidebar}>
-        <div className={styles.navRow}>
+        <Toolbar>
           <IconButton title="toggle sidebar (⌘S)" onClick={() => setSidebar((s) => !s)}>
             ▏
           </IconButton>
@@ -368,7 +370,7 @@ export function App() {
           <IconButton title="capture page (archive test)" onClick={() => void capture()}>
             ⤓
           </IconButton>
-        </div>
+        </Toolbar>
 
         <AddressPill
           value={active ? active.url.replace(/^https?:\/\//, '') : ''}
@@ -386,13 +388,9 @@ export function App() {
         <SectionLabel>{space.name}</SectionLabel>
         <div className={styles.tabList}>
           {loose.map(renderTab)}
-          <button
-            type="button"
-            className={styles.newTab}
-            onClick={() => setCommand({ open: true, value: '', newTab: true })}
-          >
+          <SidebarButton onClick={() => setCommand({ open: true, value: '', newTab: true })}>
             + New tab
-          </button>
+          </SidebarButton>
         </div>
 
         <Spacer />

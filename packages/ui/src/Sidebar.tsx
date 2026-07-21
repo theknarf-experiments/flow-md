@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from 'react'
 import styles from './Sidebar.module.css'
 
 export interface SidebarProps {
@@ -35,4 +35,28 @@ export function SectionLabel({ children }: { children: ReactNode }) {
 /** Pushes what follows to the far end of a flex row/column. */
 export function Spacer() {
   return <span className={styles.spacer} />
+}
+
+/** A row of icon controls. Opts out of the window drag region so the buttons
+ *  stay clickable inside a draggable Sidebar. */
+export function Toolbar({ children }: { children: ReactNode }) {
+  return <div className={styles.toolbar}>{children}</div>
+}
+
+/** Full-width ghost button for sidebar rows — "+ New tab" and friends. */
+export function SidebarButton({
+  children,
+  className,
+  type,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type={type ?? 'button'}
+      className={[styles.sidebarButton, className].filter(Boolean).join(' ')}
+      {...rest}
+    >
+      {children}
+    </button>
+  )
 }

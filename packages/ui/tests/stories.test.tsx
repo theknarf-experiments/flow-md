@@ -5,17 +5,19 @@
 // on top — so a story that stops rendering fails CI, not just visual review.
 
 import { composeStories } from '@storybook/react-vite'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as calendarStories from '../../view-ics/src/Calendar.stories.js'
 import * as dataViewStories from '../src/DataView.stories.js'
 import * as fileTreeStories from '../../view-filetree/src/FileTree.stories.js'
 import * as gridStories from '../src/EditableGrid.stories.js'
+import * as rawEditorStories from '../src/RawEditor.stories.js'
 
 const fileTree = composeStories(fileTreeStories)
 const ics = composeStories(calendarStories)
 const dataView = composeStories(dataViewStories)
 const grid = composeStories(gridStories)
+const rawEditor = composeStories(rawEditorStories)
 
 afterEach(cleanup)
 
@@ -100,5 +102,29 @@ describe('EditableGrid stories', () => {
     render(<grid.Empty />)
     expect(screen.getByText('name')).toBeTruthy()
     expect(screen.getByText('0 rows')).toBeTruthy()
+  })
+})
+
+describe('RawEditor stories', () => {
+  it('Default starts clean and goes dirty on input', async () => {
+    const { container } = render(<rawEditor.Default />)
+    expect(screen.getByText('clean')).toBeTruthy()
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('no textarea')
+    fireEvent.change(textarea, { target: { value: 'edited' } })
+    expect(screen.getByText('unsaved changes')).toBeTruthy()
+    // Save is only offered once there's something to save.
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('clean')).toBeTruthy())
+  })
+
+  it('SaveFails surfaces the reason and keeps the draft', async () => {
+    const { container } = render(<rawEditor.SaveFails />)
+    const textarea = container.querySelector('textarea')
+    if (!textarea) throw new Error('no textarea')
+    fireEvent.change(textarea, { target: { value: 'edited' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText(/no longer contains/)).toBeTruthy())
+    expect(textarea.value).toBe('edited')
   })
 })
