@@ -7,7 +7,11 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["borderless", "unframed", "window-controls-overlay"],
+  "display_override": [
+    "borderless",
+    "unframed",
+    "window-controls-overlay"
+  ],
   "background_color": "#1a1a1a",
   "theme_color": "#1a1a1a",
   "icons": [
@@ -19,8 +23,14 @@
     }
   ],
   "permissions_policy": {
-    "cross-origin-isolated": ["self"],
-    "controlled-frame": ["self"],
-    "window-management": ["self"]
+    "cross-origin-isolated": [
+      "self"
+    ],
+    "controlled-frame": [
+      "self"
+    ],
+    "window-management": [
+      "self"
+    ]
   }
 }

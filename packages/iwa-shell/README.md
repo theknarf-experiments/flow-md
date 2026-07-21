@@ -45,6 +45,24 @@ Verified from a clean profile, zero clicks: `outerHeight - innerHeight == 0`
 (no title bar, no infobar), sidebar drawn from y=0. Note that passing
 `--remote-debugging-port` yourself re-adds that 56px infobar.
 
+### The traffic lights stay
+
+A frameless window still gets the macOS window buttons drawn over the
+top-left of the content, and there is no way to move, hide or even locate
+them:
+
+- `display_override: ["borderless"]` — the mode that would drop them — falls
+  back to `standalone` (the title bar returns), so it isn't implemented here.
+  `unframed` is the only frameless mode, and it draws them.
+- `navigator.windowControlsOverlay.visible` is `false`, `getTitlebarAreaRect()`
+  is all zeros, and `env(titlebar-area-*)` is unset — those only report under a
+  window-controls *overlay*, which unframed is not.
+- Replacing them with HTML buttons wouldn't work either: `window.close()`
+  exists, but the web has no API to minimize a window.
+
+So the toolbar is laid out beside them, with a hardcoded leading inset —
+the same thing Darc does (`.navigation-toolbar { left: 86px }`).
+
 flow-md itself is just a tab — an ordinary page served by the local process —
 so **nothing about the app has to change**. MDX with live components,
 `@mdx-js/mdx`'s runtime `evaluate()`, and everything else a normal web page

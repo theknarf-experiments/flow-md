@@ -42,6 +42,11 @@ import {
 import { type FrameHandle, createFrame, normalizeUrl } from './lib/frames.js'
 
 const HOME = 'http://localhost:4748/'
+/** Width to keep clear at the start of the toolbar row for the macOS traffic
+ *  lights, which a frameless window draws over the top-left of our content.
+ *  Hardcoded because Chrome exposes no metric for them — the same number
+ *  Darc uses, less this sidebar's own padding. */
+const TRAFFIC_LIGHTS = 76
 
 interface Space {
   id: string
@@ -83,6 +88,12 @@ export function App() {
   const [showLog, setShowLog] = useState(false)
   /** Shown only while Chrome still draws a title bar we could get rid of. */
   const [offerUnframe, setOfferUnframe] = useState(false)
+  /** Frameless window: macOS draws the traffic lights straight over our
+   *  content, and env(titlebar-area-height) stays 0 because there's no
+   *  window-controls overlay to report — so reserve the space ourselves.
+   *  Measured after mount, not during: the window is still settling on the
+   *  first render and outerHeight/innerHeight don't agree yet. */
+  const [unframed, setUnframed] = useState(false)
 
   const cardRef = useRef<HTMLDivElement>(null)
   const frames = useRef(new Map<number, FrameHandle>())
@@ -154,6 +165,13 @@ export function App() {
     },
     [log],
   )
+
+  useEffect(() => {
+    const check = () => setUnframed(!hasTitleBar())
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
 
   // Boot: flow-md pinned in the Vault space, a site in Web.
   useEffect(() => {
@@ -336,7 +354,7 @@ export function App() {
       )}
 
       <Sidebar open={sidebar} className={styles.sidebar}>
-        <Toolbar>
+        <Toolbar leadingInset={unframed ? TRAFFIC_LIGHTS : 0}>
           <IconButton title="toggle sidebar (⌘S)" onClick={() => setSidebar((s) => !s)}>
             ▏
           </IconButton>

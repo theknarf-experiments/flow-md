@@ -38,9 +38,26 @@ export function Spacer() {
 }
 
 /** A row of icon controls. Opts out of the window drag region so the buttons
- *  stay clickable inside a draggable Sidebar. */
-export function Toolbar({ children }: { children: ReactNode }) {
-  return <div className={styles.toolbar}>{children}</div>
+ *  stay clickable inside a draggable Sidebar.
+ *
+ *  `leadingInset` reserves space at the start of the row for window controls
+ *  the OS draws over the content. In a frameless window the traffic lights
+ *  sit at the top-left and cannot be moved, hidden, or even located —
+ *  `navigator.windowControlsOverlay` reports nothing and `env(titlebar-area-*)`
+ *  is unset outside a window-controls overlay — so the row is laid out
+ *  beside them instead. */
+export function Toolbar({
+  children,
+  leadingInset = 0,
+}: { children: ReactNode; leadingInset?: number }) {
+  return (
+    <div
+      className={styles.toolbar}
+      style={{ paddingLeft: leadingInset ? `${leadingInset}px` : undefined }}
+    >
+      {children}
+    </div>
+  )
 }
 
 /** Full-width ghost button for sidebar rows — "+ New tab" and friends. */
