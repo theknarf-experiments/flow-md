@@ -13,6 +13,8 @@ export interface TabProps {
   onSelect?: () => void
   onTogglePin?: () => void
   onClose?: () => void
+  /** Drag props from useReorder — spread onto the row. */
+  drag?: Record<string, unknown>
   /** Right-click affordance — the shell hangs rename/copy/move/close off it. */
   onContextMenu?: (e: MouseEvent<HTMLElement>) => void
   /** Swaps the label for an input. Commit with Enter or by clicking away,
@@ -27,7 +29,7 @@ export interface TabProps {
  *  a <button> inside a <button> is invalid HTML and React will warn. */
 export function Tab(props: TabProps) {
   const { label, icon, title, active, pinned, onSelect, onTogglePin, onClose } = props
-  const { onContextMenu, editing, onRename, onCancelRename } = props
+  const { onContextMenu, editing, onRename, onCancelRename, drag } = props
   const input = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -73,6 +75,7 @@ export function Tab(props: TabProps) {
       onClick={onSelect}
       onContextMenu={onContextMenu}
       title={title ?? label}
+      {...drag}
     >
       {glyph}
       <span className={styles.label}>{label}</span>

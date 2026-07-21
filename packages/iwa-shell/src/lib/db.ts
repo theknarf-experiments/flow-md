@@ -262,6 +262,49 @@ async function nameLinks(lines: Array<[space: string, line: number]>): Promise<v
   await tabsCollection.utils.refetch()
 }
 
+const blockQuery = (space: string) =>
+  `MdBlockId(${JSON.stringify(space)}, block, line)`
+
+/** Move a link so it sits before another one — or last, when there's nothing
+ *  to sit before.
+ *
+ *  A line can't be moved as such; it's removed and written again. That's four
+ *  edits because the id goes with it: without carrying the same `^id` across,
+ *  the tab would come back as a different tab and reload the page it was
+ *  showing. The line numbers are re-read in between, since taking a line out
+ *  renumbers everything under it. */
+export async function moveLink(tab: Tab, before: Tab | null): Promise<void> {
+  const id = tab.block ?? ulid()
+  if (tab.block) {
+    await vault.delete(blockQuery(tab.space), [tab.block, tab.line], 'MdBlockId')
+  }
+  await vault.delete(TAB_QUERY, rowOf(tab), 'MdNode')
+
+  const now = await vault.run(TAB_QUERY)
+  const at = before
+    ? (now.rows as [string, ...unknown[]][]).find(
+        (r) => r[0] === before.space && r[8] === before.url && r[9] === before.title,
+      )
+    : undefined
+  // 0 appends; anything else inserts before that line.
+  const line = at ? Number(at[4]) : 0
+  const put = await vault.insert('LinkLabel', [tab.space, tab.url, tab.title, line])
+  if (put.error) {
+    // The link has already been taken out, so a failure here would lose it.
+    await vault.insert('LinkLabel', [tab.space, tab.url, tab.title, 0])
+    throw new Error(`move failed, link put back: ${put.error}`)
+  }
+
+  // Where it actually landed, so the id lands on the same line.
+  const written = await vault.run(TAB_QUERY)
+  const landed = (written.rows as [string, ...unknown[]][])
+    .filter((r) => r[0] === tab.space && r[8] === tab.url && r[9] === tab.title)
+    .map((r) => Number(r[4]))
+  const target = line === 0 ? Math.max(...landed) : line
+  await vault.insert('MdBlockId', [tab.space, id, target])
+  await tabsCollection.utils.refetch()
+}
+
 export async function addLink(space: string, url: string, title: string): Promise<void> {
   // Line 0 means append; the reparse decides where it really goes.
   await vault.insert('LinkLabel', [space, url, title, 0])

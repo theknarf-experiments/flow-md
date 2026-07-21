@@ -45,6 +45,7 @@ import {
   SwipeDeck,
   fuzzyFilter,
   useContextMenu,
+  useReorder,
 } from '@flow-md/ui'
 import {
   formatForDisplay,
@@ -67,6 +68,7 @@ import {
   type Space,
   type Tab as Row,
   addLink,
+  moveLink,
   spacesCollection,
   tabsCollection,
 } from './lib/db.js'
@@ -702,6 +704,22 @@ export function App() {
     })
   }
 
+  /** Dragging a tab moves its link in the file, which is what puts the tabs
+   *  in that order in the first place. */
+  const reorder = useReorder<string>(
+    (id, before) => {
+      const moved = tabsCollection.get(id)
+      if (!moved) return
+      // The list is every space's tabs end to end, so the row after the last
+      // one of a space belongs to the next space. Landing before *that* would
+      // mean writing into another file at a line that isn't there — so past
+      // the end of its own space means last.
+      const target = before ? tabsCollection.get(before) : undefined
+      void moveLink(moved, target?.space === moved.space ? target : null)
+    },
+    tabs.map((t) => t.id),
+  )
+
   const renderTab = (tab: Row, activeInSpace: string | null) => (
     <TabRow
       key={tab.id}
@@ -717,6 +735,7 @@ export function App() {
       onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))}
       onTogglePin={() => togglePin(tab)}
       onClose={() => closeTab(tab.id)}
+      drag={reorder.row(tab.id)}
     />
   )
 
