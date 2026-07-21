@@ -175,15 +175,40 @@ const hintScript = (newTab: boolean) => `(() => {
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i]
     t.key = label(i)
+    t.hit = true
     const tag = document.createElement('div')
     tag.className = 'h'
     tag.textContent = t.key.toUpperCase()
-    tag.style.left = Math.max(0, t.r.left) + 'px'
-    // Enough room for the chip to sit above the corner without clipping.
-    tag.style.top = Math.max(11, t.r.top) + 'px'
     root.append(tag)
     t.tag = tag
   }
+
+  /** Puts every label back on its target.
+   *
+   *  Labels are viewport-positioned, which is what lets them work on pages
+   *  that scroll a nested div or pin a sticky header — but it also means the
+   *  page moving underneath them is a lie unless they're recomputed. So they
+   *  are, on every scroll: cheaper than the alternative of throwing hint mode
+   *  away because the page twitched. */
+  const place = () => {
+    for (const t of targets) {
+      const r = t.el.getBoundingClientRect()
+      t.tag.style.left = Math.max(0, r.left) + 'px'
+      // Enough room for the chip to sit above the corner without clipping.
+      t.tag.style.top = Math.max(11, r.top) + 'px'
+      const seen = r.width >= 3 && r.height >= 3 &&
+        r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth
+      t.tag.classList.toggle('off', !t.hit || !seen)
+    }
+  }
+  // Coalesced to a frame: a trackpad fling fires scroll far faster than paint.
+  let queued = false
+  const reflow = () => {
+    if (queued) return
+    queued = true
+    requestAnimationFrame(() => { queued = false; place() })
+  }
+  place()
 
   let typed = ''
   const cancel = () => {
@@ -191,7 +216,10 @@ const hintScript = (newTab: boolean) => `(() => {
     w.__flowmdHintsCancel = null
     host.remove()
     removeEventListener('keydown', onKey, true)
-    removeEventListener('scroll', cancel, true)
+    // Capture, because scroll doesn't bubble: this is how a nested scroller's
+    // own scrolling gets seen at all.
+    removeEventListener('scroll', reflow, true)
+    removeEventListener('resize', reflow, true)
   }
   const activate = (t) => {
     const el = t.el
@@ -219,9 +247,10 @@ const hintScript = (newTab: boolean) => `(() => {
     }
     let live = 0, only = null
     for (const t of targets) {
-      const hit = t.key.indexOf(typed) === 0
-      t.tag.classList.toggle('off', !hit)
-      if (!hit) continue
+      t.hit = t.key.indexOf(typed) === 0
+      if (!t.hit) continue
+      // Counted whether or not it's still on screen: a label typed in full
+      // should do what it says, even if scrolling has carried it off.
       live++
       only = t
       // Grey out what's already been typed, so what's left to type stands out.
@@ -229,13 +258,58 @@ const hintScript = (newTab: boolean) => `(() => {
         '</span>' + t.key.slice(typed.length).toUpperCase()
     }
     if (!live) return cancel()
-    if (live === 1 && only.key === typed) activate(only)
+    if (live === 1 && only.key === typed) return activate(only)
+    place()
   }
   w.__flowmdHints = true
   w.__flowmdHintsCancel = cancel
   addEventListener('keydown', onKey, true)
-  addEventListener('scroll', cancel, true)
+  addEventListener('scroll', reflow, true)
+  addEventListener('resize', reflow, true)
   return targets.length
+})()`
+
+/** Whatever actually scrolls: the document, or the first inner box with
+ *  overflow — which is what most app-shaped pages scroll instead. */
+const SCROLLER = `(() => {
+  const el = document.scrollingElement || document.documentElement
+  if (el.scrollHeight > el.clientHeight) return el
+  return [...document.querySelectorAll('*')].find((n) => n.scrollHeight > n.clientHeight + 40) || el
+})()`
+
+/** Smooth scrolling that survives a held key.
+ *
+ *  Not `behavior: 'smooth'`: that restarts its animation on every press, so
+ *  holding `j` stutters rather than glides. This keeps a running distance-left
+ *  and eases it out, so presses pile onto one continuous motion — the faster
+ *  they come, the faster the page moves. */
+const GLIDE = `(() => {
+  const w = window
+  if (w.__flowmdGlide) return
+  let el = null, left = 0, raf = 0, last = 0
+  const frame = (now) => {
+    const dt = Math.min(48, now - last)
+    last = now
+    // A fixed fraction of what's left per unit time, so the speed is the same
+    // whatever the frame rate: ~150ms to settle.
+    const move = left * (1 - Math.pow(0.0015, dt / 1000))
+    const was = el.scrollTop
+    el.scrollBy({ top: move, behavior: 'instant' })
+    left -= move
+    // Settled, or up against the end of the page — either way, stop.
+    if (Math.abs(left) < 0.5 || (Math.abs(move) >= 1 && el.scrollTop === was)) {
+      left = 0
+      raf = 0
+      return
+    }
+    raf = requestAnimationFrame(frame)
+  }
+  w.__flowmdGlideStop = () => { left = 0 }
+  w.__flowmdGlide = (dy, scroller) => {
+    el = scroller
+    left += dy
+    if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame) }
+  }
 })()`
 
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
@@ -346,25 +420,19 @@ export function createFrame(
         return 0
       }
     },
-    /** Scrolling happens inside the guest, so it has to be scripted in.
-     *  `scrollingElement` rather than `window`: a page whose scroller is a
-     *  styled <div> — which most app-shaped pages are — ignores window.scrollBy. */
+    /** Scrolling happens inside the guest, so it has to be scripted in. */
     scrollBy(dy) {
       void exec(`(() => {
-        const el = document.scrollingElement || document.documentElement
-        const inner = el.scrollHeight <= el.clientHeight
-          ? [...document.querySelectorAll('*')].find((n) => n.scrollHeight > n.clientHeight + 40)
-          : null
-        ;(inner || el).scrollBy({ top: ${dy}, behavior: 'instant' })
+        ${GLIDE}
+        window.__flowmdGlide(${dy}, ${SCROLLER})
       })()`)
     },
+    /** The edges jump. A glide the length of a long page is a wait, not a
+     *  gesture — `gg` means "take me there", not "take me there scenically". */
     scrollToEdge(edge) {
       void exec(`(() => {
-        const el = document.scrollingElement || document.documentElement
-        const inner = el.scrollHeight <= el.clientHeight
-          ? [...document.querySelectorAll('*')].find((n) => n.scrollHeight > n.clientHeight + 40)
-          : null
-        const target = inner || el
+        if (window.__flowmdGlideStop) window.__flowmdGlideStop()
+        const target = ${SCROLLER}
         target.scrollTo({ top: ${edge === 'top' ? '0' : 'target.scrollHeight'}, behavior: 'instant' })
       })()`)
     },
