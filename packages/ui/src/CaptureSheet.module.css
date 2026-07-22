@@ -1,0 +1,137 @@
+/* Same overlay as the command palette: this is the third thing that opens
+   over the window, and they should feel like one family. Sat a little higher
+   up the screen, because the panel is much taller. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  background: rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(2px);
+}
+
+.sheet {
+  width: min(680px, 88vw);
+  border-radius: 13px;
+  background: var(--bg-raise, #26262b);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  color: var(--fg, #f2f2f2);
+}
+
+/* Where it came from, stated once at the top — the clip's body shouldn't have
+   to repeat it, and the line written into the file carries it anyway. */
+.source {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  font-size: 0.76rem;
+}
+
+.favicon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+  flex: none;
+}
+
+.sourceTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.sourceNote {
+  flex: none;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  padding: 0.85rem 0.9rem;
+  outline: none;
+  resize: vertical;
+  min-height: 8rem;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.9rem 0.6rem;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  font-size: 0.74rem;
+}
+
+.destination {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.into {
+  opacity: 0.5;
+}
+
+.select {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.15rem 0.25rem;
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+.hint {
+  flex: 1;
+  color: var(--fg-dim, rgba(255, 255, 255, 0.4));
+}
+
+.hint kbd {
+  font: inherit;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0 0.25rem;
+  margin-right: 0.1rem;
+}
+
+.save {
+  border: 0;
+  border-radius: 7px;
+  padding: 0.25rem 0.7rem;
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  font: inherit;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.save:hover {
+  background: rgba(255, 255, 255, 0.22);
+}

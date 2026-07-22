@@ -17,6 +17,7 @@
 import {
   AddressPill,
   Banner,
+  CaptureSheet,
   CommandPalette,
   type PaletteItem,
   ChevronLeftIcon,
@@ -281,6 +282,12 @@ export function App() {
   const [renamingProfile, setRenamingProfile] = useState<{ from: string; value: string } | null>(
     null,
   )
+  /** The clip ⌘L is holding, until it's filed or discarded. */
+  const [capturing, setCapturing] = useState<{
+    value: string
+    space: string
+    source: { title: string; url: string; icon: string | null; note?: string } | null
+  } | null>(null)
   const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
   const spaceMenu = useContextMenu<string>()
@@ -509,26 +516,52 @@ export function App() {
     openTab(gone.url, { space: gone.space || spaceId })
   }, [openTab, spaceId, space, log])
 
-  /** ⌘L: take what's on screen and put it in the space's file.
+  /** ⌘L: read what's on screen and open it for a look before it's filed.
    *
-   *  The clip lands in the same document as the tab it came from, so the page
-   *  and the note about it are one file — and it carries an id of its own, the
-   *  same kind a tab has, so a later query can treat them alike. Written as a
-   *  blockquote, which is also what keeps its source link from opening as a
-   *  tab: the tab list is a list, and clips aren't in it. */
+   *  Writing straight to the file is faster, but it leaves nowhere to trim a
+   *  selection that caught too much, add the line saying why you kept it, or
+   *  send it somewhere other than the space you're standing in. So ⌘L reads
+   *  the page and opens the sheet; ⌘⏎ files it. With nothing selected the
+   *  sheet still opens, because capture is also just somewhere to write.
+   *
+   *  What gets written lands in the space's own file as a blockquote with an
+   *  id — the same kind a tab has — so the page and the note about it are one
+   *  document, and a clip's source link doesn't open as a tab of its own. */
   const capture = useCallback(async () => {
     const frame = activeId ? frames.current.get(activeId) : undefined
-    if (!frame || !space) return
-    const clip = await frame.capture()
-    if (!clip?.markdown.trim()) {
-      frame?.toast('Nothing to clip')
-      return
-    }
-    const id = await captureClip(space.id, clip)
+    const clip = frame ? await frame.capture() : null
+    setCapturing({
+      value: clip?.markdown ?? '',
+      space: space?.id ?? '',
+      source: clip
+        ? {
+            title: clip.title,
+            url: clip.url,
+            icon: activeId ? (runtime[activeId]?.icon ?? null) : null,
+            note: clip.note,
+          }
+        : null,
+    })
+  }, [activeId, space, runtime])
+
+  /** File what the sheet is holding. */
+  const saveCapture = useCallback(async () => {
+    if (!capturing) return
+    const { value, space: target, source } = capturing
+    setCapturing(null)
+    if (!value.trim() || !target) return
+    const id = await captureClip(target, {
+      markdown: value,
+      title: source?.title ?? '',
+      url: source?.url ?? '',
+      ...(source?.note ? { note: source.note } : {}),
+    })
+    const name = spaces.find((sp) => sp.id === target)?.name ?? target
     // Said inside the page, where you were looking, rather than in the chrome.
-    frame.toast(id ? 'Clipped to ' + space.name : 'Clip failed')
-    log(id ? `clip → ${space.id}` : 'clip failed')
-  }, [activeId, space, log])
+    const frame = activeId ? frames.current.get(activeId) : undefined
+    frame?.toast(id ? `Clipped to ${name}` : 'Clip failed')
+    log(id ? `clip → ${target}` : 'clip failed')
+  }, [capturing, spaces, activeId, log])
 
   /** Rows in, guests out. The only place the document and the browser meet:
    *  every row gets a frame, every frame without a row is destroyed. There is
@@ -729,7 +762,10 @@ export function App() {
    *  keymap: a rebound action takes the file's key, an unmapped default is
    *  turned off, and an untouched one keeps the chord written here. */
   const keymap = useKeymap()
-  const vim = (name: string) => ({ enabled: !command.open, meta: { name, category: 'Page' } })
+  const vim = (name: string) => ({
+    enabled: !command.open && !capturing,
+    meta: { name, category: 'Page' },
+  })
   const tabs_ = (name: string) => ({ meta: { name, category: 'Tabs & spaces' } })
   const win = (name: string) => ({ meta: { name, category: 'Window' } })
   const nth = (n: number) => ({
@@ -1423,6 +1459,18 @@ export function App() {
           </ContextMenuItem>
         </ContextMenu>
       )}
+
+      <CaptureSheet
+        open={!!capturing}
+        value={capturing?.value ?? ''}
+        onChange={(value) => setCapturing((c) => (c ? { ...c, value } : c))}
+        source={capturing?.source ?? null}
+        spaces={spaces.map((sp) => ({ id: sp.id, name: sp.name, emoji: sp.emoji }))}
+        spaceId={capturing?.space ?? spaceId}
+        onSpaceChange={(id) => setCapturing((c) => (c ? { ...c, space: id } : c))}
+        onSave={() => void saveCapture()}
+        onDismiss={() => setCapturing(null)}
+      />
 
       {/* Naming a profile. A sheet rather than a prompt() — the shell disables
           the native dialogs along with the native menu. */}

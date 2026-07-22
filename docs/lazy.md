@@ -37,14 +37,15 @@ the one place this stops being a mapping exercise.
 
 The centre of the product. Everything else is what happens to a clip after.
 
-- [ ] `capture` action: a guest script that reads the selection, its HTML, the
+- [x] `capture` action: a guest script that reads the selection, its HTML, the
       page url, title, favicon and time
-- [ ] Selection HTML → markdown, so a clipped list stays a list
-- [ ] Write the clip to an inbox note as a block with a `^ULID` and a source link
-- [ ] Site-aware extractors: tweet (author, text, thread), YouTube (video id and
-      the timestamp you were at), PDF (page number), article (byline, canonical url)
-- [ ] Capture with no selection = the whole readable article
-- [ ] A toast in the guest confirming the clip, so nothing about it needs the shell
+- [x] Selection HTML → markdown, so a clipped list stays a list
+- [x] Write the clip to the space's own file as a block with a `^ULID` and a source link
+- [ ] Site-aware extractors: a video's timestamp and a tweet's author are read;
+      still to do are PDF page numbers, bylines and canonical urls
+- [x] Capture with no selection = the whole readable article, or nothing
+- [x] A toast in the guest confirming the clip, so nothing about it needs the shell
+- [x] ⌘L opens a sheet — edit the clip, pick where it goes, ⌘⏎ to file it
 
 ## Phase 2 — Cards and triage
 
