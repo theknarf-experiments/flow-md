@@ -5,7 +5,9 @@ export interface ControlledFrame extends HTMLElement {
   src: string
   partition: string
   /** Runs code in the guest and resolves with the per-frame results. */
-  executeScript?(details: { code: string }): Promise<unknown>
+  /** `allFrames` reaches nested documents — which is the only way to see
+   *  Chrome's pdf viewer, since it renders in a frame inside the guest. */
+  executeScript?(details: { code: string; allFrames?: boolean }): Promise<unknown>
   reload?(): void
   back?(): Promise<void> | void
   forward?(): Promise<void> | void

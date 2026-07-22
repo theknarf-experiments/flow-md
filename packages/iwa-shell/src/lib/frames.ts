@@ -346,6 +346,9 @@ export interface Clip {
   /** Extra source detail, when the page is a kind we know: a tweet's author,
    *  the second of a video, a pdf's page. */
   note: string
+  /** Whether Chrome's pdf viewer is what's showing — worth knowing because the
+   *  page number then lives one frame further in. */
+  pdf: boolean
 }
 
 /** Read the selection and the page around it.
@@ -513,9 +516,11 @@ const CAPTURE = `(() => {
       }
     }
   }
-  if (/\\.pdf($|[?#])/i.test(location.pathname + location.search)) {
-    // All a pdf will tell us. The viewer is a plugin: no title, no text, no
-    // page number — only the address, and only if it already said one.
+  // A pdf guest's own document is a stub: an empty body and a stylesheet from
+  // Chrome's viewer extension. That marker is the reliable test — arxiv serves
+  // papers from /pdf/1706.03762, with no extension for a url check to find.
+  const isPdf = !!document.querySelector('link[href*="pdf_embedder"]')
+  if (isPdf) {
     const page = /[#&]page=(\\d+)/.exec(location.hash)
     if (page) note = 'page ' + page[1]
   }
@@ -554,10 +559,36 @@ const CAPTURE = `(() => {
     title: document.title,
     url: canonical,
     link: link,
+    pdf: isPdf,
     byline: byline,
     published: published,
     note: note,
   })
+})()`
+
+/** What page of a pdf you're looking at.
+ *
+ *  Chrome renders a pdf by handing it to its own viewer extension, which lives
+ *  in a frame *inside* the guest — so the guest's own document is a stub with
+ *  no title, no text and no page number, which is what made this look
+ *  impossible at first. `allFrames` reaches the viewer, and its shadow root is
+ *  open, so the page selector can simply be read. The text can't: it belongs
+ *  to the PDFium plugin, whose message channel refuses an injected caller. */
+const PDF_PAGE = `(() => {
+  if (!location.href.startsWith('chrome-extension://')) return ''
+  const deep = (root, sel) => {
+    const hit = root.querySelector(sel)
+    if (hit) return hit
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) {
+        const inner = deep(el.shadowRoot, sel)
+        if (inner) return inner
+      }
+    }
+    return null
+  }
+  const input = deep(document, 'input#pageSelector')
+  return input && input.value ? String(input.value) : ''
 })()`
 
 /** A word from the browser, inside the page, that a clip was taken. Drawn in
@@ -885,7 +916,23 @@ export function createFrame(
       try {
         const res = (await f.executeScript({ code: CAPTURE })) as unknown
         const raw = Array.isArray(res) ? res[0] : res
-        return JSON.parse(String(raw)) as Clip
+        const clip = JSON.parse(String(raw)) as Clip
+        if (!clip.pdf) return clip
+        // A pdf's page number lives one frame in, so it costs a second call —
+        // made only for pdfs, because allFrames on an ordinary page would also
+        // run in every ad and embed it happens to contain.
+        const pages = (await f.executeScript({
+          code: PDF_PAGE,
+          allFrames: true,
+        })) as unknown
+        const page = (Array.isArray(pages) ? pages : [pages]).map(String).find((p) => p && p !== 'undefined')
+        if (!page) return clip
+        return {
+          ...clip,
+          note: `page ${page}`,
+          // Chrome's viewer honours #page=, so the link reopens where you were.
+          link: `${clip.url.split('#')[0]}#page=${page}`,
+        }
       } catch {
         return null
       }

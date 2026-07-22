@@ -46,9 +46,11 @@ The centre of the product. Everything else is what happens to a clip after.
 - [x] A text fragment in the source link, so it reopens at the sentence you
       clipped — on any site, which beats knowing about particular ones
 - [x] A video's timestamp becomes `t=` in the link, not just a note
-- [ ] PDFs give up nothing: the viewer is a plugin with no title, no text and
-      no page number reachable from a script. Only `#page=` if the url already
-      said it
+- [x] PDF page numbers, and a `#page=` link that reopens there. Chrome renders
+      a pdf in its own viewer extension, one frame inside the guest, so
+      `allFrames` reaches it and its shadow root is open
+- [ ] PDF *text* can't be had: it belongs to the PDFium plugin, whose message
+      channel refuses an injected caller. Serving our own viewer would fix it
 - [x] Capture with no selection = the whole readable article, or nothing
 - [x] A toast in the guest confirming the clip, so nothing about it needs the shell
 - [x] ⌘L opens a sheet — edit the clip, pick where it goes, ⌘⏎ to file it
