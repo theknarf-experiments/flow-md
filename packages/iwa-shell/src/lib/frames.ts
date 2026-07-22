@@ -5,7 +5,11 @@
 // never be unmounted/remounted by a re-render — that would throw away the
 // page. React owns the chrome; this owns the guests.
 
-import type { ControlledFrame, NewWindowEvent } from '../controlled-frame.js'
+import type {
+  ContextMenusClickEvent,
+  ControlledFrame,
+  NewWindowEvent,
+} from '../controlled-frame.js'
 import { controlledFrame } from './env.js'
 
 export interface FrameInfo {
@@ -580,6 +584,9 @@ export const GUEST_SCRIPTS: Record<string, string> = {
   hintScriptNewTab: hintScript(true),
 }
 
+/** The id the clip item is created under, and the one its click reports. */
+const CLIP_ITEM = 'flowmd-clip'
+
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
 
 export function createFrame(
@@ -785,13 +792,25 @@ export function createFrame(
       const menus = cf().contextMenus
       if (typeof menus?.create !== 'function') return
       try {
-        menus.removeAll?.()
-        menus.create({
-          id: 'flowmd-clip',
-          title: 'Clip to the vault',
-          contexts: ['selection', 'page'],
-          onclick: () => onClip(),
-        })
+        void menus.removeAll?.()
+        void menus
+          .create({ id: CLIP_ITEM, title: 'Clip to the vault', contexts: ['selection', 'page'] })
+          .catch(() => undefined)
+        // The click comes back as an event on the menu, carrying which item
+        // was chosen — not as a callback handed to create(). That's the
+        // <webview> spelling, and it's ignored here, which looks exactly like
+        // a menu item that draws and then does nothing.
+        //
+        // Registered both ways the IDL allows. `contextMenus` is an EventTarget
+        // on paper but a shim in practice — its addEventListener talks to the
+        // browser's menu system rather than the DOM, so a dispatchEvent from
+        // script never reaches it and neither spelling can be tested from here.
+        // Setting both costs nothing and one of them is the live wire.
+        const clicked = (event: ContextMenusClickEvent) => {
+          if (event.menuItem?.id === CLIP_ITEM) onClip()
+        }
+        menus.addEventListener('click', clicked)
+        ;(menus as { onclick?: (event: ContextMenusClickEvent) => void }).onclick = clicked
       } catch {
         /* an older build without the menu API; the chord still works */
       }

@@ -15,15 +15,7 @@ export interface ControlledFrame extends HTMLElement {
    *  are drawn by the browser in the native menu, next to Copy and Look Up —
    *  the shell can't draw over a guest, and wouldn't want to replace what's
    *  already there. */
-  contextMenus?: {
-    create(properties: {
-      id?: string
-      title: string
-      contexts?: string[]
-      onclick?: (info: { selectionText?: string; pageUrl?: string }) => void
-    }): void
-    removeAll?(): void
-  }
+  contextMenus?: ContextMenus
   /** True while the guest is making noise — not whether it has media, but
    *  whether that media is audible right now. */
   /** Register scripts the guest injects itself, on every matching page and
@@ -33,6 +25,29 @@ export interface ControlledFrame extends HTMLElement {
   getAudioState?(): Promise<boolean>
   isAudioMuted?(): Promise<boolean>
   setAudioMuted?(muted: boolean): void
+}
+
+/** The guest's context menu. An EventTarget, not a bag of callbacks: an item
+ *  is created by name, and its click arrives here as an event carrying which
+ *  item it was. Passing an `onclick` inside the create properties is
+ *  <webview>'s convention and is quietly ignored, which shows up as a menu
+ *  item that draws correctly and does nothing. */
+export interface ContextMenus extends EventTarget {
+  create(properties: {
+    id?: string
+    title: string
+    contexts?: string[]
+  }): Promise<void>
+  remove?(id: string): Promise<void>
+  removeAll?(): Promise<void>
+  addEventListener(
+    type: 'click',
+    listener: (event: ContextMenusClickEvent) => void,
+  ): void
+}
+
+export interface ContextMenusClickEvent extends Event {
+  readonly menuItem?: { id: string }
 }
 
 /** Raised when a guest asks for a window of its own: ⌘-click, a target of
