@@ -104,10 +104,19 @@ export interface FrameHandle {
   /** Whether this is the pane the keyboard is talking to. Only meaningful
    *  while the card is split — one pane needs no ring to say it's the one. */
   setFocus(focused: boolean): void
-  /** Keep a playing video on screen after its tab stops being the active one,
-   *  in a corner rather than filling the card. */
-  setPip(pip: boolean): void
+  /** Keep a playing video on screen after its tab stops being the active one:
+   *  the video alone, in a corner. Pass the video's rectangle inside the page,
+   *  or null to stop. */
+  setPip(video: Rect | null, box?: Rect): void
   destroy(): void
+}
+
+/** A rectangle inside a guest's viewport, in its own css pixels. */
+export interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 /** Where a pane sits when the card is split. Null is the undivided card. */
@@ -696,6 +705,8 @@ export interface Sound {
   playing: boolean
   video: boolean
   title: string
+  /** Where the video is inside the page, when there is one. */
+  rect: Rect | null
 }
 
 export const SILENT: Sound = {
@@ -704,6 +715,7 @@ export const SILENT: Sound = {
   playing: false,
   video: false,
   title: '',
+  rect: null,
 }
 
 /** The biggest media element that isn't done — the one a person would say the
@@ -717,10 +729,14 @@ const MEDIA = `(() => {
   const playing = els.filter((m) => !m.paused && !m.ended)
   const area = (m) => (m.videoWidth || 0) * (m.videoHeight || 0) + (m.duration || 0)
   const m = (playing.length ? playing : els).sort((a, b) => area(b) - area(a))[0]
+  const r = m.getBoundingClientRect()
   return JSON.stringify({
     playing: !m.paused && !m.ended,
     video: m.tagName === 'VIDEO' && !!m.videoWidth,
     title: document.title,
+    // Where it sits in the page, for the corner to crop to. Reading a
+    // rectangle tells the page nothing; moving one would.
+    rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
   })
 })()`
 
@@ -748,6 +764,10 @@ export const GUEST_SCRIPTS: Record<string, string> = {
 
 /** The id the clip item is created under, and the one its click reports. */
 const CLIP_ITEM = 'flowmd-clip'
+
+/** How big the corner is, and how far it sits from the edges. */
+const PIP_WIDTH = 320
+const PIP_MARGIN = 16
 
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
 
@@ -871,7 +891,7 @@ export function createFrame(
         if (!audible && !muted) return { ...SILENT }
         const res = (await f.executeScript?.({ code: MEDIA })) as unknown
         const raw = JSON.parse(String(Array.isArray(res) ? res[0] : res) || 'null') as
-          | { playing: boolean; video: boolean; title: string }
+          | { playing: boolean; video: boolean; title: string; rect: Rect | null }
           | null
         return {
           audible: !!audible,
@@ -879,6 +899,7 @@ export function createFrame(
           playing: raw?.playing ?? !!audible,
           video: raw?.video ?? false,
           title: raw?.title ?? '',
+          rect: raw?.rect ?? null,
         }
       } catch {
         return { ...SILENT }
@@ -1068,8 +1089,38 @@ export function createFrame(
     setFocus(focused) {
       el.classList.toggle(classes.focus, focused)
     },
-    setPip(pip) {
-      el.classList.toggle(classes.pip, pip)
+    /** Show just the video, in the corner, without the page finding out.
+     *
+     *  The obvious approaches both tell it. Shrinking the frame resizes the
+     *  guest's viewport, so a responsive player relayouts and a short can
+     *  decide it's been minimised; restyling the video element is a DOM change
+     *  any script can watch for. So the guest is left at full size, laid out
+     *  exactly as it was, and the *compositor* does the work: clip-path keeps
+     *  only the video's rectangle, and a transform carries it into the corner.
+     *  Neither is observable from inside — no resize, no mutation, no event. */
+    setPip(video, box) {
+      el.classList.toggle(classes.pip, !!video)
+      if (!video || video.w < 8 || video.h < 8) {
+        el.style.removeProperty('clip-path')
+        el.style.removeProperty('transform')
+        return
+      }
+      // The frame's layout box is the card, and the guest's viewport is the
+      // same size — so its coordinates and ours are the same coordinates.
+      const width = el.offsetWidth
+      const height = el.offsetHeight
+      if (!width || !height) return
+      const scale = (box?.w ?? PIP_WIDTH) / video.w
+      const boxHeight = video.h * scale
+      const left = box ? box.x : width - PIP_WIDTH - PIP_MARGIN
+      const top = box ? box.y : height - boxHeight - PIP_MARGIN
+      el.style.transformOrigin = '0 0'
+      el.style.transform = `translate(${left - video.x * scale}px, ${top - video.y * scale}px) scale(${scale})`
+      // Inset takes top/right/bottom/left, in the element's own space — which
+      // is the untransformed one, so these are the page's numbers unscaled.
+      el.style.clipPath = `inset(${video.y}px ${width - video.x - video.w}px ${
+        height - video.y - video.h
+      }px ${video.x}px round ${10 / scale}px)`
     },
     destroy() {
       for (const ev of LIFECYCLE) el.removeEventListener(ev, onLifecycle)

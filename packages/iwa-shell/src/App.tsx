@@ -59,7 +59,7 @@ import {
   useHotkeySequence,
 } from '@tanstack/react-hotkeys'
 import { useLiveQuery } from '@tanstack/react-db'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './App.module.css'
 import {
   controlledFrame,
@@ -444,6 +444,73 @@ export function App() {
     }
   }, [scripts, tabs])
 
+  /** Where the corner sits and how wide it is, once it's been moved. Null
+   *  until then, which means "bottom right, 320 across". */
+  const [pipBox, setPipBox] = useState<{ x: number; y: number; w: number } | null>(null)
+
+  /** The one tab that gets the corner: playing a video, and not already on
+   *  screen. One at a time — two would land on top of each other. */
+  const pipTab = tabs.find(
+    (t) =>
+      t.id !== firstId &&
+      t.id !== splitId &&
+      !!sounds[t.id]?.video &&
+      !!sounds[t.id]?.playing &&
+      !!sounds[t.id]?.rect,
+  )
+  const pipRect = pipTab ? (sounds[pipTab.id]?.rect ?? null) : null
+
+  /** The corner's box in the card's own coordinates. Derived rather than
+   *  stored, so it stays put when the window resizes and keeps the video's
+   *  shape when the video's shape changes. */
+  const pipPlace = (() => {
+    if (!pipRect) return null
+    const card = cardRef.current
+    const width = pipBox?.w ?? 320
+    const height = (width * pipRect.h) / pipRect.w
+    const room = { w: card?.clientWidth ?? 0, h: card?.clientHeight ?? 0 }
+    const x = pipBox?.x ?? Math.max(0, room.w - width - 16)
+    const y = pipBox?.y ?? Math.max(0, room.h - height - 16)
+    return { x, y, w: width, h: height }
+  })()
+
+  /** Moving and sizing the corner.
+   *
+   *  The pixels under it belong to the guest, which would swallow a pointer —
+   *  so the handles are the shell's own elements drawn on top: a strip to drag
+   *  by and a corner to pull. Everything between them stays transparent to
+   *  clicks, so the video underneath can still be paused. */
+  const dragPip = (mode: 'move' | 'size') => (e: ReactPointerEvent<HTMLElement>) => {
+    if (!pipPlace) return
+    e.preventDefault()
+    e.stopPropagation()
+    const card = cardRef.current
+    const room = { w: card?.clientWidth ?? 0, h: card?.clientHeight ?? 0 }
+    const from = { x: e.clientX, y: e.clientY }
+    const start = { ...pipPlace }
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - from.x
+      const dy = ev.clientY - from.y
+      if (mode === 'move') {
+        setPipBox({
+          w: start.w,
+          x: Math.min(Math.max(0, start.x + dx), Math.max(0, room.w - start.w)),
+          y: Math.min(Math.max(0, start.y + dy), Math.max(0, room.h - start.h)),
+        })
+      } else {
+        // Grown from the top-left corner, so the handle follows the pointer.
+        const w = Math.min(Math.max(180, start.w + dx), Math.max(180, room.w - start.x))
+        setPipBox({ x: start.x, y: start.y, w })
+      }
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   /** The tab making noise, preferring the one in the space you're looking at. */
   const noisy = useMemo(() => {
     const playing = tabs.filter((t) => sounds[t.id]?.audible || sounds[t.id]?.muted)
@@ -732,11 +799,14 @@ export function App() {
       // A ring only means something when there's another pane to tell it from.
       frame.setFocus(!!splitId && id === activeId)
       // A pane already on screen doesn't need a picture-in-picture of itself.
-      frame.setPip(!shown && !!sound?.video && !!sound.playing)
+      frame.setPip(
+        id === pipTab?.id && pipRect ? pipRect : null,
+        pipPlace ? { x: pipPlace.x, y: pipPlace.y, w: pipPlace.w, h: pipPlace.h } : undefined,
+      )
     }
     if (firstId !== null) void sync(firstId)
     if (splitId !== null) void sync(splitId)
-  }, [firstId, splitId, activeId, sides[0], sides[1], tabs.length, sync, sounds])
+  }, [firstId, splitId, activeId, sides[0], sides[1], tabs.length, sync, sounds, pipTab?.id, pipRect, pipPlace?.x, pipPlace?.y, pipPlace?.w])
 
   const go = useCallback(
     (value: string, asNewTab: boolean) => {
@@ -1751,6 +1821,34 @@ export function App() {
           className={`${styles.card} ${nothingLoaded ? styles.empty : ''}`}
           ref={cardRef}
         >
+          {/* The handles for the picture-in-picture corner. Positioned in the
+              card's coordinates, which is the space the corner is placed in. */}
+          {pipPlace && pipTab && (
+            <div
+              className={styles.pipHandles}
+              style={{
+                left: pipPlace.x,
+                top: pipPlace.y,
+                width: pipPlace.w,
+                height: pipPlace.h,
+              }}
+            >
+              <div
+                className={styles.pipGrip}
+                role="presentation"
+                title={`${pipTab.title} — drag to move`}
+                onPointerDown={dragPip('move')}
+                onDoubleClick={() => setActiveBySpace((m) => ({ ...m, [pipTab.space]: pipTab.id }))}
+              />
+              <div
+                className={styles.pipSize}
+                role="presentation"
+                title="Drag to resize"
+                onPointerDown={dragPip('size')}
+              />
+            </div>
+          )}
+
           {/* Guests are put in here imperatively and cover it when there are
               any; this is what's underneath when there aren't. */}
           {status === 'offline' && (

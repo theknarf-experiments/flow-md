@@ -171,20 +171,16 @@
 /* A video you were watching when you switched tabs, parked in the corner —
    still the same guest, just smaller. Pointer events stay on so it can be
    paused or scrubbed where it sits. */
+/* The corner keeps the guest at full size and crops it: the geometry is a
+   clip-path and a transform set by the shell, so the page is never resized and
+   never restyled, and can't tell it's being shown small. Only what the
+   compositor draws changes. */
 .framePip {
   visibility: visible !important;
-  inset: auto 1rem 1rem auto !important;
-  width: 320px !important;
-  height: 180px !important;
-  border-radius: 10px;
-  overflow: hidden;
   z-index: 3;
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.45),
     0 0 0 1px rgba(255, 255, 255, 0.12);
-  transition:
-    width 160ms ease,
-    height 160ms ease;
 }
 
 /* ------------------------------------------------------------- profiles */
@@ -285,4 +281,56 @@
     0 0 0 2px hsl(var(--hue) 70% 62% / 0.75),
     0 6px 20px rgba(0, 0, 0, 0.35);
   border-radius: 6px;
+}
+
+/* ------------------------------------------------- picture-in-picture */
+
+/* Handles for the corner. The guest paints underneath, so this layer is
+   transparent to the pointer except where there's something to grab — the
+   video keeps its own clicks. */
+.pipHandles {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 10px;
+}
+
+.pipGrip {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 20px;
+  pointer-events: auto;
+  cursor: grab;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pipHandles:hover .pipGrip,
+.pipHandles:hover .pipSize {
+  opacity: 1;
+}
+
+.pipGrip:active {
+  cursor: grabbing;
+}
+
+.pipSize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  pointer-events: auto;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  background: linear-gradient(
+    135deg,
+    transparent 45%,
+    rgba(255, 255, 255, 0.75) 45%,
+    rgba(255, 255, 255, 0.75) 55%,
+    transparent 55%
+  );
 }
