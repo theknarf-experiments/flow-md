@@ -286,7 +286,17 @@ export function App() {
   const [capturing, setCapturing] = useState<{
     value: string
     space: string
-    source: { title: string; url: string; icon: string | null; note?: string } | null
+    source:
+      | {
+          title: string
+          url: string
+          link?: string
+          byline?: string
+          published?: string
+          icon: string | null
+          note?: string
+        }
+      | null
   } | null>(null)
   const [renamingTab, setRenamingTab] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
@@ -537,6 +547,9 @@ export function App() {
         ? {
             title: clip.title,
             url: clip.url,
+            link: clip.link,
+            byline: clip.byline,
+            published: clip.published,
             icon: activeId ? (runtime[activeId]?.icon ?? null) : null,
             note: clip.note,
           }
@@ -554,6 +567,9 @@ export function App() {
       markdown: value,
       title: source?.title ?? '',
       url: source?.url ?? '',
+      ...(source?.link ? { link: source.link } : {}),
+      ...(source?.byline ? { byline: source.byline } : {}),
+      ...(source?.published ? { published: source.published } : {}),
       ...(source?.note ? { note: source.note } : {}),
     })
     const name = spaces.find((sp) => sp.id === target)?.name ?? target

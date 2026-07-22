@@ -41,17 +41,25 @@ The centre of the product. Everything else is what happens to a clip after.
       page url, title, favicon and time
 - [x] Selection HTML → markdown, so a clipped list stays a list
 - [x] Write the clip to the space's own file as a blockquote with a source line
-- [ ] Site-aware extractors: a video's timestamp and a tweet's author are read;
-      still to do are PDF page numbers, bylines and canonical urls
+- [x] Canonical urls, bylines and published dates, read from whichever of the
+      usual conventions a page happens to use
+- [x] A text fragment in the source link, so it reopens at the sentence you
+      clipped — on any site, which beats knowing about particular ones
+- [x] A video's timestamp becomes `t=` in the link, not just a note
+- [ ] PDFs give up nothing: the viewer is a plugin with no title, no text and
+      no page number reachable from a script. Only `#page=` if the url already
+      said it
 - [x] Capture with no selection = the whole readable article, or nothing
 - [x] A toast in the guest confirming the clip, so nothing about it needs the shell
 - [x] ⌘L opens a sheet — edit the clip, pick where it goes, ⌘⏎ to file it
 
-## Phase 2 — Cards and triage
+## Phase 2 — Cards
+
+Triage needs nothing built: the clips are markdown in a file, and moving one
+is editing a file. That's the point of keeping them there.
 
 - [ ] `Card` rules over blocks, so a clip and a tab are the same kind of thing
       to a query — naming a clip on demand, the way links are named now
-- [ ] Inbox triage: move a clip into another note, keeping its id and source
 - [ ] Due dates — parse `@due(2026-07-30)` into a `TaskDue` relation
 - [ ] Reuse `view-kanban` over tasks by status
 

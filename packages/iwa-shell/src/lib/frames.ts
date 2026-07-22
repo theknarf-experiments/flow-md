@@ -334,7 +334,15 @@ export interface Clip {
   markdown: string
   text: string
   title: string
+  /** The address the page calls its own, tracking parameters stripped. */
   url: string
+  /** Where to go to see this again: the canonical url plus whatever gets you
+   *  back to the spot — a text fragment for a selection, `t=` for a video. */
+  link: string
+  /** Who wrote it, when the page says so in one of the usual conventions. */
+  byline: string
+  /** The day the page says it was published (yyyy-mm-dd), if it says. */
+  published: string
   /** Extra source detail, when the page is a kind we know: a tweet's author,
    *  the second of a video, a pdf's page. */
   note: string
@@ -426,19 +434,117 @@ const CAPTURE = `(() => {
     .replace(/\\n{3,}/g, '\\n\\n')
     .trim()
 
-  // Where in the page you were, for the kinds of page that have a "where".
+  const attr = (selector, name) => {
+    const el = document.querySelector(selector)
+    if (!el) return ''
+    return (name === 'text' ? el.textContent : el.getAttribute(name) || '').trim()
+  }
+
+  // The address worth keeping is the one the page calls itself, not the one
+  // you happened to arrive by: canonical drops the session ids, the tracking
+  // parameters and the #fragment left over from the last jump.
+  const canonical = (() => {
+    const declared = attr('link[rel=canonical]', 'href') || attr('meta[property="og:url"]', 'content')
+    let u
+    try {
+      u = new URL(declared || location.href, location.href)
+    } catch (e) {
+      return location.href
+    }
+    if (!declared) {
+      for (const key of [...u.searchParams.keys()]) {
+        if (/^(utm_|fbclid|gclid|mc_|igshid|si$|ref$|ref_src$|spm$)/.test(key)) {
+          u.searchParams.delete(key)
+        }
+      }
+      u.hash = ''
+    }
+    return u.href
+  })()
+
+  // Who wrote it. Several conventions, none of them universal; a url instead
+  // of a name means the page pointed at a profile, which isn't a byline.
+  const jsonLd = () => {
+    for (const tag of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const seen = [].concat(JSON.parse(tag.textContent))
+        for (const item of seen) {
+          const a = item && (item.author || (item['@graph'] || []).map((g) => g.author).find(Boolean))
+          const name = a && (typeof a === 'string' ? a : [].concat(a)[0] && [].concat(a)[0].name)
+          if (name) return String(name)
+        }
+      } catch (e) {
+        /* a page's own broken metadata is not our problem */
+      }
+    }
+    return ''
+  }
+  let byline =
+    attr('meta[name=author]', 'content') ||
+    attr('meta[property="article:author"]', 'content') ||
+    attr('[itemprop=author] [itemprop=name]', 'text') ||
+    attr('[rel=author]', 'text') ||
+    jsonLd()
+  if (/^https?:/i.test(byline) || byline.length > 80) byline = ''
+
+  const published = (
+    attr('meta[property="article:published_time"]', 'content') ||
+    attr('meta[name="date"]', 'content') ||
+    attr('time[datetime]', 'datetime')
+  ).slice(0, 10)
+
+  // Where in the page you were, for the kinds of page that have a "where" —
+  // and, where it can be, a link that lands you back there.
   let note = ''
+  let link = canonical
   const video = document.querySelector('video')
   if (video && video.currentTime > 1) {
     const t = Math.floor(video.currentTime)
     const mm = String(Math.floor(t / 60)).padStart(2, '0')
     const ss = String(t % 60).padStart(2, '0')
     note = 'at ' + mm + ':' + ss
+    if (/youtube\\.com|youtu\\.be/.test(location.host)) {
+      try {
+        const u = new URL(canonical)
+        u.searchParams.set('t', t + 's')
+        link = u.href
+      } catch (e) {
+        /* leave the plain url */
+      }
+    }
   }
-  const tweet = document.querySelector('article[data-testid="tweet"] a[href*="/status/"]')
+  if (/\\.pdf($|[?#])/i.test(location.pathname + location.search)) {
+    // All a pdf will tell us. The viewer is a plugin: no title, no text, no
+    // page number — only the address, and only if it already said one.
+    const page = /[#&]page=(\\d+)/.exec(location.hash)
+    if (page) note = 'page ' + page[1]
+  }
+  const tweet = document.querySelector('article[data-testid="tweet"]')
   if (tweet) {
-    const who = (location.pathname.split('/')[1] || '').trim()
-    if (who) note = 'by @' + who
+    const handle = /^\\/([^/]+)\\/status\\//.exec(new URL(canonical).pathname)
+    if (handle) note = 'by @' + handle[1]
+  }
+
+  // A link back to the words themselves. Chrome scrolls to and highlights a
+  // text fragment, so the source of a clip reopens at the sentence it came
+  // from rather than the top of the page. Works anywhere, which is worth more
+  // than knowing about any particular site.
+  if (picked && text.trim() && !/#/.test(link)) {
+    // encodeURIComponent leaves !'()* alone, and a stray ')' ends a markdown
+    // link early — a clip of a sentence ending in a bracket produced a source
+    // link that stopped halfway. The dash is escaped because the fragment
+    // syntax gives it a meaning of its own.
+    const enc = (s) =>
+      encodeURIComponent(s)
+        .replace(/-/g, '%2D')
+        .replace(/\\(/g, '%28')
+        .replace(/\\)/g, '%29')
+    const w = text.trim().split(/\\s+/)
+    const fragment =
+      w.length <= 10
+        ? enc(w.join(' '))
+        : enc(w.slice(0, 5).join(' ')) + ',' + enc(w.slice(-5).join(' '))
+    link = link + '#:~:text=' + fragment
   }
 
   return JSON.stringify({
@@ -446,7 +552,10 @@ const CAPTURE = `(() => {
     markdown: markdown.slice(0, 8000),
     text: text.slice(0, 8000),
     title: document.title,
-    url: location.href,
+    url: canonical,
+    link: link,
+    byline: byline,
+    published: published,
     note: note,
   })
 })()`

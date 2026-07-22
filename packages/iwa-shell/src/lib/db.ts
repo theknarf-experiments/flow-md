@@ -673,17 +673,43 @@ export async function deleteProfile(spaces: Space[], name: string): Promise<void
 // clip that were one would open as a tab of its own.
 
 /** Render a clip as the markdown that will hold it. */
-export function clipBlock(
-  clip: { markdown: string; title: string; url: string; note?: string },
-  at: string,
-): string {
+export interface ClipSource {
+  markdown: string
+  title: string
+  url: string
+  /** Where to go to read it again — the url plus whatever lands you back on
+   *  the spot. Falls back to the plain url. */
+  link?: string
+  byline?: string
+  published?: string
+  note?: string
+}
+
+/** A url as a markdown link destination.
+ *
+ *  CommonMark allows *balanced* parentheses unescaped — which is why a
+ *  Wikipedia url like `Josh_Kerr_(runner)` works — but an unbalanced one ends
+ *  the link where it appears, and so does a space. Angle brackets are the
+ *  form that takes either. */
+function mdUrl(url: string): string {
+  const opens = (url.match(/\(/g) ?? []).length
+  const closes = (url.match(/\)/g) ?? []).length
+  return opens === closes && !/[\s<>]/.test(url) ? url : `<${url}>`
+}
+
+export function clipBlock(clip: ClipSource, at: string): string {
   const quoted = clip.markdown
     .split('\n')
     .map((line) => (line.trim() ? `> ${line}` : '>'))
     .join('\n')
-  const where = clip.note ? ` · ${clip.note}` : ''
-  const day = at.slice(0, 10)
-  return `${quoted}\n>\n> — [${clip.title || clip.url}](${clip.url})${where} · ${day}`
+  // Everything the page was willing to say about itself, in the order it
+  // would be read aloud: what, by whom, when, and whereabouts in it.
+  const parts = [`[${clip.title || clip.url}](${mdUrl(clip.link || clip.url)})`]
+  if (clip.byline) parts.push(clip.byline)
+  if (clip.published) parts.push(clip.published)
+  if (clip.note) parts.push(clip.note)
+  parts.push(`clipped ${at.slice(0, 10)}`)
+  return `${quoted}\n>\n> — ${parts.join(' · ')}`
 }
 
 /** Append a clip to a space's file.
@@ -695,7 +721,7 @@ export function clipBlock(
  *  is a relation invented to describe a paragraph. */
 export async function captureClip(
   space: string,
-  clip: { markdown: string; title: string; url: string; note?: string },
+  clip: ClipSource,
   at: string = new Date().toISOString(),
 ): Promise<boolean> {
   if (!clip.markdown.trim()) return false
