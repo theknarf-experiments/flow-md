@@ -610,13 +610,7 @@ export function App() {
       )
       // The guest draws its own right-click menu; this puts clipping in it,
       // next to Copy, rather than the shell trying to draw over a page.
-      frame.setClipMenu(() => {
-        // Logged so the menu item can be told apart from what it triggers: if
-        // this line shows up and no sheet does, the click arrived and capture
-        // is at fault, not the wiring.
-        log('clip menu')
-        captureRef.current()
-      })
+      frame.setClipMenu(() => captureRef.current())
       frames.current.set(id, frame)
     }
 

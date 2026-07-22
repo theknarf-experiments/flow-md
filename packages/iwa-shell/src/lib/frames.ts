@@ -806,8 +806,16 @@ export function createFrame(
         // browser's menu system rather than the DOM, so a dispatchEvent from
         // script never reaches it and neither spelling can be tested from here.
         // Setting both costs nothing and one of them is the live wire.
+        // Both are registered, so if the browser honours both this would fire
+        // twice — reading the page twice and reopening the sheet over itself.
+        // A click nobody makes twice inside 300ms is the same click.
+        let last = 0
         const clicked = (event: ContextMenusClickEvent) => {
-          if (event.menuItem?.id === CLIP_ITEM) onClip()
+          if (event.menuItem?.id !== CLIP_ITEM) return
+          const now = Date.now()
+          if (now - last < 300) return
+          last = now
+          onClip()
         }
         menus.addEventListener('click', clicked)
         ;(menus as { onclick?: (event: ContextMenusClickEvent) => void }).onclick = clicked
