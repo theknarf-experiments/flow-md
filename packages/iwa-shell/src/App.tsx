@@ -83,6 +83,7 @@ import {
   spacesCollection,
   tabsCollection,
   DEFAULT_PROFILE,
+  captureClip,
   deleteProfile,
   lastClosed,
   profilesOf,
@@ -508,6 +509,27 @@ export function App() {
     openTab(gone.url, { space: gone.space || spaceId })
   }, [openTab, spaceId, space, log])
 
+  /** ⌘L: take what's on screen and put it in the space's file.
+   *
+   *  The clip lands in the same document as the tab it came from, so the page
+   *  and the note about it are one file — and it carries an id of its own, the
+   *  same kind a tab has, so a later query can treat them alike. Written as a
+   *  blockquote, which is also what keeps its source link from opening as a
+   *  tab: the tab list is a list, and clips aren't in it. */
+  const capture = useCallback(async () => {
+    const frame = activeId ? frames.current.get(activeId) : undefined
+    if (!frame || !space) return
+    const clip = await frame.capture()
+    if (!clip?.markdown.trim()) {
+      frame?.toast('Nothing to clip')
+      return
+    }
+    const id = await captureClip(space.id, clip)
+    // Said inside the page, where you were looking, rather than in the chrome.
+    frame.toast(id ? 'Clipped to ' + space.name : 'Clip failed')
+    log(id ? `clip → ${space.id}` : 'clip failed')
+  }, [activeId, space, log])
+
   /** Rows in, guests out. The only place the document and the browser meet:
    *  every row gets a frame, every frame without a row is destroyed. There is
    *  nothing to reconcile because there is nothing else keeping score. */
@@ -715,10 +737,13 @@ export function App() {
   })
 
   bindKey(keymap, 'new-tab', 'Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
+  // ⌘L is Lazy's capture chord and the muscle memory worth matching; the
+  // address bar keeps the same letter one modifier along.
+  bindKey(keymap, 'capture', 'Mod+L', () => void capture(), tabs_('Clip to the vault'))
   bindKey(
     keymap,
     'edit-address',
-    'Mod+L',
+    'Mod+Shift+L',
     () => setCommand({ open: true, value: active?.url ?? '', newTab: false }),
     win('Edit address'),
   )
@@ -867,7 +892,8 @@ export function App() {
       },
       { key: 'cmd:settings', icon: '⌘', label: 'Settings', run: () => setSettings(true) },
       { key: 'cmd:log', icon: '⌘', label: 'Toggle log', run: () => setShowLog((v) => !v) },
-      { key: 'cmd:capture', icon: '⌘', label: 'Capture page', run: () => void capture() },
+      { key: 'cmd:capture', icon: '✂', label: 'Clip to the vault', run: () => void capture() },
+      { key: 'cmd:probe', icon: '⌘', label: 'Log page info', run: () => void logPageInfo() },
       ...spaces.map((sp) => ({
         key: `cmd:space:${sp.id}`,
         icon: '◧',
@@ -889,7 +915,7 @@ export function App() {
       // A web search is the fallback, so it sorts last.
       ...(q && !navigable ? [navigate(q)] : []),
     ]
-    // `capture` is recreated per render but only reads refs.
+    // `capture` and `logPageInfo` are recreated per render but only read refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command.value, command.newTab, tabs, spaces, go, openTab])
 
@@ -1045,11 +1071,11 @@ export function App() {
     shellRef.current?.style.setProperty('--space-position', String(spaceIndex))
   }, [space, spaceIndex])
 
-  const capture = async () => {
+  const logPageInfo = async () => {
     if (!activeFrame) return
     setShowLog(true)
     const info = await activeFrame.probe()
-    log(info ? `capture → ${JSON.stringify(info)}` : 'capture failed (no executeScript)')
+    log(info ? `probe → ${JSON.stringify(info)}` : 'probe failed (no executeScript)')
   }
 
   /** Pinning is a url in the space's frontmatter, so it's an edit to the

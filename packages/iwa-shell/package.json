@@ -5,19 +5,22 @@
   "type": "module",
   "license": "AGPL-3.0-or-later",
   "author": "TheKnarf",
-  "description": "Isolated Web App shell prototype — validates Controlled Frame as the canvas-browser primitive",
+  "description": "Isolated Web App shell prototype \u2014 validates Controlled Frame as the canvas-browser primitive",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "icon": "node scripts/make-icon.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "jsdom": "^29.1.1",
     "typescript": "^5.7.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^2.1.0"
   },
   "dependencies": {
     "@flow-md/ui": "workspace:*",

@@ -251,6 +251,11 @@ async function loadTabs(): Promise<Tab[]> {
 
   return all
     .filter(([space, , , , line]) => blockOf.has(`${space}\n${line}`))
+    // A tab is a link in the *list*. Clips live in the same file as
+    // blockquotes, and their source link would otherwise open as a tab of its
+    // own. MdIndent is only emitted for list lines, so having one is the test
+    // — no extra query, and it's the same fact the tree depth already uses.
+    .filter(([space, , , , line]) => indentOf.has(`${space}\n${line}`))
     .map(([space, node, parent, type, line, start, end, kind, url, title]) => ({
       block: blockOf.get(`${space}\n${line}`)!,
       id: `${space}\n${blockOf.get(`${space}\n${line}`)!}`,
@@ -641,4 +646,61 @@ export async function deleteProfile(spaces: Space[], name: string): Promise<void
   for (const space of spaces.filter((s) => s.profile === name)) {
     await setProfile(space.id, survivor)
   }
+}
+
+// ── Clips ──────────────────────────────────────────────────────────────────
+//
+// A clip is a block: some words, where they came from, and an id of its own —
+// the same identity a tab has, so a query can treat the page and the note
+// about it as one kind of thing.
+//
+// It goes into the space's own file, under the links, which means the tab you
+// clipped from and the clip itself end up in the same document. Written as a
+// blockquote rather than a list item on purpose: the tab list is a list, and a
+// clip that were one would open as a tab of its own.
+
+/** Render a clip as the markdown that will hold it. */
+export function clipBlock(clip: {
+  markdown: string
+  title: string
+  url: string
+  note?: string
+}, id: string, at: string): string {
+  const quoted = clip.markdown
+    .split('\n')
+    .map((line) => (line.trim() ? `> ${line}` : '>'))
+    .join('\n')
+  const where = clip.note ? ` · ${clip.note}` : ''
+  const day = at.slice(0, 10)
+  return `${quoted}\n>\n> — [${clip.title || clip.url}](${clip.url})${where} · ${day} ^${id}`
+}
+
+/** Append a clip to a space's file.
+ *
+ *  A whole-file write rather than a fact insert: a clip is prose, several
+ *  lines of it, and there's no relation whose shape is "a blockquote". The
+ *  read and the write are one turn apart, so a change made in between would
+ *  be lost — acceptable for something a person triggers, and the alternative
+ *  is a relation invented to describe a paragraph. */
+export async function captureClip(
+  space: string,
+  clip: { markdown: string; title: string; url: string; note?: string },
+  at: string = new Date().toISOString(),
+): Promise<string | null> {
+  if (!clip.markdown.trim()) return null
+  const id = ulid()
+  try {
+    const file = await vault.read(space)
+    const body = file.content.replace(/\s+$/, '')
+    const res = await vault.save(space, `${body}\n\n${clipBlock(clip, id, at)}\n`)
+    if (res.error) {
+      console.warn(`flow-md: clip not written (${res.error})`)
+      return null
+    }
+  } catch (err) {
+    console.warn(`flow-md: clip not written (${String(err)})`)
+    return null
+  }
+  await tabsCollection.utils.refetch()
+  return id
 }

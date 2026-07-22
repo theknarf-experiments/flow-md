@@ -212,6 +212,11 @@ export const vault = {
     return mutate('/insert', { rel, row })
   },
 
+  /** A file's raw source. */
+  read(path: string): Promise<{ path: string; content: string }> {
+    return json(`/file?path=${encodeURIComponent(path)}`)
+  },
+
   /** Write a file whole, creating it if absent — the way a per-profile
    *  history file first comes into being, with just its header. */
   save(path: string, content: string): Promise<{ error: string | null }> {

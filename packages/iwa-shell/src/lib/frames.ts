@@ -77,6 +77,10 @@ export interface FrameHandle {
    *  screen so you keep a few lines of context either side of the jump. */
   scrollByScreens(fraction: number): void
   scrollToEdge(edge: 'top' | 'end'): void
+  /** Read the selection, or the page's main content when nothing is picked. */
+  capture(): Promise<Clip | null>
+  /** Say something inside the page. */
+  toast(message: string): void
   /** Put the caret in the page's first real text field — Vimium's `gi`. */
   focusInput(): void
   /** Hand the guest the userscripts it should run itself. Replaces whatever
@@ -316,6 +320,138 @@ const hintScript = (newTab: boolean) => `(() => {
   return targets.length
 })()`
 
+/** What a clip is: the words, where they came from, and when.
+ *
+ *  `markdown` is the selection converted in the guest, where the DOM is — a
+ *  clipped list stays a list and a clipped link keeps its target. */
+export interface Clip {
+  markdown: string
+  text: string
+  title: string
+  url: string
+  /** Extra source detail, when the page is a kind we know: a tweet's author,
+   *  the second of a video, a pdf's page. */
+  note: string
+}
+
+/** Read the selection and the page around it.
+ *
+ *  The conversion happens here rather than in the shell because the DOM is
+ *  here: what the eye selected is a range over live nodes, and turning it
+ *  into markdown needs the elements, not a string of their text. A page we
+ *  recognise adds one line about where in it you were — a video's timestamp
+ *  is the difference between a clip you can return to and one you can't. */
+const CAPTURE = `(() => {
+  const sel = getSelection()
+  const range = sel && sel.rangeCount ? sel.getRangeAt(0) : null
+
+  // Block-level tags become their markdown, inline ones their text. Anything
+  // unrecognised falls through to its children, so unknown markup costs its
+  // wrapper and not its words.
+  // Page furniture is dropped when we're taking a whole article, kept when a
+  // person selected it: they can select a heading on purpose, but nobody means
+  // to clip a nav bar.
+  const picked = !!(sel && sel.rangeCount && !sel.getRangeAt(0).collapsed)
+  const skip = picked
+    ? /^(script|style|noscript)$/
+    : /^(script|style|noscript|nav|header|footer|aside|form|button)$/
+
+  const md = (node, depth) => {
+    if (node.nodeType === 3) return node.nodeValue.replace(/\\s+/g, ' ')
+    if (node.nodeType !== 1) return ''
+    const tag = node.tagName.toLowerCase()
+    if (skip.test(tag)) return ''
+    const kids = () => [...node.childNodes].map((n) => md(n, depth + 1)).join('')
+    // Tables are layout as often as they are data; a row per line keeps both
+    // readable instead of running the page into one paragraph.
+    if (tag === 'tr') return '\\n' + kids()
+    if (tag === 'td' || tag === 'th') return kids() + ' '
+    if (tag === 'br') return '\\n'
+    if (tag === 'a' && node.href) return '[' + kids().trim() + '](' + node.href + ')'
+    if (tag === 'strong' || tag === 'b') return '**' + kids().trim() + '**'
+    if (tag === 'em' || tag === 'i') return '*' + kids().trim() + '*'
+    if (tag === 'code') return '\`' + kids().trim() + '\`'
+    if (tag === 'li') return '\\n' + '  '.repeat(Math.max(0, depth - 1)) + '- ' + kids().trim()
+    if (/^h[1-6]$/.test(tag)) return '\\n\\n' + '#'.repeat(+tag[1]) + ' ' + kids().trim() + '\\n'
+    if (tag === 'p' || tag === 'div' || tag === 'section') return '\\n\\n' + kids() + '\\n\\n'
+    if (tag === 'blockquote') return '\\n\\n> ' + kids().trim() + '\\n\\n'
+    if (tag === 'img' && node.alt) return '![' + node.alt + '](' + node.src + ')'
+    if (tag === 'script' || tag === 'style' || tag === 'noscript') return ''
+    return kids()
+  }
+
+  let markdown = ''
+  let text = ''
+  if (range && !range.collapsed) {
+    const frag = range.cloneContents()
+    const holder = document.createElement('div')
+    holder.append(frag)
+    markdown = md(holder, 0)
+    text = sel.toString()
+  } else {
+    // Nothing selected. A page's own idea of its main content is worth
+    // clipping; the whole document is not — on a link-heavy front page that's
+    // navigation, not knowledge, and clipping it once put 17kB of someone
+    // else's menu in a vault. No article means no clip, and the caller says so.
+    const main = document.querySelector('article, main, [role=main]')
+    if (main) {
+      markdown = md(main, 0)
+      text = (main.innerText || '').trim()
+    }
+  }
+  markdown = markdown
+    // Runs of spaces collapse, but not at the start of a line: two spaces
+    // there are a nested list item, and flattening them would flatten the list.
+    .replace(/([^\\n])[ \\t]{2,}/g, '$1 ')
+    // A line of nothing but spaces still separates paragraphs, and it isn't
+    // caught by the blank-line collapse below until it's actually blank.
+    .replace(/\\n[ \\t]+(?=\\n)/g, '\\n')
+    .replace(/\\n{3,}/g, '\\n\\n')
+    .trim()
+
+  // Where in the page you were, for the kinds of page that have a "where".
+  let note = ''
+  const video = document.querySelector('video')
+  if (video && video.currentTime > 1) {
+    const t = Math.floor(video.currentTime)
+    const mm = String(Math.floor(t / 60)).padStart(2, '0')
+    const ss = String(t % 60).padStart(2, '0')
+    note = 'at ' + mm + ':' + ss
+  }
+  const tweet = document.querySelector('article[data-testid="tweet"] a[href*="/status/"]')
+  if (tweet) {
+    const who = (location.pathname.split('/')[1] || '').trim()
+    if (who) note = 'by @' + who
+  }
+
+  return JSON.stringify({
+    // A clip is a note, not a mirror of the page.
+    markdown: markdown.slice(0, 8000),
+    text: text.slice(0, 8000),
+    title: document.title,
+    url: location.href,
+    note: note,
+  })
+})()`
+
+/** A word from the browser, inside the page, that a clip was taken. Drawn in
+ *  the guest so it appears where you were looking rather than in the chrome. */
+const TOAST = (message: string) => `(() => {
+  const id = '__flowmdToast'
+  document.getElementById(id)?.remove()
+  const el = document.createElement('div')
+  el.id = id
+  el.textContent = ${JSON.stringify(message)}
+  el.style.cssText = 'all:initial;position:fixed;z-index:2147483647;right:14px;bottom:14px;' +
+    'padding:7px 11px;border-radius:9px;pointer-events:none;' +
+    'font:600 12px/1.3 ui-sans-serif,system-ui,sans-serif;color:#0d1f14;' +
+    'background:linear-gradient(#b8f5cf,#8fe3b0);box-shadow:0 4px 14px rgba(0,0,0,.35);' +
+    'opacity:0;transition:opacity 140ms ease'
+  document.documentElement.append(el)
+  requestAnimationFrame(() => { el.style.opacity = '1' })
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300) }, 1400)
+})()`
+
 /** Whatever actually scrolls: the document, or the first inner box with
  *  overflow — which is what most app-shaped pages scroll instead. */
 const SCROLLER = `(() => {
@@ -408,6 +544,28 @@ const MEDIA = `(() => {
     title: document.title,
   })
 })()`
+
+/** Every script the shell injects into a guest, for the test that checks they
+ *  parse.
+ *
+ *  These are JavaScript inside a TypeScript template literal, which is a trap
+ *  worth a guard: a backslash written once becomes an escape the *template*
+ *  eats, so `\n` arrives in the guest as a real newline inside a string
+ *  literal (a syntax error), and `\s` arrives as a bare `s` (a regex that
+ *  quietly matches the wrong thing). Both shipped before this existed. A
+ *  backtick in a comment ends the literal outright, which at least fails
+ *  loudly. Nothing here checks behaviour — only that a guest would accept it. */
+export const GUEST_SCRIPTS: Record<string, string> = {
+  PROBE,
+  CAPTURE,
+  MEDIA,
+  SCROLLER,
+  GLIDE,
+  toast: TOAST('hello'),
+  forwardKeys: forwardKeys([{ key: 'j' }]),
+  hintScript: hintScript(false),
+  hintScriptNewTab: hintScript(true),
+}
 
 const LIFECYCLE = ['loadcommit', 'loadstop', 'loadabort', 'load'] as const
 
@@ -591,6 +749,20 @@ export function createFrame(
         seen.focus()
         if (seen.select) seen.select()
       })()`)
+    },
+    async capture() {
+      const f = cf()
+      if (typeof f.executeScript !== 'function') return null
+      try {
+        const res = (await f.executeScript({ code: CAPTURE })) as unknown
+        const raw = Array.isArray(res) ? res[0] : res
+        return JSON.parse(String(raw)) as Clip
+      } catch {
+        return null
+      }
+    },
+    toast(message) {
+      void exec(TOAST(message))
     },
     setUserScripts(scripts) {
       const f = cf()
