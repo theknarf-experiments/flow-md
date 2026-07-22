@@ -1054,13 +1054,19 @@ export function App() {
 
   /** Pinning is a url in the space's frontmatter, so it's an edit to the
    *  space rather than to the tab. */
+  /** Pinning writes the tab's block id into the space's frontmatter. The id
+   *  is what survives the tab going somewhere else; a url doesn't, and a pin
+   *  that stops matching leaves a dead entry in the file and a tab back in
+   *  the list. Unpinning clears a legacy url entry too, so files written the
+   *  old way can be tidied by using them. */
   const togglePin = (tab: Row) => {
     const owner = spaces.find((s) => s.id === tab.space)
     if (!owner) return
+    const key = tab.block ?? tab.url
     spacesCollection.update(owner.id, (draft) => {
       draft.pinned = tab.pinned
-        ? draft.pinned.filter((u) => u !== tab.url)
-        : [...draft.pinned, tab.url]
+        ? draft.pinned.filter((u) => u !== key && u !== tab.url)
+        : [...draft.pinned, key]
     })
   }
 

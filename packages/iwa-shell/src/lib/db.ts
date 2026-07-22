@@ -52,6 +52,9 @@ export interface Space {
   emoji: string
   hue: number
   pinned: string[]
+  /** What this space pins, as block ids — the `^01HQ8P…` after a link. Older
+   *  files may hold urls instead; both are matched, and a toggle rewrites the
+   *  entry as an id. */
   /** The profile this space browses in — its container of cookies, storage
    *  and logins. Spaces sharing a profile share that container; a space with
    *  no `profile:` in its frontmatter is in "default". */
@@ -262,7 +265,14 @@ async function loadTabs(): Promise<Tab[]> {
       start,
       end,
       kind,
-      pinned: (pinned.get(space) ?? []).includes(url),
+      // Pinned by block id, not by url: a pin names the *tab*, and a tab that
+      // follows a link is still that tab. Keyed by url, a pinned tab that
+      // navigated stopped matching — it fell back into the list, its tile
+      // disappeared, and pinning it again appended a second dead entry. A
+      // url is still accepted so pins written before this keep working.
+      pinned: (pinned.get(space) ?? []).some(
+        (p) => p === blockOf.get(`${space}\n${line}`) || p === url,
+      ),
     }))
     // The order links are written in is the order tabs appear.
     .sort((a, b) => a.space.localeCompare(b.space) || a.start - b.start)
