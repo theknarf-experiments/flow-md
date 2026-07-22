@@ -95,6 +95,7 @@ import {
   setProfile,
 } from './lib/db.js'
 import { type Keymap, useKeymap } from './lib/keymap.js'
+import { dismissalSpent } from './lib/pip.js'
 import { type UserScript, loadUserScripts, matches } from './lib/userscripts.js'
 import { type Status, vault } from './lib/vault.js'
 
@@ -514,9 +515,28 @@ export function App() {
 
   useEffect(() => {
     if (!pipHidden) return
-    const still = sounds[pipHidden]
-    if (pipHidden === firstId || pipHidden === splitId || !still?.playing) setPipHidden(null)
-  }, [pipHidden, firstId, splitId, sounds])
+    // Sending the corner away lasts as long as the thing you sent away: the
+    // same tab, still the current media, still off screen. It ends when you
+    // go back to that tab, when the tab goes, or when something else starts
+    // playing — that's a new corner, not the one you dismissed.
+    //
+    // It used to end when the tab stopped playing, which was right while the
+    // corner needed a playing video to exist at all. Once the corner learned
+    // to sit through a pause, that rule started undoing the dismissal the
+    // moment anyone pressed pause — and pressing ✕ on a paused video looked
+    // like the button simply didn't work.
+    if (
+      dismissalSpent({
+        hidden: pipHidden,
+        firstId,
+        splitId,
+        mediaId,
+        exists: tabs.some((t) => t.id === pipHidden),
+      })
+    ) {
+      setPipHidden(null)
+    }
+  }, [pipHidden, firstId, splitId, tabs, mediaId])
 
   /** Moving and sizing the corner.
    *
