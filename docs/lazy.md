@@ -17,7 +17,7 @@ mostly a mapping exercise, not a rebuild:
 
 | Lazy | Here |
 | --- | --- |
-| Card | A block with a `^ULID` — the same identity tabs already use |
+| Card | A block; named with a `^ULID` only once something points at it |
 | Nested cards | List indentation, which the tab tree already reads |
 | Universal clipper | A content script in the guest + a fact write |
 | Source metadata | The link and frontmatter written with the clip |
@@ -40,7 +40,7 @@ The centre of the product. Everything else is what happens to a clip after.
 - [x] `capture` action: a guest script that reads the selection, its HTML, the
       page url, title, favicon and time
 - [x] Selection HTML → markdown, so a clipped list stays a list
-- [x] Write the clip to the space's own file as a block with a `^ULID` and a source link
+- [x] Write the clip to the space's own file as a blockquote with a source line
 - [ ] Site-aware extractors: a video's timestamp and a tweet's author are read;
       still to do are PDF page numbers, bylines and canonical urls
 - [x] Capture with no selection = the whole readable article, or nothing
@@ -49,8 +49,8 @@ The centre of the product. Everything else is what happens to a clip after.
 
 ## Phase 2 — Cards and triage
 
-- [ ] `Card` rules over blocks that carry an id, so a clip and a tab are the
-      same kind of thing to a query
+- [ ] `Card` rules over blocks, so a clip and a tab are the same kind of thing
+      to a query — naming a clip on demand, the way links are named now
 - [ ] Inbox triage: move a clip into another note, keeping its id and source
 - [ ] Due dates — parse `@due(2026-07-30)` into a `TaskDue` relation
 - [ ] Reuse `view-kanban` over tasks by status

@@ -239,6 +239,17 @@ async function loadTabs(): Promise<Tab[]> {
   type Row = [string, number, number, string, number, number, number, string, string, string]
   const all = rows as Row[]
 
+  // A tab is a link in the *list*. Clips live in the same file, as
+  // blockquotes, and their source link would otherwise open as a tab of its
+  // own. MdIndent is only emitted for list lines, so having one is the test —
+  // no extra query, and it's the same fact the tree depth already uses.
+  //
+  // This has to come before the naming pass below, not after: a link that
+  // isn't a tab shouldn't be given an id either. Filtering only the returned
+  // rows still left every clip's source line stamped with a `^ULID` it had no
+  // use for.
+  const links = all.filter(([space, , , , line]) => indentOf.has(`${space}\n${line}`))
+
   // Anything the browser hasn't named yet — a link somebody wrote by hand,
   // or one written a moment ago. Naming it is a write, so it happens out of
   // band and the row turns up on the next read.
@@ -246,16 +257,11 @@ async function loadTabs(): Promise<Tab[]> {
   // Until then the link isn't a tab. A row whose key changes is a row the
   // collection keeps twice: the old key is never removed, so the tab would
   // appear once under its span and again under its id.
-  const unnamed = all.filter(([space, , , , line]) => !blockOf.has(`${space}\n${line}`))
+  const unnamed = links.filter(([space, , , , line]) => !blockOf.has(`${space}\n${line}`))
   if (unnamed.length > 0) void nameLinks(unnamed.map(([space, , , , line]) => [space, line]))
 
-  return all
+  return links
     .filter(([space, , , , line]) => blockOf.has(`${space}\n${line}`))
-    // A tab is a link in the *list*. Clips live in the same file as
-    // blockquotes, and their source link would otherwise open as a tab of its
-    // own. MdIndent is only emitted for list lines, so having one is the test
-    // — no extra query, and it's the same fact the tree depth already uses.
-    .filter(([space, , , , line]) => indentOf.has(`${space}\n${line}`))
     .map(([space, node, parent, type, line, start, end, kind, url, title]) => ({
       block: blockOf.get(`${space}\n${line}`)!,
       id: `${space}\n${blockOf.get(`${space}\n${line}`)!}`,
@@ -650,9 +656,16 @@ export async function deleteProfile(spaces: Space[], name: string): Promise<void
 
 // ── Clips ──────────────────────────────────────────────────────────────────
 //
-// A clip is a block: some words, where they came from, and an id of its own —
-// the same identity a tab has, so a query can treat the page and the note
-// about it as one kind of thing.
+// A clip is some words and where they came from. No block id: a tab carries
+// one because it's *live* — a guest process with a scroll position and a
+// login, whose span moves every time the file is edited above it, and which
+// would be torn down and rebuilt if its identity changed. A clip is text that
+// sits there. Nothing reloads, nothing needs tracking, and a 26-character
+// token at the end of a paragraph is noise in a file meant to be read.
+//
+// If something later needs to point at one — a backlink, a pin, moving it
+// between notes — it can be named then, the way links already are: nameLinks
+// writes an id to a link that hasn't got one, on demand.
 //
 // It goes into the space's own file, under the links, which means the tab you
 // clipped from and the clip itself end up in the same document. Written as a
@@ -660,19 +673,17 @@ export async function deleteProfile(spaces: Space[], name: string): Promise<void
 // clip that were one would open as a tab of its own.
 
 /** Render a clip as the markdown that will hold it. */
-export function clipBlock(clip: {
-  markdown: string
-  title: string
-  url: string
-  note?: string
-}, id: string, at: string): string {
+export function clipBlock(
+  clip: { markdown: string; title: string; url: string; note?: string },
+  at: string,
+): string {
   const quoted = clip.markdown
     .split('\n')
     .map((line) => (line.trim() ? `> ${line}` : '>'))
     .join('\n')
   const where = clip.note ? ` · ${clip.note}` : ''
   const day = at.slice(0, 10)
-  return `${quoted}\n>\n> — [${clip.title || clip.url}](${clip.url})${where} · ${day} ^${id}`
+  return `${quoted}\n>\n> — [${clip.title || clip.url}](${clip.url})${where} · ${day}`
 }
 
 /** Append a clip to a space's file.
@@ -686,21 +697,20 @@ export async function captureClip(
   space: string,
   clip: { markdown: string; title: string; url: string; note?: string },
   at: string = new Date().toISOString(),
-): Promise<string | null> {
-  if (!clip.markdown.trim()) return null
-  const id = ulid()
+): Promise<boolean> {
+  if (!clip.markdown.trim()) return false
   try {
     const file = await vault.read(space)
     const body = file.content.replace(/\s+$/, '')
-    const res = await vault.save(space, `${body}\n\n${clipBlock(clip, id, at)}\n`)
+    const res = await vault.save(space, `${body}\n\n${clipBlock(clip, at)}\n`)
     if (res.error) {
       console.warn(`flow-md: clip not written (${res.error})`)
-      return null
+      return false
     }
   } catch (err) {
     console.warn(`flow-md: clip not written (${String(err)})`)
-    return null
+    return false
   }
   await tabsCollection.utils.refetch()
-  return id
+  return true
 }

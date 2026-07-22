@@ -550,7 +550,7 @@ export function App() {
     const { value, space: target, source } = capturing
     setCapturing(null)
     if (!value.trim() || !target) return
-    const id = await captureClip(target, {
+    const written = await captureClip(target, {
       markdown: value,
       title: source?.title ?? '',
       url: source?.url ?? '',
@@ -559,8 +559,8 @@ export function App() {
     const name = spaces.find((sp) => sp.id === target)?.name ?? target
     // Said inside the page, where you were looking, rather than in the chrome.
     const frame = activeId ? frames.current.get(activeId) : undefined
-    frame?.toast(id ? `Clipped to ${name}` : 'Clip failed')
-    log(id ? `clip → ${target}` : 'clip failed')
+    frame?.toast(written ? `Clipped to ${name}` : 'Clip failed')
+    log(written ? `clip → ${target}` : 'clip failed')
   }, [capturing, spaces, activeId, log])
 
   /** Rows in, guests out. The only place the document and the browser meet:
