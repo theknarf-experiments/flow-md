@@ -447,6 +447,9 @@ export function App() {
   /** Where the corner sits and how wide it is, once it's been moved. Null
    *  until then, which means "bottom right, 320 across". */
   const [pipBox, setPipBox] = useState<{ x: number; y: number; w: number } | null>(null)
+  /** True while the corner is being dragged or sized, which is when the guests
+   *  have to stop taking the pointer. */
+  const [pipDragging, setPipDragging] = useState(false)
 
   /** The one tab that gets the corner: playing a video, and not already on
    *  screen. One at a time — two would land on top of each other. */
@@ -488,6 +491,17 @@ export function App() {
     const room = { w: card?.clientWidth ?? 0, h: card?.clientHeight ?? 0 }
     const from = { x: e.clientX, y: e.clientY }
     const start = { ...pipPlace }
+    const handle = e.currentTarget
+    // Capture the pointer, and take the guests out of the way while it's held.
+    //
+    // Without both, resizing sticks: the pointer leaves the little corner and
+    // passes over a guest, which is a different process and keeps the pointerup
+    // for itself — so the listener that would have ended the drag never hears
+    // anything, and the corner follows the mouse for ever. Moving survived
+    // because the box travels with the pointer and stays under it.
+    handle.setPointerCapture?.(e.pointerId)
+    setPipDragging(true)
+
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - from.x
       const dy = ev.clientY - from.y
@@ -503,12 +517,30 @@ export function App() {
         setPipBox({ x: start.x, y: start.y, w })
       }
     }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
+    let over = false
+    const stop = () => {
+      // Both the handle and the window listen, so whichever hears the release
+      // first ends it and the other finds nothing left to do.
+      if (over) return
+      over = true
+      try {
+        handle.releasePointerCapture?.(e.pointerId)
+      } catch {
+        /* already gone, which is the case this is here to survive */
+      }
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', stop)
+      handle.removeEventListener('pointercancel', stop)
+      handle.removeEventListener('lostpointercapture', stop)
+      window.removeEventListener('pointerup', stop)
+      setPipDragging(false)
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', stop)
+    handle.addEventListener('pointercancel', stop)
+    // If the capture is lost for any reason, that's also the end of the drag.
+    handle.addEventListener('lostpointercapture', stop)
+    window.addEventListener('pointerup', stop)
   }
 
   /** The tab making noise, preferring the one in the space you're looking at. */
@@ -1818,7 +1850,9 @@ export function App() {
 
       <main className={styles.stage}>
         <div
-          className={`${styles.card} ${nothingLoaded ? styles.empty : ''}`}
+          className={`${styles.card} ${nothingLoaded ? styles.empty : ''} ${
+            pipDragging ? styles.dragging : ''
+          }`}
           ref={cardRef}
         >
           {/* The handles for the picture-in-picture corner. Positioned in the

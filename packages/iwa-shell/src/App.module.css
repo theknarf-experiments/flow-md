@@ -339,3 +339,11 @@
     transparent 55%
   );
 }
+
+/* While the corner is being dragged, no guest may take the pointer. They're
+   separate processes: one of them swallowing the pointerup is what left a
+   resize running with nothing able to stop it. */
+.card.dragging :global(controlledframe),
+.card.dragging :global(iframe) {
+  pointer-events: none !important;
+}
