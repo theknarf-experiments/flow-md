@@ -325,8 +325,8 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   pointer-events: auto;
   cursor: nwse-resize;
   opacity: 0;
@@ -371,17 +371,53 @@
 }
 
 .pipButton {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   border: 0;
-  border-radius: 6px;
-  padding: 0.1rem 0.3rem;
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.95);
   font: inherit;
-  font-size: 0.7rem;
-  line-height: 1.5;
+  font-size: 0.95rem;
+  line-height: 1;
   cursor: pointer;
 }
 
 .pipButton:hover {
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Play sits where a video's play button always sits: the middle. Big enough
+   to hit without aiming, since the whole corner may only be 320 across. */
+.pipPlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pipHandles:hover .pipPlay {
+  opacity: 1;
+}
+
+.pipPlay:hover {
+  background: rgba(0, 0, 0, 0.8);
 }

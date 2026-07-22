@@ -70,8 +70,10 @@ export interface FrameHandle {
   /** Labels every clickable thing in view and waits for a label to be typed. */
   hint(newTab: boolean): Promise<number>
   /** What the guest is playing, if anything — polled, because nothing in the
-   *  Controlled Frame API pushes a change. */
-  sound(): Promise<Sound>
+   *  Controlled Frame API pushes a change. `force` asks the page even when it
+   *  is making no noise, which is how a paused video still reports where it
+   *  is; without it a pause would look the same as no video at all. */
+  sound(force?: boolean): Promise<Sound>
   setMuted(muted: boolean): void
   /** Play or pause the media the guest is playing, from the sidebar. */
   playPause(play: boolean): void
@@ -882,7 +884,7 @@ export function createFrame(
         return 0
       }
     },
-    async sound() {
+    async sound(force) {
       const f = cf()
       if (typeof f.getAudioState !== 'function') return SILENT
       try {
@@ -891,8 +893,10 @@ export function createFrame(
           f.isAudioMuted?.() ?? Promise.resolve(false),
         ])
         // Only ask the page when the frame says there's something to ask
-        // about: executeScript on every guest every second is not free.
-        if (!audible && !muted) return { ...SILENT }
+        // about: executeScript on every guest every second is not free. The
+        // exception is the guest in the corner, which has to keep answering
+        // even while paused — silence is not the same as nothing to show.
+        if (!audible && !muted && !force) return { ...SILENT }
         const res = (await f.executeScript?.({ code: MEDIA })) as unknown
         const raw = JSON.parse(String(Array.isArray(res) ? res[0] : res) || 'null') as
           | { playing: boolean; video: boolean; title: string; rect: Rect | null }

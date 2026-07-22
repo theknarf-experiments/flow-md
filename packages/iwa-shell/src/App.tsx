@@ -384,7 +384,7 @@ export function App() {
     const tick = async () => {
       const entries = await Promise.all(
         [...frames.current.entries()].map(
-          async ([id, frame]) => [id, await frame.sound()] as const,
+          async ([id, frame]) => [id, await frame.sound(id === pipStuckRef.current)] as const,
         ),
       )
       if (!alive) return
@@ -454,17 +454,43 @@ export function App() {
    *  keeps playing, it just stops following you around. */
   const [pipHidden, setPipHidden] = useState<string | null>(null)
 
-  /** The one tab that gets the corner: playing a video, and not already on
-   *  screen. One at a time — two would land on top of each other. */
-  const pipTab = tabs.find(
-    (t) =>
-      t.id !== firstId &&
-      t.id !== splitId &&
-      t.id !== pipHidden &&
-      !!sounds[t.id]?.video &&
-      !!sounds[t.id]?.playing &&
-      !!sounds[t.id]?.rect,
-  )
+  /** The tab in the corner. Sticky, not derived from whether it's playing:
+   *  pausing something is not a reason for it to vanish — you paused it to
+   *  keep looking at it. It leaves when it's back on screen, when it's sent
+   *  away, or when the page it was showing is no longer a video at all. */
+  const [pipStuck, setPipStuck] = useState<string | null>(null)
+  const pipStuckRef = useRef<string | null>(null)
+  pipStuckRef.current = pipStuck
+
+  useEffect(() => {
+    if (pipStuck) {
+      const held = sounds[pipStuck]
+      const gone =
+        !tabs.some((t) => t.id === pipStuck) ||
+        pipStuck === firstId ||
+        pipStuck === splitId ||
+        pipStuck === pipHidden ||
+        // Gone only when the page has nothing to show: a video that reports
+        // no dimensions for a moment — switching source, still fetching
+        // metadata — is still the video you were watching.
+        (held !== undefined && !held.video && !held.rect)
+      if (gone) setPipStuck(null)
+      return
+    }
+    // Nothing in the corner: the next video playing out of sight claims it.
+    const next = tabs.find(
+      (t) =>
+        t.id !== firstId &&
+        t.id !== splitId &&
+        t.id !== pipHidden &&
+        !!sounds[t.id]?.video &&
+        !!sounds[t.id]?.playing &&
+        !!sounds[t.id]?.rect,
+    )
+    if (next) setPipStuck(next.id)
+  }, [pipStuck, tabs, sounds, firstId, splitId, pipHidden])
+
+  const pipTab = tabs.find((t) => t.id === pipStuck)
   const pipRect = pipTab ? (sounds[pipTab.id]?.rect ?? null) : null
 
   /** The corner's box in the card's own coordinates. Derived rather than
@@ -1885,18 +1911,20 @@ export function App() {
               {/* Buttons, not a second surface: they sit in the layer that
                   already owns the pointer, and only have to say that pressing
                   one isn't the start of a drag. */}
+              {/* The one control worth a whole gesture sits in the middle of
+                  the picture, where a video's play button always is. */}
+              <button
+                type="button"
+                className={styles.pipPlay}
+                title={sounds[pipTab.id]?.playing ? 'Pause' : 'Play'}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() =>
+                  frames.current.get(pipTab.id)?.playPause(!sounds[pipTab.id]?.playing)
+                }
+              >
+                {sounds[pipTab.id]?.playing ? '❚❚' : '▶'}
+              </button>
               <div className={styles.pipBar}>
-                <button
-                  type="button"
-                  className={styles.pipButton}
-                  title={sounds[pipTab.id]?.playing ? 'Pause' : 'Play'}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() =>
-                    frames.current.get(pipTab.id)?.playPause(!sounds[pipTab.id]?.playing)
-                  }
-                >
-                  {sounds[pipTab.id]?.playing ? '❚❚' : '▶'}
-                </button>
                 <button
                   type="button"
                   className={styles.pipButton}
