@@ -261,3 +261,28 @@
   width: auto !important;
   height: auto !important;
 }
+
+.frameTop {
+  visibility: visible !important;
+  inset: 0 0 calc(50% + 3px) 0 !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+.frameBottom {
+  visibility: visible !important;
+  inset: calc(50% + 3px) 0 0 0 !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+/* Which pane the keyboard is talking to. An *outer* ring rather than an inset
+   one: a guest paints its own compositing surface, so anything drawn inside
+   its box is hidden behind the page. The space's own hue, so it reads as part
+   of the chrome and not as a browser warning. */
+.framePaneFocus {
+  box-shadow:
+    0 0 0 2px hsl(var(--hue) 70% 62% / 0.75),
+    0 6px 20px rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}

@@ -98,13 +98,32 @@ export interface FrameHandle {
    *  of ways. */
   followRel(direction: 'next' | 'prev'): void
   setActive(active: boolean): void
-  /** Which half of the card this guest fills, or null for the whole of it.
+  /** Which part of the card this guest fills, or null for the whole of it.
    *  Two visible guests is the only thing a split view is. */
-  setSide(side: 'left' | 'right' | null): void
+  setSide(side: Side): void
+  /** Whether this is the pane the keyboard is talking to. Only meaningful
+   *  while the card is split — one pane needs no ring to say it's the one. */
+  setFocus(focused: boolean): void
   /** Keep a playing video on screen after its tab stops being the active one,
    *  in a corner rather than filling the card. */
   setPip(pip: boolean): void
   destroy(): void
+}
+
+/** Where a pane sits when the card is split. Null is the undivided card. */
+export type Side = 'left' | 'right' | 'top' | 'bottom' | null
+
+/** The class names the shell uses to place and mark a guest. Passed as one
+ *  object because they arrive together and there are too many to read as
+ *  positional arguments. */
+export interface PaneClasses {
+  active: string
+  pip: string
+  focus: string
+  left: string
+  right: string
+  top: string
+  bottom: string
 }
 
 /** One of the shell's bindings, in a shape a guest can match a keydown against. */
@@ -736,10 +755,7 @@ export function createFrame(
   url: string,
   partition: string,
   container: HTMLElement,
-  activeClass: string,
-  pipClass: string,
-  leftClass: string,
-  rightClass: string,
+  classes: PaneClasses,
   onLifecycle: () => void,
   /** The guest asked for a window of its own — ⌘-click, target=_blank,
    *  window.open. Given the url it wanted; the request itself is discarded. */
@@ -1041,14 +1057,19 @@ export function createFrame(
       })()`)
     },
     setActive(active) {
-      el.classList.toggle(activeClass, active)
+      el.classList.toggle(classes.active, active)
     },
     setSide(side) {
-      el.classList.toggle(leftClass, side === 'left')
-      el.classList.toggle(rightClass, side === 'right')
+      el.classList.toggle(classes.left, side === 'left')
+      el.classList.toggle(classes.right, side === 'right')
+      el.classList.toggle(classes.top, side === 'top')
+      el.classList.toggle(classes.bottom, side === 'bottom')
+    },
+    setFocus(focused) {
+      el.classList.toggle(classes.focus, focused)
     },
     setPip(pip) {
-      el.classList.toggle(pipClass, pip)
+      el.classList.toggle(classes.pip, pip)
     },
     destroy() {
       for (const ev of LIFECYCLE) el.removeEventListener(ev, onLifecycle)

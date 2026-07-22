@@ -70,6 +70,7 @@ import {
 import {
   type FrameHandle,
   type KeyClaim,
+  type Side,
   type Sound,
   SILENT,
   createFrame,
@@ -102,6 +103,13 @@ const HOME = 'http://localhost:4748/'
  *  lights, which a frameless window draws over the top-left of our content.
  *  Hardcoded because Chrome exposes no metric for them — the same number
  *  Darc uses, less this sidebar's own padding. */
+/** A split: which tab shares the card, and how it's divided. `row` puts the
+ *  panes side by side, `column` stacks them — the same words CSS uses. */
+interface Split {
+  id: string
+  dir: 'row' | 'column'
+}
+
 type BindOpts = { enabled?: boolean; meta?: { name?: string; category?: string; hidden?: boolean } }
 
 /** Register a chord, resolved through the keymap: the file's rebind if there
@@ -287,7 +295,9 @@ export function App() {
    *  Kept beside `activeBySpace` and for the same reason: which tabs you're
    *  looking at is a property of looking, not of the document. The markdown
    *  says what's open; the window says what's on screen. */
-  const [splitBySpace, setSplitBySpace] = useState<Record<string, string | null>>({})
+  const [splitBySpace, setSplitBySpace] = useState<Record<string, Split | null>>({})
+  /** Which pane the keyboard is talking to, per space. */
+  const [focusBySpace, setFocusBySpace] = useState<Record<string, 'first' | 'second'>>({})
 
   /** The clip ⌘L is holding, until it's filed or discarded. */
   const [capturing, setCapturing] = useState<{
@@ -338,16 +348,28 @@ export function App() {
   const profiles = useMemo(() => profilesOf(spaces), [spaces])
   const space = spaces.find((s) => s.id === spaceId) ?? spaces[0]
   const spaceTabs = tabs.filter((t) => t.space === space?.id)
-  const activeId = activeBySpace[spaceId] ?? spaceTabs[0]?.id ?? null
-  const active = tabs.find((t) => t.id === activeId) ?? null
-  const activeFrame = activeId ? frames.current.get(activeId) : undefined
+  /** The pane that's always there. A split adds a second beside or below it. */
+  const firstId = activeBySpace[spaceId] ?? spaceTabs[0]?.id ?? null
   /** The other pane, when there is one. A tab can't be split with itself, and
    *  one that's been closed stops counting the moment its row goes. */
-  const splitId = (() => {
-    const other = splitBySpace[spaceId] ?? null
-    if (!other || other === activeId) return null
-    return tabs.some((t) => t.id === other) ? other : null
+  const split = (() => {
+    const s = splitBySpace[spaceId] ?? null
+    if (!s || s.id === firstId) return null
+    return tabs.some((t) => t.id === s.id) ? s : null
   })()
+  const splitId = split?.id ?? null
+  /** Side by side puts the panes left and right; stacked, top and bottom. */
+  const sides: [Side, Side] = split
+    ? split.dir === 'row'
+      ? ['left', 'right']
+      : ['top', 'bottom']
+    : [null, null]
+  /** The pane keys act on. Without a split there's only one, so the question
+   *  doesn't arise and the answer is always the first. */
+  const focusSecond = !!split && focusBySpace[spaceId] === 'second'
+  const activeId = focusSecond ? splitId : firstId
+  const active = tabs.find((t) => t.id === activeId) ?? null
+  const activeFrame = activeId ? frames.current.get(activeId) : undefined
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
@@ -625,10 +647,15 @@ export function App() {
         row.url,
         owner.partition,
         container,
-        styles.frameActive!,
-        styles.framePip!,
-        styles.frameLeft!,
-        styles.frameRight!,
+        {
+          active: styles.frameActive!,
+          pip: styles.framePip!,
+          focus: styles.framePaneFocus!,
+          left: styles.frameLeft!,
+          right: styles.frameRight!,
+          top: styles.frameTop!,
+          bottom: styles.frameBottom!,
+        },
         () => void sync(id),
         // A link opened in a new tab is a link written into the space, the
         // same as any other — so ⌘-click adds a line to the file, indented
@@ -698,16 +725,18 @@ export function App() {
   // is the same live frame with different geometry.
   useEffect(() => {
     for (const [id, frame] of frames.current) {
-      const shown = id === activeId || id === splitId
+      const shown = id === firstId || id === splitId
       const sound = sounds[id]
       frame.setActive(shown)
-      frame.setSide(splitId ? (id === activeId ? 'left' : id === splitId ? 'right' : null) : null)
+      frame.setSide(id === firstId ? sides[0] : id === splitId ? sides[1] : null)
+      // A ring only means something when there's another pane to tell it from.
+      frame.setFocus(!!splitId && id === activeId)
       // A pane already on screen doesn't need a picture-in-picture of itself.
       frame.setPip(!shown && !!sound?.video && !!sound.playing)
     }
-    if (activeId !== null) void sync(activeId)
+    if (firstId !== null) void sync(firstId)
     if (splitId !== null) void sync(splitId)
-  }, [activeId, splitId, tabs.length, sync, sounds])
+  }, [firstId, splitId, activeId, sides[0], sides[1], tabs.length, sync, sounds])
 
   const go = useCallback(
     (value: string, asNewTab: boolean) => {
@@ -746,23 +775,63 @@ export function App() {
     [tabOrder, spaceId, activeId],
   )
 
-  /** Put a tab in the other half of the card, or take it out again.
+  /** Put a tab in the other part of the card, or take it out again.
    *
    *  Splitting with nothing chosen picks the next tab along, because the
-   *  common case is comparing a thing with the thing beside it. */
+   *  common case is comparing a thing with the thing beside it. Asking for the
+   *  direction the card is already split in closes it; asking for the other
+   *  direction turns it, which is what a second ⌘D on a stacked split should
+   *  plainly do. */
   const toggleSplit = useCallback(
-    (id?: string) => {
+    (dir: 'row' | 'column', id?: string) => {
       setSplitBySpace((m) => {
         const current = m[spaceId] ?? null
-        if (id) return { ...m, [spaceId]: current === id ? null : id }
-        if (current) return { ...m, [spaceId]: null }
+        if (id) {
+          const same = current?.id === id && current.dir === dir
+          return { ...m, [spaceId]: same ? null : { id, dir } }
+        }
+        if (current) {
+          return { ...m, [spaceId]: current.dir === dir ? null : { ...current, dir } }
+        }
         const order = tabOrder()
-        const at = order.findIndex((t) => t.id === activeId)
+        const at = order.findIndex((t) => t.id === firstId)
         const next = order[at + 1] ?? order[at - 1]
-        return next ? { ...m, [spaceId]: next.id } : m
+        return next ? { ...m, [spaceId]: { id: next.id, dir } } : m
       })
     },
-    [spaceId, tabOrder, activeId],
+    [spaceId, tabOrder, firstId],
+  )
+
+  /** Choosing a tab fills the pane the keyboard is in. With no split that's
+   *  the only pane; with one, it's whichever half has the ring — so you can
+   *  park a reference on one side and browse on the other. */
+  const selectTab = useCallback(
+    (tab: Row) => {
+      if (focusSecond) {
+        setSplitBySpace((m) => {
+          const current = m[tab.space]
+          return current ? { ...m, [tab.space]: { ...current, id: tab.id } } : m
+        })
+        return
+      }
+      setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))
+    },
+    [focusSecond],
+  )
+
+  /** ⌃W hjkl. A direction that doesn't match how the card is divided does
+   *  nothing, the way it does in vim when there's no window that way. */
+  const focusPane = useCallback(
+    (dir: 'h' | 'j' | 'k' | 'l') => {
+      const s = splitBySpace[spaceId]
+      if (!s) return
+      const row = s.dir === 'row'
+      if (row && (dir === 'j' || dir === 'k')) return
+      if (!row && (dir === 'h' || dir === 'l')) return
+      const second = dir === 'l' || dir === 'j'
+      setFocusBySpace((m) => ({ ...m, [spaceId]: second ? 'second' : 'first' }))
+    },
+    [splitBySpace, spaceId],
   )
 
   /** ⌘1…⌘9 — and ⌘9 is the last tab, not the ninth, the way browsers do it. */
@@ -836,6 +905,10 @@ export function App() {
   const nth = (n: number) => ({
     meta: { name: `Jump to tab ${n}`, category: 'Tabs & spaces', hidden: true },
   })
+  /** The other three of ⌃W hjkl: bound and claimed, listed under the first. */
+  const nthPane = (where: string) => ({
+    meta: { name: `Pane ${where}`, category: 'Tabs & spaces', hidden: true },
+  })
 
   bindKey(keymap, 'new-tab', 'Mod+T', () => setCommand({ open: true, value: '', newTab: true }), tabs_('New tab'))
   // ⌘L is Lazy's capture chord and the muscle memory worth matching; the
@@ -864,7 +937,12 @@ export function App() {
   // ⌘R belongs to the page, not the window — reloading the shell would throw
   // away every guest to refresh one of them. preventDefault (on by default)
   // is what stops the window from reloading underneath us.
-  bindKey(keymap, 'split', 'Mod+D', () => toggleSplit(), tabs_('Split the view'))
+  bindKey(keymap, 'split', 'Mod+D', () => toggleSplit('row'), tabs_('Split side by side'))
+  bindKey(keymap, 'split-stacked', 'Mod+Shift+D', () => toggleSplit('column'), tabs_('Split stacked'))
+  bindSeq(keymap, 'pane-left', ['Control+W', 'H'], () => focusPane('h'), tabs_('Pane to the left'))
+  bindSeq(keymap, 'pane-right', ['Control+W', 'L'], () => focusPane('l'), nthPane('right'))
+  bindSeq(keymap, 'pane-up', ['Control+W', 'K'], () => focusPane('k'), nthPane('up'))
+  bindSeq(keymap, 'pane-down', ['Control+W', 'J'], () => focusPane('j'), nthPane('down'))
   bindKey(keymap, 'reload-tab', 'Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
   bindKey(keymap, 'next-tab', 'Control+J', () => stepTab(1), tabs_('Next tab'))
   bindKey(keymap, 'prev-tab', 'Control+K', () => stepTab(-1), tabs_('Previous tab'))
@@ -992,6 +1070,33 @@ export function App() {
         label: 'Toggle sidebar',
         run: () => setSidebar((v) => !v),
       },
+      {
+        key: 'cmd:split-row',
+        icon: '▥',
+        label: split ? 'Close the split' : 'Split side by side',
+        run: () => toggleSplit('row'),
+      },
+      {
+        key: 'cmd:split-col',
+        icon: '▤',
+        label: split?.dir === 'column' ? 'Close the split' : 'Split stacked',
+        run: () => toggleSplit('column'),
+      },
+      // Only worth offering when there's another pane to go to.
+      ...(split
+        ? [
+            {
+              key: 'cmd:split-focus',
+              icon: '⇥',
+              label: focusSecond ? 'Focus the first pane' : 'Focus the other pane',
+              run: () =>
+                setFocusBySpace((m) => ({
+                  ...m,
+                  [spaceId]: focusSecond ? ('first' as const) : ('second' as const),
+                })),
+            },
+          ]
+        : []),
       { key: 'cmd:settings', icon: '⌘', label: 'Settings', run: () => setSettings(true) },
       { key: 'cmd:log', icon: '⌘', label: 'Toggle log', run: () => setShowLog((v) => !v) },
       { key: 'cmd:capture', icon: '✂', label: 'Clip to the vault', run: () => void capture() },
@@ -1240,7 +1345,7 @@ export function App() {
       audible={sounds[tab.id]?.audible ?? false}
       muted={sounds[tab.id]?.muted ?? false}
       onToggleMute={() => toggleMute(tab.id)}
-      onSelect={() => setActiveBySpace((m) => ({ ...m, [tab.space]: tab.id }))}
+      onSelect={() => selectTab(tab)}
       onTogglePin={() => togglePin(tab)}
       onClose={() => closeTab(tab.id)}
       depth={tab.depth}
@@ -1477,7 +1582,7 @@ export function App() {
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {
-              toggleSplit(tabMenu.anchor?.target ?? '')
+              toggleSplit('row', tabMenu.anchor?.target ?? '')
               tabMenu.close()
             }}
           >
