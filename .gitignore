@@ -44,3 +44,8 @@ storybook-static/
 
 # Rust (iwa-launcher)
 target/
+
+# Browsing history. One file per profile, written by the browser as you use
+# it — a log of this machine, not part of the vault's content.
+docs/history.csv
+docs/history-*.csv
