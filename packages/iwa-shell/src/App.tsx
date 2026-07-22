@@ -563,6 +563,14 @@ export function App() {
     log(written ? `clip → ${target}` : 'clip failed')
   }, [capturing, spaces, activeId, log])
 
+  /** The menu item is registered once, when a guest is built, but `capture`
+   *  is a new function on every render. A ref keeps the item pointing at the
+   *  current one instead of the one that existed at creation. */
+  const captureRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    captureRef.current = () => void capture()
+  }, [capture])
+
   /** Rows in, guests out. The only place the document and the browser meet:
    *  every row gets a frame, every frame without a row is destroyed. There is
    *  nothing to reconcile because there is nothing else keeping score. */
@@ -600,6 +608,9 @@ export function App() {
             under: tabsCollection.get(id),
           }),
       )
+      // The guest draws its own right-click menu; this puts clipping in it,
+      // next to Copy, rather than the shell trying to draw over a page.
+      frame.setClipMenu(() => captureRef.current())
       frames.current.set(id, frame)
     }
 

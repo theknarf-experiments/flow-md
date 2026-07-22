@@ -81,6 +81,8 @@ export interface FrameHandle {
   capture(): Promise<Clip | null>
   /** Say something inside the page. */
   toast(message: string): void
+  /** Add "Clip to the vault" to the guest's own right-click menu. */
+  setClipMenu(onClip: () => void): void
   /** Put the caret in the page's first real text field — Vimium's `gi`. */
   focusInput(): void
   /** Hand the guest the userscripts it should run itself. Replaces whatever
@@ -774,6 +776,25 @@ export function createFrame(
     },
     toast(message) {
       void exec(TOAST(message))
+    },
+    /** The guest draws its own context menu, and the browser will add an item
+     *  to it on request — so clipping joins Copy and Look Up rather than the
+     *  shell replacing a menu it can't draw over anyway. Selection *and* page,
+     *  because clipping the article with nothing selected is also a thing. */
+    setClipMenu(onClip) {
+      const menus = cf().contextMenus
+      if (typeof menus?.create !== 'function') return
+      try {
+        menus.removeAll?.()
+        menus.create({
+          id: 'flowmd-clip',
+          title: 'Clip to the vault',
+          contexts: ['selection', 'page'],
+          onclick: () => onClip(),
+        })
+      } catch {
+        /* an older build without the menu API; the chord still works */
+      }
     },
     setUserScripts(scripts) {
       const f = cf()

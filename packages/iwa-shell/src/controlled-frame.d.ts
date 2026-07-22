@@ -11,6 +11,19 @@ export interface ControlledFrame extends HTMLElement {
   forward?(): Promise<void> | void
   stop?(): void
   clearData?(options?: unknown, types?: unknown): Promise<void>
+  /** The guest's own context menu, inherited from <webview>. Items added here
+   *  are drawn by the browser in the native menu, next to Copy and Look Up —
+   *  the shell can't draw over a guest, and wouldn't want to replace what's
+   *  already there. */
+  contextMenus?: {
+    create(properties: {
+      id?: string
+      title: string
+      contexts?: string[]
+      onclick?: (info: { selectionText?: string; pageUrl?: string }) => void
+    }): void
+    removeAll?(): void
+  }
   /** True while the guest is making noise — not whether it has media, but
    *  whether that media is audible right now. */
   /** Register scripts the guest injects itself, on every matching page and
