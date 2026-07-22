@@ -384,7 +384,7 @@ export function App() {
     const tick = async () => {
       const entries = await Promise.all(
         [...frames.current.entries()].map(
-          async ([id, frame]) => [id, await frame.sound(id === pipStuckRef.current)] as const,
+          async ([id, frame]) => [id, await frame.sound(id === mediaIdRef.current)] as const,
         ),
       )
       if (!alive) return
@@ -454,43 +454,48 @@ export function App() {
    *  keeps playing, it just stops following you around. */
   const [pipHidden, setPipHidden] = useState<string | null>(null)
 
-  /** The tab in the corner. Sticky, not derived from whether it's playing:
-   *  pausing something is not a reason for it to vanish — you paused it to
-   *  keep looking at it. It leaves when it's back on screen, when it's sent
-   *  away, or when the page it was showing is no longer a video at all. */
-  const [pipStuck, setPipStuck] = useState<string | null>(null)
-  const pipStuckRef = useRef<string | null>(null)
-  pipStuckRef.current = pipStuck
+  /** The tab that counts as "what's playing".
+   *
+   *  Sticky, because a pause is not the end of it — you paused it to come back
+   *  to it, and controls that vanish when you press pause are controls you
+   *  can't press twice. It leaves when the tab does, or when the page it was
+   *  playing has nothing to play any more.
+   *
+   *  One notion, read by both the sidebar's bar and the corner: they were
+   *  asking the same question and disagreeing about the answer. */
+  const [mediaId, setMediaId] = useState<string | null>(null)
+  const mediaIdRef = useRef<string | null>(null)
+  mediaIdRef.current = mediaId
 
   useEffect(() => {
-    if (pipStuck) {
-      const held = sounds[pipStuck]
-      const gone =
-        !tabs.some((t) => t.id === pipStuck) ||
-        pipStuck === firstId ||
-        pipStuck === splitId ||
-        pipStuck === pipHidden ||
-        // Gone only when the page has nothing to show: a video that reports
-        // no dimensions for a moment — switching source, still fetching
-        // metadata — is still the video you were watching.
-        (held !== undefined && !held.video && !held.rect)
-      if (gone) setPipStuck(null)
+    if (mediaId) {
+      const held = sounds[mediaId]
+      const nothingLeft = held !== undefined && !held.audible && !held.muted && !held.rect
+      if (!tabs.some((t) => t.id === mediaId) || nothingLeft) setMediaId(null)
       return
     }
-    // Nothing in the corner: the next video playing out of sight claims it.
     const next = tabs.find(
-      (t) =>
-        t.id !== firstId &&
-        t.id !== splitId &&
-        t.id !== pipHidden &&
-        !!sounds[t.id]?.video &&
-        !!sounds[t.id]?.playing &&
-        !!sounds[t.id]?.rect,
+      (t) => sounds[t.id]?.audible || (sounds[t.id]?.video && sounds[t.id]?.playing),
     )
-    if (next) setPipStuck(next.id)
-  }, [pipStuck, tabs, sounds, firstId, splitId, pipHidden])
+    if (next) setMediaId(next.id)
+  }, [mediaId, tabs, sounds])
 
-  const pipTab = tabs.find((t) => t.id === pipStuck)
+  const noisy = tabs.find((t) => t.id === mediaId) ?? null
+
+  /** The corner shows whatever's playing, when it's a video you can't
+   *  currently see and haven't sent away. */
+  const pipTab =
+    noisy &&
+    noisy.id !== firstId &&
+    noisy.id !== splitId &&
+    noisy.id !== pipHidden &&
+    // Big enough to be a picture. Audio has a rectangle too — often nothing
+    // by nothing — and dividing by its width to keep the aspect gives a
+    // corner sized NaN by NaN.
+    (sounds[noisy.id]?.rect?.w ?? 0) > 8 &&
+    (sounds[noisy.id]?.rect?.h ?? 0) > 8
+      ? noisy
+      : undefined
   const pipRect = pipTab ? (sounds[pipTab.id]?.rect ?? null) : null
 
   /** The corner's box in the card's own coordinates. Derived rather than
@@ -580,10 +585,6 @@ export function App() {
   }
 
   /** The tab making noise, preferring the one in the space you're looking at. */
-  const noisy = useMemo(() => {
-    const playing = tabs.filter((t) => sounds[t.id]?.audible || sounds[t.id]?.muted)
-    return playing.find((t) => t.space === spaceId) ?? playing[0] ?? null
-  }, [tabs, sounds, spaceId])
 
   const toggleMute = useCallback((id: string) => {
     const frame = frames.current.get(id)
