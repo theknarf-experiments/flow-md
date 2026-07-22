@@ -367,10 +367,21 @@ const CAPTURE = `(() => {
     if (tag === 'tr') return '\\n' + kids()
     if (tag === 'td' || tag === 'th') return kids() + ' '
     if (tag === 'br') return '\\n'
-    if (tag === 'a' && node.href) return '[' + kids().trim() + '](' + node.href + ')'
-    if (tag === 'strong' || tag === 'b') return '**' + kids().trim() + '**'
-    if (tag === 'em' || tag === 'i') return '*' + kids().trim() + '*'
-    if (tag === 'code') return '\`' + kids().trim() + '\`'
+    // Markdown's markers have to hug their text — ' *a* ' is emphasis, '* a *'
+    // is not — but a space *inside* the element is often the only thing
+    // separating it from the next word. So it's moved outside rather than
+    // trimmed away, which is how "<em>Age of Empires</em> 4" stopped coming
+    // out as "*Age of Empires*4".
+    const wrap = (open, close) => {
+      const k = kids()
+      const inner = k.trim()
+      if (!inner) return k
+      return (/^\\s/.test(k) ? ' ' : '') + open + inner + close + (/\\s$/.test(k) ? ' ' : '')
+    }
+    if (tag === 'a' && node.href) return wrap('[', '](' + node.href + ')')
+    if (tag === 'strong' || tag === 'b') return wrap('**', '**')
+    if (tag === 'em' || tag === 'i') return wrap('*', '*')
+    if (tag === 'code') return wrap('\`', '\`')
     if (tag === 'li') return '\\n' + '  '.repeat(Math.max(0, depth - 1)) + '- ' + kids().trim()
     if (/^h[1-6]$/.test(tag)) return '\\n\\n' + '#'.repeat(+tag[1]) + ' ' + kids().trim() + '\\n'
     if (tag === 'p' || tag === 'div' || tag === 'section') return '\\n\\n' + kids() + '\\n\\n'

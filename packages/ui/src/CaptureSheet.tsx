@@ -36,7 +36,10 @@ export interface CaptureSheetProps {
  *  selection that caught too much, add the sentence explaining why you kept
  *  it, or send it somewhere other than where you happen to be standing. So
  *  this is a pause, not a form — prefilled, focused, and dismissable with the
- *  key you'd expect, and ⌘⏎ away from being filed. */
+ *  key you'd expect, and ⌘⏎ away from being filed.
+ *
+ *  Where it came from is a chip at the foot of what you're writing rather than
+ *  a header above it. A clip is the thing; its source is attached to it. */
 export function CaptureSheet(props: CaptureSheetProps) {
   const { open, value, onChange, source, spaces, spaceId, onSpaceChange } = props
   const { onSave, onDismiss } = props
@@ -69,6 +72,8 @@ export function CaptureSheet(props: CaptureSheetProps) {
     }
   }
 
+  const here = spaces.find((s) => s.id === spaceId)
+
   return (
     <div
       className={styles.overlay}
@@ -77,33 +82,41 @@ export function CaptureSheet(props: CaptureSheetProps) {
         if (e.target === e.currentTarget) onDismiss()
       }}
     >
-      <div className={styles.sheet} role="dialog" aria-label="Capture" onKeyDown={keys}>
-        {source && (
-          <div className={styles.source}>
-            {source.icon ? (
-              // eslint-disable-next-line jsx-a11y/alt-text -- the title names it
-              <img className={styles.favicon} src={source.icon} alt="" aria-hidden="true" />
-            ) : (
-              <span className={styles.dot} />
-            )}
-            <span className={styles.sourceTitle}>{source.title || source.url}</span>
-            {source.note && <span className={styles.sourceNote}>{source.note}</span>}
-          </div>
-        )}
+      {/* The bloom behind the panel, which is most of why this reads as
+          floating rather than as a box drawn on top of the window. */}
+      <div className={styles.glow} aria-hidden="true" />
 
-        <textarea
-          ref={field}
-          className={styles.body}
-          value={value}
-          rows={10}
-          placeholder="Clip the selection, or just write it down…"
-          aria-label="Capture"
-          onChange={(e) => onChange(e.target.value)}
-        />
+      <div className={styles.sheet} role="dialog" aria-label="Capture" onKeyDown={keys}>
+        <div className={styles.body}>
+          <textarea
+            ref={field}
+            className={styles.field}
+            value={value}
+            rows={8}
+            placeholder="Jot something down, or clip what you selected…"
+            aria-label="Capture"
+            onChange={(e) => onChange(e.target.value)}
+          />
+
+          {source && (
+            <div className={styles.source}>
+              {source.icon ? (
+                // eslint-disable-next-line jsx-a11y/alt-text -- the title names it
+                <img className={styles.favicon} src={source.icon} alt="" aria-hidden="true" />
+              ) : (
+                <span className={styles.dot} />
+              )}
+              <span className={styles.sourceTitle}>{source.title || source.url}</span>
+              {source.note && <span className={styles.sourceNote}>{source.note}</span>}
+            </div>
+          )}
+        </div>
 
         <div className={styles.footer}>
           <label className={styles.destination}>
-            <span className={styles.into}>into</span>
+            <span className={styles.emoji} aria-hidden="true">
+              {here?.emoji ?? '·'}
+            </span>
             <select
               className={styles.select}
               value={spaceId}
@@ -112,17 +125,15 @@ export function CaptureSheet(props: CaptureSheetProps) {
             >
               {spaces.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.emoji ? `${s.emoji} ${s.name}` : s.name}
+                  {s.name}
                 </option>
               ))}
             </select>
           </label>
-          <span className={styles.hint}>
-            <kbd>⌘</kbd>
-            <kbd>⏎</kbd> save · <kbd>esc</kbd> discard
-          </span>
+
           <button type="button" className={styles.save} onClick={onSave}>
-            Save
+            Capture
+            <kbd className={styles.kbd}>⌘⏎</kbd>
           </button>
         </div>
       </div>
