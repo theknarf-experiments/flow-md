@@ -450,6 +450,9 @@ export function App() {
   /** True while the corner is being dragged or sized, which is when the guests
    *  have to stop taking the pointer. */
   const [pipDragging, setPipDragging] = useState(false)
+  /** A tab whose corner has been sent away. Sent away, not stopped: the video
+   *  keeps playing, it just stops following you around. */
+  const [pipHidden, setPipHidden] = useState<string | null>(null)
 
   /** The one tab that gets the corner: playing a video, and not already on
    *  screen. One at a time — two would land on top of each other. */
@@ -457,6 +460,7 @@ export function App() {
     (t) =>
       t.id !== firstId &&
       t.id !== splitId &&
+      t.id !== pipHidden &&
       !!sounds[t.id]?.video &&
       !!sounds[t.id]?.playing &&
       !!sounds[t.id]?.rect,
@@ -476,6 +480,12 @@ export function App() {
     const y = pipBox?.y ?? Math.max(0, room.h - height - 16)
     return { x, y, w: width, h: height }
   })()
+
+  useEffect(() => {
+    if (!pipHidden) return
+    const still = sounds[pipHidden]
+    if (pipHidden === firstId || pipHidden === splitId || !still?.playing) setPipHidden(null)
+  }, [pipHidden, firstId, splitId, sounds])
 
   /** Moving and sizing the corner.
    *
@@ -1872,6 +1882,53 @@ export function App() {
               onDoubleClick={() => setActiveBySpace((m) => ({ ...m, [pipTab.space]: pipTab.id }))}
             >
               <div className={styles.pipGrip} aria-hidden="true" />
+              {/* Buttons, not a second surface: they sit in the layer that
+                  already owns the pointer, and only have to say that pressing
+                  one isn't the start of a drag. */}
+              <div className={styles.pipBar}>
+                <button
+                  type="button"
+                  className={styles.pipButton}
+                  title={sounds[pipTab.id]?.playing ? 'Pause' : 'Play'}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() =>
+                    frames.current.get(pipTab.id)?.playPause(!sounds[pipTab.id]?.playing)
+                  }
+                >
+                  {sounds[pipTab.id]?.playing ? '❚❚' : '▶'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.pipButton}
+                  title={sounds[pipTab.id]?.muted ? 'Unmute' : 'Mute'}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => toggleMute(pipTab.id)}
+                >
+                  {sounds[pipTab.id]?.muted ? '🔇' : '🔊'}
+                </button>
+                <span className={styles.pipSpacer} />
+                <button
+                  type="button"
+                  className={styles.pipButton}
+                  title="Back to the tab"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => {
+                    setSpaceId(pipTab.space)
+                    setActiveBySpace((m) => ({ ...m, [pipTab.space]: pipTab.id }))
+                  }}
+                >
+                  ⤢
+                </button>
+                <button
+                  type="button"
+                  className={styles.pipButton}
+                  title="Hide the corner — the video keeps playing"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setPipHidden(pipTab.id)}
+                >
+                  ✕
+                </button>
+              </div>
               <div
                 className={styles.pipSize}
                 role="presentation"

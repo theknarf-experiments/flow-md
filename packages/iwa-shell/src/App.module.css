@@ -347,3 +347,41 @@
 .card.dragging :global(iframe) {
   pointer-events: none !important;
 }
+
+/* The corner's own controls. Hidden until the pointer is over it, so what you
+   normally see is the video and nothing else. */
+.pipBar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.2rem 0.25rem;
+  border-radius: 10px 10px 0 0;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pipHandles:hover .pipBar {
+  opacity: 1;
+}
+
+.pipSpacer {
+  flex: 1;
+}
+
+.pipButton {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.92);
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.pipButton:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
