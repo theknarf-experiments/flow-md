@@ -864,7 +864,7 @@ export function App() {
   // ⌘R belongs to the page, not the window — reloading the shell would throw
   // away every guest to refresh one of them. preventDefault (on by default)
   // is what stops the window from reloading underneath us.
-  bindKey(keymap, 'split', 'Mod+\\', () => toggleSplit(), tabs_('Split the view'))
+  bindKey(keymap, 'split', 'Mod+D', () => toggleSplit(), tabs_('Split the view'))
   bindKey(keymap, 'reload-tab', 'Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
   bindKey(keymap, 'next-tab', 'Control+J', () => stepTab(1), tabs_('Next tab'))
   bindKey(keymap, 'prev-tab', 'Control+K', () => stepTab(-1), tabs_('Previous tab'))
