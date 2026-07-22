@@ -178,6 +178,10 @@
 .framePip {
   visibility: visible !important;
   z-index: 3;
+  /* Deaf to the pointer. The corner is a picture of the page, not the page —
+     a click here would land on whatever happens to be under it at a quarter
+     scale, which is never what was meant. */
+  pointer-events: none !important;
   box-shadow:
     0 8px 24px rgba(0, 0, 0, 0.45),
     0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -285,22 +289,27 @@
 
 /* ------------------------------------------------- picture-in-picture */
 
-/* Handles for the corner. The guest paints underneath, so this layer is
-   transparent to the pointer except where there's something to grab — the
-   video keeps its own clicks. */
+/* The whole corner is the handle: every pointer that lands on it is moving
+   the corner, never talking to the page inside it. */
 .pipHandles {
   position: absolute;
   z-index: 4;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: grab;
   border-radius: 10px;
 }
 
+.pipHandles:active {
+  cursor: grabbing;
+}
+
+/* Purely a hint that the thing can be picked up — the container above is what
+   actually takes the pointer. */
 .pipGrip {
   position: absolute;
   inset: 0 0 auto 0;
   height: 20px;
-  pointer-events: auto;
-  cursor: grab;
+  pointer-events: none;
   border-radius: 10px 10px 0 0;
   background: linear-gradient(rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
   opacity: 0;
@@ -310,10 +319,6 @@
 .pipHandles:hover .pipGrip,
 .pipHandles:hover .pipSize {
   opacity: 1;
-}
-
-.pipGrip:active {
-  cursor: grabbing;
 }
 
 .pipSize {

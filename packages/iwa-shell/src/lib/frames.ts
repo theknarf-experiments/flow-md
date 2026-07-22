@@ -804,6 +804,10 @@ export function createFrame(
     if (e.targetUrl) onNewWindow?.(e.targetUrl)
   })
 
+  /** Whether the corner is showing this guest, so entering it is noticed once
+   *  rather than on every poll. */
+  let pipped = false
+
   const cf = () => el as unknown as ControlledFrame
   const call = async (fn?: () => unknown): Promise<boolean> => {
     try {
@@ -1100,6 +1104,14 @@ export function createFrame(
      *  Neither is observable from inside — no resize, no mutation, no event. */
     setPip(video, box) {
       el.classList.toggle(classes.pip, !!video)
+      // Pointer-events can't reach a guest that already has the keyboard: if
+      // you were typing in the page and then switched tabs, focus went with
+      // it, and keys would still be arriving in the corner. Dropped once, on
+      // the way in, rather than fought for every poll.
+      if (!!video !== pipped) {
+        pipped = !!video
+        if (video) el.blur()
+      }
       if (!video || video.w < 8 || video.h < 8) {
         el.style.removeProperty('clip-path')
         el.style.removeProperty('transform')

@@ -1826,20 +1826,18 @@ export function App() {
           {pipPlace && pipTab && (
             <div
               className={styles.pipHandles}
+              role="presentation"
+              title={`${pipTab.title} — drag to move, double-click to open`}
               style={{
                 left: pipPlace.x,
                 top: pipPlace.y,
                 width: pipPlace.w,
                 height: pipPlace.h,
               }}
+              onPointerDown={dragPip('move')}
+              onDoubleClick={() => setActiveBySpace((m) => ({ ...m, [pipTab.space]: pipTab.id }))}
             >
-              <div
-                className={styles.pipGrip}
-                role="presentation"
-                title={`${pipTab.title} — drag to move`}
-                onPointerDown={dragPip('move')}
-                onDoubleClick={() => setActiveBySpace((m) => ({ ...m, [pipTab.space]: pipTab.id }))}
-              />
+              <div className={styles.pipGrip} aria-hidden="true" />
               <div
                 className={styles.pipSize}
                 role="presentation"
