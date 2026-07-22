@@ -238,3 +238,26 @@
   opacity: 0.55;
   font-size: 0.76rem;
 }
+
+/* ---------------------------------------------------------- split view */
+
+/* A split is two guests visible at once, each given half the card. The gap
+   between them is the card showing through, so there's nothing to draw and
+   nothing to drag against — the divider is the absence of a pane. */
+/* width:auto matters as much as the inset does: the base rule gives every
+   guest width:100%, and for an absolutely positioned box an explicit width
+   beats `right` — so the halves drew at full width, stacked, and the split
+   looked like it hadn't happened at all. */
+.frameLeft {
+  visibility: visible !important;
+  inset: 0 calc(50% + 3px) 0 0 !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+.frameRight {
+  visibility: visible !important;
+  inset: 0 0 0 calc(50% + 3px) !important;
+  width: auto !important;
+  height: auto !important;
+}

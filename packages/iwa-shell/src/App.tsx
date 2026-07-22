@@ -282,6 +282,13 @@ export function App() {
   const [renamingProfile, setRenamingProfile] = useState<{ from: string; value: string } | null>(
     null,
   )
+  /** The tab sharing the card with the active one, per space.
+   *
+   *  Kept beside `activeBySpace` and for the same reason: which tabs you're
+   *  looking at is a property of looking, not of the document. The markdown
+   *  says what's open; the window says what's on screen. */
+  const [splitBySpace, setSplitBySpace] = useState<Record<string, string | null>>({})
+
   /** The clip ⌘L is holding, until it's filed or discarded. */
   const [capturing, setCapturing] = useState<{
     value: string
@@ -334,6 +341,13 @@ export function App() {
   const activeId = activeBySpace[spaceId] ?? spaceTabs[0]?.id ?? null
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeFrame = activeId ? frames.current.get(activeId) : undefined
+  /** The other pane, when there is one. A tab can't be split with itself, and
+   *  one that's been closed stops counting the moment its row goes. */
+  const splitId = (() => {
+    const other = splitBySpace[spaceId] ?? null
+    if (!other || other === activeId) return null
+    return tabs.some((t) => t.id === other) ? other : null
+  })()
 
   const log = useCallback((msg: string) => setLines((l) => [msg, ...l].slice(0, 200)), [])
 
@@ -613,6 +627,8 @@ export function App() {
         container,
         styles.frameActive!,
         styles.framePip!,
+        styles.frameLeft!,
+        styles.frameRight!,
         () => void sync(id),
         // A link opened in a new tab is a link written into the space, the
         // same as any other — so ⌘-click adds a line to the file, indented
@@ -682,13 +698,16 @@ export function App() {
   // is the same live frame with different geometry.
   useEffect(() => {
     for (const [id, frame] of frames.current) {
-      const active = id === activeId
+      const shown = id === activeId || id === splitId
       const sound = sounds[id]
-      frame.setActive(active)
-      frame.setPip(!active && !!sound?.video && !!sound.playing)
+      frame.setActive(shown)
+      frame.setSide(splitId ? (id === activeId ? 'left' : id === splitId ? 'right' : null) : null)
+      // A pane already on screen doesn't need a picture-in-picture of itself.
+      frame.setPip(!shown && !!sound?.video && !!sound.playing)
     }
     if (activeId !== null) void sync(activeId)
-  }, [activeId, tabs.length, sync, sounds])
+    if (splitId !== null) void sync(splitId)
+  }, [activeId, splitId, tabs.length, sync, sounds])
 
   const go = useCallback(
     (value: string, asNewTab: boolean) => {
@@ -725,6 +744,25 @@ export function App() {
       if (next) setActiveBySpace((m) => ({ ...m, [spaceId]: next.id }))
     },
     [tabOrder, spaceId, activeId],
+  )
+
+  /** Put a tab in the other half of the card, or take it out again.
+   *
+   *  Splitting with nothing chosen picks the next tab along, because the
+   *  common case is comparing a thing with the thing beside it. */
+  const toggleSplit = useCallback(
+    (id?: string) => {
+      setSplitBySpace((m) => {
+        const current = m[spaceId] ?? null
+        if (id) return { ...m, [spaceId]: current === id ? null : id }
+        if (current) return { ...m, [spaceId]: null }
+        const order = tabOrder()
+        const at = order.findIndex((t) => t.id === activeId)
+        const next = order[at + 1] ?? order[at - 1]
+        return next ? { ...m, [spaceId]: next.id } : m
+      })
+    },
+    [spaceId, tabOrder, activeId],
   )
 
   /** ⌘1…⌘9 — and ⌘9 is the last tab, not the ninth, the way browsers do it. */
@@ -826,6 +864,7 @@ export function App() {
   // ⌘R belongs to the page, not the window — reloading the shell would throw
   // away every guest to refresh one of them. preventDefault (on by default)
   // is what stops the window from reloading underneath us.
+  bindKey(keymap, 'split', 'Mod+\\', () => toggleSplit(), tabs_('Split the view'))
   bindKey(keymap, 'reload-tab', 'Mod+R', () => activeFrame?.reload(), tabs_('Reload the tab'))
   bindKey(keymap, 'next-tab', 'Control+J', () => stepTab(1), tabs_('Next tab'))
   bindKey(keymap, 'prev-tab', 'Control+K', () => stepTab(-1), tabs_('Previous tab'))
@@ -1192,7 +1231,7 @@ export function App() {
       label={tab.title}
       icon={runtime[tab.id]?.icon ?? null}
       title={tab.url}
-      active={tab.id === activeInSpace}
+      active={tab.id === activeInSpace || tab.id === splitId}
       onContextMenu={(e) => tabMenu.open(e, tab.id)}
       editing={renamingTab === tab.id}
       onRename={(title) => renameTab(tab.id, title)}
@@ -1435,6 +1474,14 @@ export function App() {
             }}
           >
             Rename tab
+          </ContextMenuItem>
+          <ContextMenuItem
+            onSelect={() => {
+              toggleSplit(tabMenu.anchor?.target ?? '')
+              tabMenu.close()
+            }}
+          >
+            {splitId && splitId === tabMenu.anchor?.target ? 'Leave split' : 'Open in split'}
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {

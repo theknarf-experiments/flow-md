@@ -98,6 +98,9 @@ export interface FrameHandle {
    *  of ways. */
   followRel(direction: 'next' | 'prev'): void
   setActive(active: boolean): void
+  /** Which half of the card this guest fills, or null for the whole of it.
+   *  Two visible guests is the only thing a split view is. */
+  setSide(side: 'left' | 'right' | null): void
   /** Keep a playing video on screen after its tab stops being the active one,
    *  in a corner rather than filling the card. */
   setPip(pip: boolean): void
@@ -735,6 +738,8 @@ export function createFrame(
   container: HTMLElement,
   activeClass: string,
   pipClass: string,
+  leftClass: string,
+  rightClass: string,
   onLifecycle: () => void,
   /** The guest asked for a window of its own — ⌘-click, target=_blank,
    *  window.open. Given the url it wanted; the request itself is discarded. */
@@ -1037,6 +1042,10 @@ export function createFrame(
     },
     setActive(active) {
       el.classList.toggle(activeClass, active)
+    },
+    setSide(side) {
+      el.classList.toggle(leftClass, side === 'left')
+      el.classList.toggle(rightClass, side === 'right')
     },
     setPip(pip) {
       el.classList.toggle(pipClass, pip)
