@@ -96,7 +96,11 @@ describe('Vault lineage: writable columns', () => {
     expect(r.writable).toEqual(['t'])
   })
 
-  it('does not unfold heads defined by several rules', () => {
+  it('unfolds heads defined by several rules', () => {
+    // Lineage used to stop here: with two rules it could not tell which branch
+    // derived a row, so the whole column read as read-only. Running the rules
+    // backwards does not have to tell in advance — each row is traced through
+    // whichever body actually produced it.
     const vault = vaultWith(
       md(
         '```datalog',
@@ -104,12 +108,26 @@ describe('Vault lineage: writable columns', () => {
         'Item(p, t) :- Heading(p, _, t, _).',
         '```',
         '',
+        '# A heading',
+        '',
         '- [ ] something',
       ),
     )
     const r = vault.runQuery('Item(p, t)')
     expect(r.error).toBeNull()
-    expect(r.writable).toEqual([])
+    expect(r.writable).toEqual(['t'])
+
+    // And each row lands on its own source: the heading's text node and the
+    // task's paragraph, which are different nodes of the same relation.
+    const heading = r.rows.find((row) => row[1] === 'A heading')!
+    const task = r.rows.find((row) => row[1] === 'something')!
+    const a = vault.resolveUpdate('Item(p, t)', heading, 't', 'Renamed')
+    const b = vault.resolveUpdate('Item(p, t)', task, 't', 'something else')
+    expect(a.rel).toBe('MdNodeText')
+    expect(b.rel).toBe('MdNodeText')
+    expect(a.oldFact.row).not.toEqual(b.oldFact.row)
+    expect(a.newFact.row[2]).toBe('Renamed')
+    expect(b.newFact.row[2]).toBe('something else')
   })
 })
 

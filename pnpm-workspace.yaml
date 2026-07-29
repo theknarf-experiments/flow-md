@@ -1,6 +1,13 @@
 packages:
   - 'packages/*'
-  - 'vendor/flow-ts/packages/*'
+  # flow-ts: only the packages we consume, plus what they depend on.
+  # `example-web` is a demo site on React 18, and pulling it in puts a second
+  # @types/react in the tree — which is what TanStack Router's `Link` picks up,
+  # so the demo fails to typecheck here and nowhere else. `@flow-ts/react` is
+  # unused and brings the same React types with it.
+  - 'vendor/flow-ts/packages/flow-ts'
+  - 'vendor/flow-ts/packages/parsing'
+  - 'vendor/flow-ts/packages/db-ivm'
   # modular-svg: only the library packages — its docs site and parity-test
   # package would drag Vite 8 / Playwright / bluefish-js into our install.
   - 'vendor/modular-svg/packages/modular-svg-core'

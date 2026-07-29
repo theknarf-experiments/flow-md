@@ -1,29 +1,29 @@
-// Lineage analysis: trace a query-result column back to the EDB fact it came
-// from — the view-update problem, restricted to the unambiguous cases.
+// Tracing a query-result column back to the fact it came from — the
+// view-update problem, restricted to the cases with one answer.
 //
-// A result column is writable iff its variable appears at exactly one
-// position of one positive EDB atom reachable from the query body, and the
-// owning plugin declares that (relation, attribute) pair writable. "Reachable"
-// includes unfolding IDB atoms whose relation is defined by exactly one
-// non-recursive rule: `Open(p, t) :- Task(p, "open", t, _).` makes columns of
-// an `Open(p, t)` query writable through the underlying Task atom. Heads with
-// several rules (ambiguous which branch derived a row), aggregation/arithmetic
-// head args, and atoms under negation stop the trace — those columns simply
-// report as read-only.
+// This used to walk the rule bodies itself: a column was writable iff its
+// variable appeared at exactly one position of one positive EDB atom,
+// unfolding IDBs defined by a single non-recursive rule, and resolving an edit
+// meant substituting the row's values back into the traced atom and solving
+// for whatever the row could not pin. Four hundred lines of it, and the
+// unfolding stopped at multi-rule heads, aggregation, arithmetic and negation.
 //
-// Resolving an edit substitutes the row's values into the traced atom to
-// reconstruct the source fact. Positions the row can't pin directly are
-// solved for: an atom that already matches exactly one fact pins the
-// variables it shares with the others, and that repeats until nothing new is
-// learned. A `Task(path, status, text, line)` row names no node, but its line
-// pins the list item, the item pins its paragraph, and the paragraph pins the
-// text to rewrite. Placeholders (`_`) stay anonymous — two of them are not
-// the same thing — and anything still unpinned must match exactly one fact.
+// flow-ts compiles the same question into Datalog now. A query already reaches
+// the engine as `Q<hash>(vars) :- <body>.`, so it is a relation like any other,
+// and `compileShadow` emits rules that run it backwards — `Upd_MdNodeText(...)
+// :- Upd_Q(...), <the body, replayed>.` Asking which column is writable is
+// reading which update rules were emitted; resolving an edit is seeding one
+// and reading what comes out, verified by re-running the program forwards.
+//
+// What stays here is the part flow-ts cannot know. A plugin declares which
+// attributes it can serialise — a task's text can be rewritten, the line it
+// sits on cannot — and that is a fact about the markdown writer rather than
+// about the rules. The engine names where a column lands (`writeTargets`) and
+// this decides whether that is allowed.
 
 import type { Cell, DataType, Fact } from '@flow-md/plugin-api'
 import { parseProgram } from '@flow-ts/parsing'
-import type { FLRule } from 'flow-ts'
-import type { SchemaView } from './schema.js'
+import type { BackwardRequest, Change, RequestOptions, Resolution } from 'flow-ts'
 
 export interface ResolvedUpdate {
   rel: string
@@ -60,369 +60,55 @@ export function queryVars(source: string): string[] {
   return vars
 }
 
-// --- atom expansion ---------------------------------------------------------
-
-/** An atom argument after substitution into query scope: a query variable, a
- *  pinned constant, or an unknown (placeholder / projected-away rule var). */
-type LArg =
-  | { kind: 'Var'; name: string }
-  | { kind: 'Cell'; cell: Cell }
-  | { kind: 'Unknown' }
-
-interface LAtom {
-  rel: string
-  args: LArg[]
-}
-
-type ParsedArg =
-  | { kind: 'Var'; name: string }
-  | { kind: 'Const'; value: { kind: string; value: Cell } }
-  | { kind: 'Placeholder' }
-
-function toLArg(arg: ParsedArg): LArg {
-  if (arg.kind === 'Const') return { kind: 'Cell', cell: arg.value.value }
-  if (arg.kind === 'Var') return { kind: 'Var', name: arg.name }
-  return { kind: 'Unknown' }
-}
-
-/** All positive EDB atoms reachable from the query body, with their args
- *  rewritten into query scope. IDB atoms unfold through single-rule,
- *  non-recursive definitions; anything else is dropped from the trace. */
-function expandAtoms(
-  source: string,
-  schema: SchemaView,
-  rules: readonly FLRule[],
-): LAtom[] {
-  const byHead = new Map<string, FLRule[]>()
-  for (const r of rules) {
-    const list = byHead.get(r.head.name) ?? []
-    list.push(r)
-    byHead.set(r.head.name, list)
-  }
-
-  const out: LAtom[] = []
-  // Rule-local variables get a name unique to the unfolding that introduced
-  // them. They aren't query columns, so nothing can pin them directly — but
-  // keeping them *linked* is what lets a value found for one atom pin the
-  // others that share them. `Task(p, s, t, l)` unfolds to atoms joined on the
-  // node id; erase the id and the text atom is left matching on text alone.
-  let scope = 0
-  const expand = (rel: string, args: LArg[], stack: Set<string>): void => {
-    if (schema.names.has(rel)) {
-      out.push({ rel, args })
-      return
-    }
-    const defs = byHead.get(rel) ?? []
-    if (defs.length !== 1 || stack.has(rel)) return
-    const rule = defs[0]!
-    // Only plain, distinct head variables give an invertible substitution.
-    const headVars: string[] = []
-    for (const ha of rule.head.headArguments) {
-      if (ha.kind !== 'Var' || headVars.includes(ha.name)) return
-      headVars.push(ha.name)
-    }
-    if (headVars.length !== args.length) return
-    const subst = new Map(headVars.map((v, i) => [v, args[i]!]))
-    const local = new Map<string, LArg>()
-    const prefix = `${rel}#${scope++}:`
-    const inScope = (a: ParsedArg): LArg => {
-      if (a.kind === 'Const') return { kind: 'Cell', cell: a.value.value }
-      // A placeholder is anonymous by definition: two `_`s are not the same
-      // thing, so they stay unknown.
-      if (a.kind !== 'Var') return { kind: 'Unknown' }
-      const fromHead = subst.get(a.name)
-      if (fromHead) return fromHead
-      let v = local.get(a.name)
-      if (!v) {
-        v = { kind: 'Var', name: prefix + a.name }
-        local.set(a.name, v)
-      }
-      return v
-    }
-    stack.add(rel)
-    for (const p of rule.rhs) {
-      if (p.kind !== 'Atom') continue
-      expand(p.atom.name, (p.atom.args as ParsedArg[]).map(inScope), stack)
-    }
-    stack.delete(rel)
-  }
-
+/** How often each variable appears across the body's atoms.
+ *
+ *  A variable used twice is joined on, and a rewrite would have to change both
+ *  positions at once. The engine simply emits no update rule for it; this is
+ *  what lets the refusal say which of the two reasons it was. */
+export function varOccurrences(source: string): Map<string, number> {
+  const counts = new Map<string, number>()
   for (const p of parseBody(source)) {
     if (p.kind !== 'Atom') continue
-    expand(
-      p.atom.name,
-      (p.atom.args as ParsedArg[]).map((a) => toLArg(a)),
-      new Set(),
-    )
-  }
-  return out
-}
-
-interface Occurrence {
-  atom: LAtom
-  pos: number
-}
-
-/** Every (atom, position) where each query variable lands in the expanded
- *  EDB atoms. */
-function occurrences(atoms: LAtom[]): Map<string, Occurrence[]> {
-  const occ = new Map<string, Occurrence[]>()
-  for (const atom of atoms) {
-    atom.args.forEach((arg, pos) => {
-      if (arg.kind !== 'Var') return
-      const list = occ.get(arg.name) ?? []
-      list.push({ atom, pos })
-      occ.set(arg.name, list)
-    })
-  }
-  return occ
-}
-
-// --- public API ---------------------------------------------------------------
-
-/** Result columns of `source` that an edit can be traced through. The flag is
- *  optimistic about unknowns: a write may still fail at resolve time if the
- *  partial row matches zero or several current facts. */
-export function writableColumns(
-  source: string,
-  schema: SchemaView,
-  isWritable: (rel: string, attr: string) => boolean,
-  rules: readonly FLRule[] = [],
-): string[] {
-  const out: string[] = []
-  for (const [name, occ] of occurrences(expandAtoms(source, schema, rules))) {
-    if (occ.length !== 1) continue
-    const { atom, pos } = occ[0]!
-    const attr = attrAt(schema, atom, pos)
-    if (attr && isWritable(atom.rel, attr[0])) out.push(name)
-  }
-  return out
-}
-
-function attrAt(
-  schema: SchemaView,
-  atom: LAtom,
-  pos: number,
-): [string, DataType] | undefined {
-  const def = schema.defs.find((d) => d.name === atom.rel)
-  if (!def || def.attrs.length !== atom.args.length) return undefined
-  return def.attrs[pos]
-}
-
-export function resolveUpdate(opts: {
-  source: string
-  columns: string[]
-  oldRow: Cell[]
-  column: string
-  value: Cell
-  schema: SchemaView
-  rules?: readonly FLRule[]
-  isWritable: (rel: string, attr: string) => boolean
-  /** Current facts of `rel` matching the non-null cells of `partial`. */
-  findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][]
-}): ResolvedUpdate {
-  const { source, columns, oldRow, column, value, schema } = opts
-  if (columns.length !== oldRow.length) {
-    throw new Error(
-      `row has ${oldRow.length} cells but the query has ${columns.length} columns`,
-    )
-  }
-  const colIdx = new Map(columns.map((c, i) => [c, i]))
-  if (!colIdx.has(column)) {
-    throw new Error(`query has no column "${column}"`)
-  }
-
-  const atoms = expandAtoms(source, schema, opts.rules ?? [])
-  const occ = occurrences(atoms).get(column) ?? []
-  if (occ.length === 0) {
-    throw new Error(
-      `column "${column}" cannot be traced to an EDB relation`,
-    )
-  }
-  if (occ.length > 1) {
-    throw new Error(
-      `column "${column}" joins several relation positions; the write would be ambiguous`,
-    )
-  }
-  const { atom, pos } = occ[0]!
-  const attr = attrAt(schema, atom, pos)
-  if (!attr) {
-    throw new Error(
-      `atom ${atom.rel} has ${atom.args.length} args, which doesn't match its schema`,
-    )
-  }
-  const [attrName, attrType] = attr
-  if (!opts.isWritable(atom.rel, attrName)) {
-    throw new Error(`${atom.rel}.${attrName} is not writable by any plugin`)
-  }
-
-  const row = pinRow(
-    atom,
-    solveBindings(atoms, colIdx, oldRow, opts.findFacts),
-    opts.findFacts,
-  )
-  const newRow = [...row]
-  newRow[pos] = coerce(value, attrType, `${atom.rel}.${attrName}`)
-  return {
-    rel: atom.rel,
-    oldFact: { rel: atom.rel, row },
-    newFact: { rel: atom.rel, row: newRow },
-  }
-}
-
-/** What the row itself says, plus everything that follows from it.
- *
- *  Seeded with the query's own columns, then grown: any atom that already
- *  matches exactly one fact pins the variables it shares with the others.
- *  Repeat until nothing new is learned. This is what makes a view writable —
- *  the row of a `Task(path, status, text, line)` query names no node id, but
- *  the line pins the list item, the item pins its paragraph, and the
- *  paragraph pins the text that has to be rewritten. */
-function solveBindings(
-  atoms: LAtom[],
-  colIdx: Map<string, number>,
-  oldRow: Cell[],
-  findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][],
-): Map<string, Cell> {
-  const bound = new Map<string, Cell>()
-  for (const [name, i] of colIdx) {
-    const cell = oldRow[i]
-    if (cell !== undefined) bound.set(name, cell)
-  }
-
-  // What each unbound variable could still be. An atom narrows its variables
-  // to the values its matching facts actually contain, and a variable shared
-  // with another atom is narrowed by both: the text of a task matches a
-  // paragraph *and* the text node inside it, but only one of them is a
-  // paragraph, so the pair pins it. One candidate left means it's known.
-  const candidates = new Map<string, Set<Cell>>()
-  const narrow = (name: string, values: Set<Cell>): boolean => {
-    const prior = candidates.get(name)
-    const next = prior ? new Set([...values].filter((v) => prior.has(v))) : values
-    candidates.set(name, next)
-    const only = next.size === 1 ? [...next][0] : undefined
-    if (only === undefined || bound.has(name)) return false
-    bound.set(name, only)
-    return true
-  }
-
-  for (let pass = 0; pass < atoms.length + 1; pass++) {
-    let learned = false
-    for (const atom of atoms) {
-      const partial = partialRow(atom, bound)
-      const matches = findFacts(atom.rel, partial)
-      // Every atom of the body has to still hold. One that matches nothing
-      // means the row is describing a file that has moved on — and without
-      // this check a row could name a line that no longer exists and still
-      // resolve, through the atoms that happen to match.
-      if (matches.length === 0) {
-        throw new Error(`no current ${atom.rel} fact matches this row (stale result?)`)
-      }
-      if (partial.every((c) => c !== null)) continue
-      const seen = new Map<string, Set<Cell>>()
-      for (const row of matches) {
-        atom.args.forEach((arg, i) => {
-          const cell = row[i]
-          if (arg.kind !== 'Var' || bound.has(arg.name) || cell === undefined) return
-          const set = seen.get(arg.name) ?? new Set<Cell>()
-          set.add(cell)
-          seen.set(arg.name, set)
-        })
-      }
-      for (const [name, values] of seen) {
-        if (narrow(name, values)) learned = true
-      }
+    for (const arg of p.atom.args) {
+      if (arg.kind === 'Var') counts.set(arg.name, (counts.get(arg.name) ?? 0) + 1)
     }
-    if (!learned) break
   }
-  return bound
+  return counts
 }
 
-function partialRow(atom: LAtom, bound: Map<string, Cell>): Array<Cell | null> {
-  return atom.args.map((arg) => {
-    if (arg.kind === 'Cell') return arg.cell
-    if (arg.kind === 'Var') return bound.get(arg.name) ?? null
-    return null
-  })
-}
-
-/** Reconstruct the full source row of `atom`: bound variables and constants
- *  pin cells; anything left is recovered from the current facts and must
- *  match exactly one. */
-function pinRow(
-  atom: LAtom,
-  bound: Map<string, Cell>,
-  findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][],
-): Cell[] {
-  const partial = partialRow(atom, bound)
-  if (partial.every((c) => c !== null)) return partial as Cell[]
-
-  const matches = findFacts(atom.rel, partial)
-  if (matches.length === 0) {
-    throw new Error(`no current ${atom.rel} fact matches this row (stale result?)`)
-  }
-  if (matches.length > 1) {
-    throw new Error(
-      `${matches.length} ${atom.rel} facts match this row; add the missing ` +
-        'columns to the query to disambiguate',
-    )
-  }
-  return matches[0]!
-}
-
-/** Reconstruct the unique source fact a result row traces to in a relation
- *  satisfying `accepts` — the delete-path analogue of resolveUpdate. The
- *  query must reach exactly one such atom. */
-export function resolveFact(opts: {
-  source: string
+/** A query, and a way to run requests against it backwards.
+ *
+ *  Deliberately not the program and the facts. A registered query is answered
+ *  by the vault's own graph, which already holds both and costs the delta; an
+ *  ad-hoc one has a throwaway graph built for it. Which of those happened is
+ *  not this module's business — it asks, and reads what comes back. */
+export interface Traced {
+  /** The query's head relation. */
+  rel: string
   columns: string[]
-  row: Cell[]
-  /** Restrict to this relation (required when several qualify). */
-  rel?: string
-  schema: SchemaView
-  rules?: readonly FLRule[]
-  accepts: (rel: string) => boolean
-  findFacts: (rel: string, partial: Array<Cell | null>) => Cell[][]
-}): Fact {
-  const { source, columns, row, schema } = opts
-  if (columns.length !== row.length) {
-    throw new Error(
-      `row has ${row.length} cells but the query has ${columns.length} columns`,
-    )
-  }
-  // Bindings come from the whole body; the filter only chooses which atom is
-  // the target. A delete on a view row is pinned by the atoms around it just
-  // as an update is.
-  const all = expandAtoms(source, schema, opts.rules ?? [])
-  const atoms = all.filter(
-    (a) => opts.accepts(a.rel) && (!opts.rel || a.rel === opts.rel),
-  )
-  if (atoms.length === 0) {
-    throw new Error(
-      opts.rel
-        ? `the query does not reach relation "${opts.rel}"`
-        : 'the query reaches no relation that supports this operation',
-    )
-  }
-  const rels = [...new Set(atoms.map((a) => a.rel))]
-  if (rels.length > 1) {
-    throw new Error(`several atoms qualify (${rels.join(', ')}); pass "rel" to disambiguate`)
-  }
-  // Several atoms of the *same* relation is the ordinary case for a view: a
-  // task is a list item that contains a paragraph, and both are nodes. Body
-  // order decides — the subject of a rule is what it starts from, so removing
-  // a task removes the item rather than the paragraph inside it.
-  const atom = atoms[0]!
-  const colIdx = new Map(columns.map((c, i) => [c, i]))
-  const cells = pinRow(
-    atom,
-    solveBindings(all, colIdx, row, opts.findFacts),
-    opts.findFacts,
-  )
-  return { rel: atom.rel, row: cells }
+  /** Head column indices an update rule was emitted for. */
+  writable: readonly number[]
+  /** Per writable column, the source positions it ultimately rewrites. */
+  targets: Record<number, ReadonlyArray<{ rel: string; column: number }>>
+  resolve(request: BackwardRequest, options?: RequestOptions): Resolution
 }
 
-function coerce(value: Cell, type: DataType, what: string): Cell {
+/** Attribute names of a source relation, for the plugin policy and the
+ *  messages. */
+export type AttrsOf = (rel: string) => readonly string[] | undefined
+
+/** Declared type of a source relation's column, when the schema has one. */
+export type TypeOf = (rel: string, column: number) => DataType | undefined
+
+/** A cell as the target attribute's type, or a complaint.
+ *
+ *  The engine validates a request against the *view's* inferred types and will
+ *  refuse a mistyped row; this is one step further in, coercing what the wire
+ *  delivered to what the source attribute declares. JSON has one number type
+ *  and no notion of a string that looks numeric, so `42` into a text column is
+ *  a value to convert rather than a request to reject. */
+function coerce(value: Cell, type: DataType | undefined, what: string): Cell {
+  if (type === undefined) return value
   if (type === 'string') return String(value)
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) throw new Error(`${what} expects a number`)
@@ -430,4 +116,190 @@ function coerce(value: Cell, type: DataType, what: string): Cell {
     throw new Error(`${what} expects an integer`)
   }
   return n
+}
+
+function allowed(
+  target: { rel: string; column: number },
+  isWritable: (rel: string, attr: string) => boolean,
+  attrsOf: AttrsOf,
+): boolean {
+  const attr = attrsOf(target.rel)?.[target.column]
+  return attr !== undefined && isWritable(target.rel, attr)
+}
+
+/** Columns an edit can be written back through.
+ *
+ *  Two questions, and only the first is the engine's: which columns trace to a
+ *  single source position, and of those, which land on an attribute some
+ *  plugin will serialise. */
+export function writableColumns(
+  traced: Traced,
+  isWritable: (rel: string, attr: string) => boolean,
+  attrsOf: AttrsOf,
+): string[] {
+  const out: string[] = []
+  for (const i of traced.writable) {
+    const name = traced.columns[i]
+    if (name === undefined) continue
+    const lands = traced.targets[i]
+    // No endpoint means the column is invertible in principle but nothing was
+    // traced to a source relation — nothing for a plugin to write.
+    if (!lands || lands.length === 0) continue
+    if (lands.every((t) => allowed(t, isWritable, attrsOf))) out.push(name)
+  }
+  return out
+}
+
+/** Trace one cell edit to the source fact behind it. */
+export function resolveUpdate(opts: {
+  traced: Traced
+  oldRow: Cell[]
+  column: string
+  value: Cell
+  isWritable: (rel: string, attr: string) => boolean
+  attrsOf: AttrsOf
+  typeOf: TypeOf
+  /** How often each query variable appears in the body. A column used twice is
+   *  joined on, and that is a different refusal from one that traces nowhere. */
+  occurrences: (column: string) => number
+}): ResolvedUpdate {
+  const { traced, oldRow, column, value } = opts
+  const { columns, rel } = traced
+  if (columns.length !== oldRow.length) {
+    throw new Error(
+      `row has ${oldRow.length} cells but the query has ${columns.length} columns`,
+    )
+  }
+  const at = columns.indexOf(column)
+  if (at < 0) throw new Error(`query has no column "${column}"`)
+
+  // Policy before tracing, so "you may not write this" is not reported as
+  // "this could not be traced". The engine will happily rewrite a line number;
+  // whether the markdown writer can is a different question, and the more
+  // useful answer.
+  const lands = traced.targets[at] ?? []
+  for (const t of lands) {
+    if (allowed(t, opts.isWritable, opts.attrsOf)) continue
+    const attr = opts.attrsOf(t.rel)?.[t.column]
+    throw new Error(`${t.rel}.${attr ?? t.column} is not writable by any plugin`)
+  }
+  if (lands.length === 0 && opts.occurrences(column) > 1) {
+    // Not "nothing traces here" — the variable is joined on, so a rewrite
+    // would have to change every position at once. Worth its own message: it
+    // is the one a query author can act on, by naming the columns separately.
+    throw new Error(
+      `column "${column}" joins several relation positions; the write would be ambiguous`,
+    )
+  }
+
+  const newRow = [...oldRow]
+  // Coerced to what the *source* attribute declares, not what the view infers:
+  // the fact being written is the source's.
+  newRow[at] = lands.length === 1
+    ? coerce(value, opts.typeOf(lands[0]!.rel, lands[0]!.column), `column "${column}"`)
+    : value
+  const r = traced.resolve(
+    { rel, row: oldRow as never, newRow: newRow as never },
+    { requireUnambiguous: true, commit: false },
+  )
+  if (r.status !== 'ok') throw new Error(explain(r, column, rel))
+
+  const change = single(r.changes, column)
+  if (change.kind !== 'upd' || !change.newRow) {
+    throw new Error(`column "${column}" does not resolve to a rewrite`)
+  }
+  return {
+    rel: change.rel,
+    oldFact: { rel: change.rel, row: change.row as Cell[] },
+    newFact: { rel: change.rel, row: change.newRow as Cell[] },
+  }
+}
+
+/** Trace a whole query row to the source fact it should be removed through. */
+export function resolveFact(opts: {
+  traced: Traced
+  row: Cell[]
+  /** Restrict to this relation (required when several qualify). */
+  rel?: string
+  accepts: (rel: string) => boolean
+}): Fact {
+  const { traced, row } = opts
+  if (traced.columns.length !== row.length) {
+    throw new Error(
+      `row has ${row.length} cells but the query has ${traced.columns.length} columns`,
+    )
+  }
+  const r = traced.resolve(
+    { rel: traced.rel, row: row as never },
+    { minimize: true, commit: false },
+  )
+  if (r.status !== 'ok') throw new Error(explain(r, null, traced.rel))
+
+  // A delete fans out over every rule and picks one atom per rule, so several
+  // candidates is the ordinary case for a view — a task is a list item holding
+  // a paragraph, and both are nodes. Narrow by what the plugins will delete,
+  // then by an explicit `rel` if the caller gave one.
+  const usable = r.changes.filter(
+    (c) => c.kind === 'del' && opts.accepts(c.rel) && (!opts.rel || c.rel === opts.rel),
+  )
+  if (usable.length === 0) {
+    throw new Error(
+      opts.rel
+        ? `the query does not reach relation "${opts.rel}"`
+        : 'the query reaches no relation that supports this operation',
+    )
+  }
+  const rels = [...new Set(usable.map((c) => c.rel))]
+  if (rels.length > 1) {
+    throw new Error(`several atoms qualify (${rels.join(', ')}); pass "rel" to disambiguate`)
+  }
+  if (usable.length > 1) {
+    throw new Error(
+      `${usable.length} ${rels[0]} facts match this row; add the missing ` +
+        'columns to the query so it names one',
+    )
+  }
+  return { rel: usable[0]!.rel, row: usable[0]!.row as Cell[] }
+}
+
+function single(changes: readonly Change[], column: string): Change {
+  if (changes.length === 1) return changes[0]!
+  const rels = [...new Set(changes.map((c) => c.rel))]
+  if (rels.length > 1) {
+    throw new Error(
+      `column "${column}" joins several relation positions; the write would be ambiguous`,
+    )
+  }
+  throw new Error(
+    `${changes.length} ${rels[0]} facts match this row; add the missing ` +
+      'columns to the query so it names one',
+  )
+}
+
+/** Turn a `Resolution` into the message these callers expect.
+ *
+ *  The engine distinguishes more cases than the HTTP surface does, and the
+ *  wording matters: an edit reaching two relations is the join ambiguity,
+ *  which is the one a query author can fix by naming more columns. */
+function explain(r: Resolution, column: string | null, rel: string): string {
+  if (r.status === 'ambiguous') {
+    const rels = [...new Set(r.candidates.map((c) => c.rel))]
+    if (column && rels.length > 1) {
+      return `column "${column}" joins several relation positions; the write would be ambiguous`
+    }
+    return (
+      `${r.candidates.length} ${rels.join('/')} facts match this row; add the missing ` +
+      'columns to the query so it names one'
+    )
+  }
+  if (r.status === 'unsatisfied') return r.reason
+  if (r.status === 'refused' && /not derived from the current facts/.test(r.reason)) {
+    // The row the client is holding is gone — a stale result it can retry,
+    // rather than something it asked for wrongly.
+    return 'no current fact matches this row (stale result?)'
+  }
+  const why = r.status === 'refused' ? r.reason : ''
+  return column
+    ? `column "${column}" cannot be traced to an EDB relation${why ? ` — ${why}` : ''}`
+    : `no fact behind this row of ${rel} can be written${why ? ` — ${why}` : ''}`
 }

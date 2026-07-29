@@ -29,14 +29,23 @@ import type {
   QueryBlock,
 } from '@flow-md/plugin-api'
 import { parseProgram } from '@flow-ts/parsing'
-import { type ProgramSession, openSession } from 'flow-ts'
+import {
+  type BackwardSession,
+  type ProgramSession,
+  compileShadow,
+  openBackwardSession,
+  openSession,
+  resolveBackward,
+} from 'flow-ts'
 import { createHash } from 'node:crypto'
 import {
   type ResolvedUpdate,
+  type Traced,
   queryVars,
   resolveFact,
   resolveUpdate,
   stripBody,
+  varOccurrences,
   writableColumns,
 } from './lineage.js'
 import { PluginRegistry } from './registry.js'
@@ -66,6 +75,11 @@ interface QueryEntry {
   columns: string[]
   writable: string[]
   counts: Map<string, { row: Cell[]; mult: number }>
+  /** Head column indices an update rule was emitted for, and where each of
+   *  them lands. Computed once per rebuild, since it depends on the rules and
+   *  not on the rows. */
+  writableCols: number[]
+  targets: Record<number, ReadonlyArray<{ rel: string; column: number }>>
 }
 
 interface ParsedFile {
@@ -111,8 +125,13 @@ export class Vault {
   /** Folder paths (incl. empty ones) — the source of `Folder(path)` facts;
    *  fed by the watcher and kept in sync after folder mutations. */
   private readonly folders = new Set<string>()
-  private session: ProgramSession | null = null
+  private session: BackwardSession | null = null
   private programDirty = true
+  /** Whether the session carries shadow rules. False until someone writes back
+   *  through a query — most vaults are read: opened, browsed, never edited
+   *  through a rendered result — and maintaining the backward direction for
+   *  them is about twice the cost of standing the graph up, for nothing. */
+  private wantsBackward = false
   private pending: Array<{ rel: string; row: Cell[]; diff: number }> = []
   /** Live query relations of the current session → their result accumulator. */
   private relToQuery = new Map<string, QueryEntry>()
@@ -380,16 +399,58 @@ export class Vault {
     try {
       const { programText, queries } = this.assemble()
       const program = parseProgram(programText)
-      const session = openSession(program, this.options, (rel, row, mult) => {
-        const e = this.relToQuery.get(rel)
-        if (!e) return
-        const cells = row as Cell[]
-        const key = cells.join(SEP)
-        const cur = e.counts.get(key)
-        const m = (cur?.mult ?? 0) + mult
-        if (m === 0) e.counts.delete(key)
-        else e.counts.set(key, { row: [...cells], mult: m })
-      })
+      // Which columns can be written back, for every query at once. The
+      // assembled program already carries each query as a head, so one
+      // compilation answers for all of them — and it has to happen here rather
+      // than in `assemble`, which builds the text and has no parsed program to
+      // ask.
+      if (queries.length > 0) {
+        const shadow = compileShadow(program, { views: queries.map((q) => q.id) })
+        for (const q of queries) {
+          q.writableCols = shadow.writableColumns[q.id] ?? []
+          q.targets = shadow.writeTargets[q.id] ?? {}
+          q.writable = q.writableCols.flatMap((i) => {
+            const lands = q.targets[i]
+            if (!lands || lands.length === 0) return []
+            if (!lands.every((t) => this.writableTarget(t))) return []
+            return q.columns[i] ? [q.columns[i]!] : []
+          })
+        }
+      }
+      // One graph over the program *and* its backward direction, rather than a
+      // forward graph plus a fresh one built per edit. An edit used to cost the
+      // whole vault — every fact loaded into a throwaway graph — which is
+      // linear in a thing that only grows. Here it costs the delta.
+      //
+      // The views are the queries, which is the only thing anyone edits: a
+      // result cell in a rendered query block. Rules are not editable through
+      // this path and neither are raw facts, so nothing else needs a channel.
+      const session = openBackwardSession(
+        program,
+        {
+          ...this.options,
+          // Empty until the first write-back, which rebuilds with the queries
+          // in. Writability above is a separate compilation and does not need
+          // the graph, so a read-only vault still reports which cells are
+          // editable — it just has not built the machinery to edit them yet.
+          views: this.wantsBackward ? queries.map((q) => q.id) : [],
+          // Rewrites and deletes only. An insert names its relation directly
+          // (`resolveInsert`) rather than going through a query, so the `ins`
+          // channel would be rules nothing ever seeds.
+          channels: ['upd', 'del'],
+          parse: (src) => parseProgram(src),
+        },
+        (rel, row, mult) => {
+          const e = this.relToQuery.get(rel)
+          if (!e) return
+          const cells = row as Cell[]
+          const key = cells.join(SEP)
+          const cur = e.counts.get(key)
+          const m = (cur?.mult ?? 0) + mult
+          if (m === 0) e.counts.delete(key)
+          else e.counts.set(key, { row: [...cells], mult: m })
+        },
+      )
       for (const e of queries) this.relToQuery.set(e.id, e)
       this.feedAllFacts(session)
       session.advance()
@@ -432,7 +493,9 @@ export class Vault {
           line: q.line,
           source: q.source,
           columns,
-          writable: writableColumns(q.source, this.schema, this.isWritable, userRules),
+          writable: [],
+          writableCols: [],
+          targets: {},
           counts: new Map(),
         })
         queryTexts.push(`${id}(${headArgs}) :- ${stripBody(q.source)}.`)
@@ -500,7 +563,7 @@ export class Vault {
       return {
         error: null,
         columns,
-        writable: writableColumns(source, this.schema, this.isWritable, rules),
+        writable: writableColumns(this.tracedFor(source), this.isWritable, this.attrsOf),
         rows,
       }
     } catch (err) {
@@ -526,15 +589,14 @@ export class Vault {
     value: Cell,
   ): ResolvedUpdate & { path: string } {
     const resolved = resolveUpdate({
-      source,
-      columns: queryVars(source),
+      traced: this.tracedFor(source),
       oldRow,
       column,
       value,
-      schema: this.schema,
-      rules: this.collectUserRules().rules,
       isWritable: this.isWritable,
-      findFacts: this.findFacts,
+      attrsOf: this.attrsOf,
+      typeOf: this.typeOf,
+      occurrences: (name) => varOccurrences(source).get(name) ?? 0,
     })
     return { ...resolved, path: this.locate(resolved.oldFact) }
   }
@@ -550,14 +612,10 @@ export class Vault {
     let fact: Fact
     if (input.source) {
       fact = resolveFact({
-        source: input.source,
-        columns: queryVars(input.source),
+        traced: this.tracedFor(input.source),
         row: input.row,
         ...(input.rel !== undefined ? { rel: input.rel } : {}),
-        schema: this.schema,
-        rules: this.collectUserRules().rules,
         accepts: (rel) => this.deletable.has(rel),
-        findFacts: this.findFacts,
       })
     } else {
       if (!input.rel) throw new Error('delete needs a relation (rel) or a query (q/id)')
@@ -726,7 +784,112 @@ export class Vault {
     return { ruleText, headNames, rules }
   }
 
-  private feedAllFacts(session: ProgramSession): void {
+  /** Every EDB fact currently in the vault, keyed by relation.
+   *
+   *  The backward direction resolves against the same facts the session was
+   *  built from, so this is assembled the same way `feedAllFacts` feeds it. */
+  private factsSnapshot(): Record<string, Cell[][]> {
+    const facts: Record<string, Cell[][]> = {}
+    for (const file of this.files.values()) {
+      for (const f of file.facts) (facts[f.rel] ??= []).push(f.row)
+    }
+    for (const p of this.folders) (facts.Folder ??= []).push([p])
+    return facts
+  }
+
+  /** Whether a plugin will serialise the attribute a column writes to. The
+   *  engine says where an edit lands; this says whether it is allowed to. */
+  private readonly writableTarget = (t: { rel: string; column: number }): boolean => {
+    const attr = this.attrsOf(t.rel)?.[t.column]
+    return attr !== undefined && this.isWritable(t.rel, attr)
+  }
+
+  /** Declared type of a source relation's column, when the schema knows it. */
+  private readonly typeOf = (rel: string, column: number) =>
+    this.schema.defs.find((d) => d.name === rel)?.attrs[column]?.[1]
+
+  /** Attribute names of a relation, whether it is declared by a plugin schema
+   *  or defined by that plugin's rules. */
+  private readonly attrsOf = (rel: string): readonly string[] | undefined =>
+    this.schema.defs.find((d) => d.name === rel)?.attrs.map(([n]) => n) ??
+    this.derivedAttrs.get(rel)
+
+  /** A registered query, answered by the vault's own graph.
+   *
+   *  The session already holds the program and every fact, and already
+   *  maintains the shadow rules for this view, so a request costs the delta
+   *  rather than a rebuild. Everything anyone actually edits comes through
+   *  here: a cell of a rendered query block. */
+  private tracedQuery(entry: QueryEntry): Traced | null {
+    if (!this.wantsBackward) {
+      // First write of this vault's life. Rebuild with the backward direction
+      // in, and pay for it once rather than on every startup.
+      this.wantsBackward = true
+      this.rebuild()
+      const rebuilt = this.relToQuery.get(entry.id)
+      if (rebuilt) entry = rebuilt
+    }
+    const session = this.session
+    if (!session) return null
+    return {
+      rel: entry.id,
+      columns: entry.columns,
+      writable: entry.writableCols,
+      targets: entry.targets,
+      resolve: (request, options) => session.resolve(request, options),
+    }
+  }
+
+  /** An ad-hoc query body, answered by a graph built for the occasion.
+   *
+   *  Wrapped as a relation of its own — the same shape `runQuery` builds, and
+   *  the same shape a registered query already has. This is the slow path and
+   *  deliberately so: it exists for a body nobody has registered, where there
+   *  is nothing standing to ask. */
+  private trace(source: string): Traced {
+    const { ruleText, headNames } = this.collectUserRules()
+    const vars = queryVars(source)
+    const rel = 'FlowMdTraced'
+    headNames.add(rel)
+    const idbSection = `.printsize\n${[...headNames].map((n) => `.decl ${n}()`).join('\n')}`
+    const allRules = [
+      ruleText,
+      `${rel}(${vars.length ? vars.join(', ') : '1'}) :- ${stripBody(source)}.`,
+    ]
+      .filter((t) => t.trim())
+      .join('\n')
+    const program = parseProgram(
+      `${edbSectionText(this.schema)}\n${idbSection}\n.rule\n${allRules}`,
+    )
+    const shadow = compileShadow(program, { views: [rel] })
+    const facts = this.factsSnapshot()
+    return {
+      rel,
+      columns: vars.length ? vars : ['exists'],
+      writable: shadow.writableColumns[rel] ?? [],
+      targets: shadow.writeTargets[rel] ?? {},
+      resolve: (request, options) =>
+        resolveBackward(program, facts as never, request, {
+          parse: (src) => parseProgram(src),
+          views: [rel],
+          ...options,
+        }),
+    }
+  }
+
+  /** However this query is best answered — through the standing graph if it is
+   *  one the vault knows, otherwise through a throwaway. */
+  private tracedFor(source: string): Traced {
+    const body = stripBody(source)
+    for (const entry of this.relToQuery.values()) {
+      if (stripBody(entry.source) !== body) continue
+      const traced = this.tracedQuery(entry)
+      if (traced) return traced
+    }
+    return this.trace(source)
+  }
+
+  private feedAllFacts(session: Pick<ProgramSession, 'update'>): void {
     for (const file of this.files.values()) {
       for (const f of file.facts) session.update(f.rel, f.row, 1)
     }
